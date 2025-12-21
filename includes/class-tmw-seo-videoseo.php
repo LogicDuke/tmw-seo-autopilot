@@ -4,18 +4,19 @@ if (!defined('ABSPATH')) exit;
 
 class VideoSEO {
     public static function boot() {
-        add_action('save_post', [__CLASS__, 'on_save'], 35, 3);
+        add_action('transition_post_status', [__CLASS__, 'on_transition'], 35, 3);
     }
 
-    public static function on_save($post_id, $post, $update) {
+    public static function on_transition($new_status, $old_status, $post) {
         if (!$post instanceof \WP_Post) {
             return;
         }
 
-        if ($post->post_status !== 'publish') {
+        if ($new_status !== 'publish' || $old_status === 'publish') {
             return;
         }
 
+        $post_id = $post->ID;
         if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
             return;
         }
@@ -24,12 +25,19 @@ class VideoSEO {
             return;
         }
 
+        static $processing = [];
+        if (!empty($processing[$post_id])) {
+            return;
+        }
+
         $existing_focus = get_post_meta($post_id, 'rank_math_focus_keyword', true);
         if (!empty($existing_focus)) {
             return;
         }
 
+        $processing[$post_id] = true;
         self::generate_for_video($post_id, $post);
+        unset($processing[$post_id]);
     }
 
     protected static function generate_for_video(int $post_id, \WP_Post $post): void {
@@ -58,10 +66,6 @@ class VideoSEO {
                 'highlights_count'  => 7,
             ]
         );
-
-        Core::maybe_update_video_title( $post, $rm['focus'], $model_name );
-
-        Core::maybe_update_video_slug( $post, $rm['focus'] );
 
         Core::update_rankmath_meta( $post_id, $rm, true );
 
