@@ -9,6 +9,50 @@ class Core {
     const POST_TYPE = 'model';
     const MODEL_PT = 'model';
     const VIDEO_PT = 'video';
+    const DEBUG_GUARD = 'TMW_SEO_UPLOAD_DEBUG';
+
+    public static function should_skip_request(?\WP_Post $post, string $context, bool $require_publish = true): bool {
+        $reasons = [];
+
+        if (wp_doing_ajax()) {
+            $reasons[] = 'ajax';
+        }
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            $reasons[] = 'rest';
+        }
+        if (defined('DOING_CRON') && DOING_CRON) {
+            $reasons[] = 'cron';
+        }
+        if (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST) {
+            $reasons[] = 'xmlrpc';
+        }
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            $reasons[] = 'autosave_const';
+        }
+
+        if ($post instanceof \WP_Post) {
+            if (wp_is_post_autosave($post->ID)) {
+                $reasons[] = 'autosave';
+            }
+            if (wp_is_post_revision($post->ID)) {
+                $reasons[] = 'revision';
+            }
+            if ($require_publish && $post->post_status !== 'publish') {
+                $reasons[] = 'status:' . $post->post_status;
+            }
+        }
+
+        if (!$reasons) {
+            return false;
+        }
+
+        if (defined(self::DEBUG_GUARD) && constant(self::DEBUG_GUARD)) {
+            $post_id = $post instanceof \WP_Post ? $post->ID : 0;
+            error_log(sprintf('%s [GUARD] %s post#%d skipped (%s)', self::TAG, $context, $post_id, implode(', ', $reasons)));
+        }
+
+        return true;
+    }
 
     public static function video_post_types(): array {
         $opt = get_option('tmwseo_video_pts');
