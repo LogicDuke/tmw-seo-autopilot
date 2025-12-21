@@ -16,11 +16,11 @@ class VideoSEO {
             return;
         }
 
-        $post_id = $post->ID;
-        if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
+        if (Core::should_skip_request($post, 'videoseo_transition')) {
             return;
         }
 
+        $post_id = $post->ID;
         if (!in_array($post->post_type, Core::video_post_types(), true)) {
             return;
         }
