@@ -11,6 +11,11 @@ class VideoTemplate {
         $site   = $c['site'] ?: 'Live Cam Stream';
         $focus  = trim($c['focus'] ?? Core::video_focus($name));
         $focus  = $focus !== '' ? $focus : $name;
+        $manual_title = trim((string) ($c['title'] ?? ''));
+        if ($manual_title === '') {
+            $manual_title = $focus;
+        }
+        $manual_title = Core::sanitize_sfw_text($manual_title, $focus);
 
         $fallback_extras = [
             'live cam energy',
@@ -22,24 +27,18 @@ class VideoTemplate {
         $extras     = array_slice(array_merge($raw_extras, $fallback_extras), 0, 4);
         $keywords   = array_merge([$focus], $extras);
 
-        $number        = 5;
-        $sentiment     = 'Calm';
-        $power_word    = 'Prime';
-        $title_suffix  = sprintf(' — %d %s %s Highlights', $number, $sentiment, $power_word);
-        $title         = $focus . $title_suffix;
+        $title         = $manual_title;
         if (mb_strlen($title) > 60) {
-            $available = max(10, 60 - mb_strlen($title_suffix));
-            $trimmed   = rtrim(mb_substr($focus, 0, $available));
-            $title     = $trimmed . $title_suffix;
+            $title = rtrim(mb_substr($title, 0, 60));
         }
 
         $meta = sprintf(
-            '%s shares mellow tales as %s, %s, %s, and %s guide a cozy flow.',
+            'Watch %s webcam highlights. %s — a calm recap with %s, %s, and %s.',
             $focus,
+            $manual_title,
             $extras[0],
             $extras[1],
-            $extras[2],
-            $extras[3]
+            $extras[2]
         );
         if (mb_strlen($meta) > 160) {
             $meta = mb_substr($meta, 0, 157) . '...';
@@ -48,12 +47,12 @@ class VideoTemplate {
         $blocks = [];
         $intro_one = sprintf(
             '%s opens the stream with a mellow greeting, describing how the evening will follow a relaxed curve so viewers can ease into each scene with steady breathing. Conversations about %s float through the room like a warm breeze, hinting at the kind of playful energy that still feels mindful and respectful. Observers are told to settle into their seats, feel the cushions under their palms, and notice how the host uses long pauses to encourage a calm rhythm while promising gentle surprises. She invites watchers to imagine soft velvet drapes swaying at the edge of the frame, helping them picture themselves inside the story before the first highlight begins.',
-            $focus,
+            $manual_title,
             $extras[0]
         );
         $intro_two = sprintf(
             'Guides explain that %s keeps a soft gaze on each viewer, pausing between statements so the chat can breathe and respond without rush. The narrator invites everyone to imagine how %s will frame the conversation later in the night, balancing kind jokes with gentle check-ins. People are reminded to sip water, stretch wrists, and let their own stories surface before the next wave of smiles arrives. Extra encouragement suggests making a short playlist of calming songs to play quietly at home so the mood of the stream feels even more immersive.',
-            $focus,
+            $manual_title,
             $extras[1]
         );
         $intro_two .= sprintf(' Preview whispers already point toward %s gliding into a reflective segment, giving fans a hint of the calm choreography to come.', $extras[2]);
@@ -85,7 +84,7 @@ class VideoTemplate {
         );
         $section2_p2 = sprintf(
             'Moderators explain that %s reacts to each message with deliberate pauses, tilting their head and letting a thoughtful grin grow before the next topic. This pacing teaches fans to value silence as much as conversation, making every response feel personal. The guidance encourages everyone to leave a beat of quiet after each compliment so the appreciation can truly land.',
-            $focus
+            $manual_title
         );
         $section2_p2 .= sprintf(' In doing so, the room senses how %s can keep a live exchange cheerful even when everyone chooses to type less and listen more.', $extras[1]);
         $section2_p3 = 'Attendees are coached to mirror that pace by counting heartbeats between their own comments, letting curiosity replace urgency so the discussion maintains a gentle sway.';
@@ -101,7 +100,7 @@ class VideoTemplate {
         );
         $section3_p2 = sprintf(
             'They describe how %s keeps movements unhurried so watchers can trace each motion with their fingertips resting lightly on their lap, turning the experience into a guided meditation. Slow arcs of the arms invite audiences to match their breathing to a soft four-count, reinforcing calm focus. Observers are nudged to picture silver moonlight skimming over calm water to deepen the immersive feeling.',
-            $focus
+            $manual_title
         );
         $section3_p2 .= sprintf(' Listeners whisper that %s turns every pause into a glimmering snapshot, making the leisurely pace feel intentional and artful.', $extras[2]);
         $section3_p3 = 'Writers encourage viewers to jot down a single word that captures how the segment made them feel, building a small journal of moods that can be revisited whenever calm is needed. That journal becomes a treasure map for future evenings, reminding them how easily serenity can return.';
@@ -123,7 +122,7 @@ class VideoTemplate {
         $model_url = !empty($c['model_url']) ? $c['model_url'] : '#';
         $internal_link = sprintf(
             'Keep up with %s by visiting <a href="%s">%s</a>, where %s moments are gathered with caring notes for future watch parties.',
-            esc_html($focus),
+            esc_html($manual_title),
             esc_url($model_url),
             esc_html($name),
             esc_html($extras[3])
@@ -133,7 +132,7 @@ class VideoTemplate {
         $blocks[] = ['h2', 'Gentle Farewell'];
         $conclusion = sprintf(
             'The final reflection thanks viewers for breathing slowly with %s, encouraging them to carry the mellow tone into the rest of their evening and return when they crave another soothing narrative.',
-            $focus
+            $manual_title
         );
         $blocks[] = ['p', $conclusion];
 

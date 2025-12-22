@@ -39,6 +39,11 @@ class Core {
         return array_values(array_unique(array_filter($candidates)));
     }
 
+    public static function is_video_post_type(string $post_type): bool {
+        $types = array_merge(self::video_post_types(), ['video', 'videos']);
+        return in_array($post_type, array_unique($types), true);
+    }
+
     /** Defaults via constants (wp-config) or sane fallbacks */
     public static function brand_order(): array {
         $order = defined('TMW_SEO_BRAND_ORDER') ? TMW_SEO_BRAND_ORDER : 'jasmin,myc,lpr,joy,lsa';
@@ -61,13 +66,20 @@ class Core {
         ]);
         $force = ! empty( $args['force'] );
         $post = get_post($video_id);
-        if (!$post || !in_array($post->post_type, self::video_post_types(), true)) {
+        if (!$post || !self::is_video_post_type($post->post_type)) {
             return ['ok' => false, 'message' => 'Not a video'];
         }
 
-        $existing_focus = trim((string) get_post_meta($post->ID, 'rank_math_focus_keyword', true));
-        if ( ! $force && $existing_focus !== '' ) {
-            return ['ok' => false, 'message' => 'Skipped: focus keyword already set.'];
+        $already_done = get_post_meta($post->ID, '_tmwseo_video_seo_done', true);
+        if (! $force && !empty($already_done)) {
+            return ['ok' => false, 'message' => 'Skipped: SEO already generated.'];
+        }
+
+        $manual_focus = self::normalize_manual_focus_keyword(
+            (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
+        );
+        if ($manual_focus === '') {
+            return ['ok' => false, 'message' => 'Missing manual focus keyword.'];
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
@@ -77,7 +89,7 @@ class Core {
                     self::TAG,
                     $video_id,
                     wp_json_encode( $args ),
-                    $existing_focus !== '' ? 'yes' : 'no'
+                    $manual_focus !== '' ? 'yes' : 'no'
                 )
             );
         }
@@ -105,7 +117,7 @@ class Core {
             ]
         );
 
-        $focus_for_video = $existing_focus !== '' ? $existing_focus : $rm_video['focus'];
+        $focus_for_video = $manual_focus !== '' ? $manual_focus : $rm_video['focus'];
 
         self::maybe_update_video_title( $post, $focus_for_video, $name );
 
@@ -126,7 +138,7 @@ class Core {
         self::write_all($video_id, $payload_video, 'VIDEO', true, $ctx_video);
         self::write_all($model_id, $payload_model, 'MODEL', true, $ctx_model);
 
-        self::update_rankmath_meta($post->ID, $rm_video, true, $existing_focus !== '' && $force);
+        self::update_rankmath_meta($post->ID, $rm_video, !$force, false);
 
         $looks         = self::first_looks( $video_id );
         $tag_keywords  = self::safe_model_tag_keywords( $looks );
@@ -162,6 +174,7 @@ class Core {
             );
         }
 
+        update_post_meta($post->ID, '_tmwseo_video_seo_done', gmdate('c'));
         error_log(self::TAG . " generated video#$video_id & model#$model_id for {$name}");
         return ['ok' => true, 'video' => $payload_video, 'model' => $payload_model, 'model_id' => $model_id];
     }
@@ -312,14 +325,14 @@ class Core {
         $slug = basename(get_permalink($video_id));
         $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $brand = ucfirst(self::brand_order()[0] ?? $site);
-        // Use a distinct, non-duplicate focus for video pages so RankMath
-        // doesn't complain about matching the model page focus keyword.
-        $focus = self::video_focus($name);
+        $focus = self::normalize_manual_focus_keyword(
+            (string) get_post_meta($video_id, 'rank_math_focus_keyword', true)
+        );
         $extras = [
-            $name . ' live cam',
-            $name . ' cam model',
-            $name . ' video highlights',
-            $name . ' webcam profile',
+            'highlight reel',
+            'stream recap',
+            'fan favorites',
+            'cozy watch party',
         ];
         return [
             'video_id' => $video_id,
@@ -525,37 +538,19 @@ class Core {
     }
 
     public static function compose_rankmath_for_video(\WP_Post $post, array $ctx): array {
-        $name    = self::sanitize_sfw_text($ctx['name'] ?? '', 'Live Cam Model');
-        $rewrite = self::rewrite_sfw_video_title($post);
-        $focus   = $rewrite['focus'];
-
-        $site  = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
-        $brand = ucfirst(self::brand_order()[0] ?? $site);
-
-        $looks          = self::first_looks($post->ID);
-        $tag_keywords   = self::safe_model_tag_keywords($looks);
-        $generic        = self::sanitize_sfw_keywords(self::model_random_extras(4));
-        $all_extras     = array_values(array_unique(array_merge($tag_keywords, $generic)));
-        $extras         = array_slice($all_extras, 0, 4);
-        $tag_descriptor = $tag_keywords[0] ?? ($generic[0] ?? 'webcam model');
-
-        $title_seed  = absint($post->ID ?: crc32($name));
-        $numbers     = [3, 4, 5, 6, 7, 8, 9];
-        $power_words = ['Must-See', 'Exclusive', 'Top', 'Prime'];
-        $number      = $numbers[$title_seed % count($numbers)];
-        $power       = $power_words[$title_seed % count($power_words)];
-
-        $title = $rewrite['title'];
-        $desc  = sprintf(
-            '%s in %d %s live highlights on %s. %s vibes with quick links to live chat and profile.',
-            $rewrite['phrase'],
-            $number,
-            strtolower($power),
-            $brand,
-            $tag_descriptor
+        $manual_title_raw = trim((string) $post->post_title);
+        $manual_title = self::sanitize_sfw_text(
+            $manual_title_raw,
+            $manual_title_raw !== '' ? $manual_title_raw : 'Live Cam Highlights'
         );
-        $title = self::sanitize_sfw_text($title, 'Live Cam Model — Live Cam Highlights');
-        $desc  = self::sanitize_sfw_text($desc, sprintf('Live cam highlights on %s.', $brand));
+        $manual_title = self::normalize_sfw_phrase($manual_title);
+
+        $focus = self::normalize_manual_focus_keyword(
+            (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
+        );
+
+        $title = self::build_video_rankmath_title($focus, $manual_title);
+        $desc  = self::build_video_rankmath_description($focus, $manual_title);
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
             error_log(
@@ -571,7 +566,7 @@ class Core {
 
         return [
             'focus'  => $focus,
-            'extras' => $extras,
+            'extras' => [],
             'title'  => $title,
             'desc'   => $desc,
         ];
@@ -797,7 +792,15 @@ class Core {
         $safe_title = self::sanitize_sfw_text((string) ($rm['title'] ?? ''), 'Live Cam Model — Live Cam Highlights');
         $safe_desc  = self::sanitize_sfw_text((string) ($rm['desc'] ?? ''), 'Live cam highlights.');
 
-        if ( $preserve_focus && $existing_focus !== '' ) {
+        $post = get_post($post_id);
+        if ($post instanceof \WP_Post && self::is_video_post_type($post->post_type)) {
+            $manual_focus = self::normalize_manual_focus_keyword($existing_focus);
+            $kw = $manual_focus !== '' ? [$manual_focus] : [];
+            if (!empty($kw)) {
+                $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
+                update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
+            }
+        } elseif ( $preserve_focus && $existing_focus !== '' ) {
             $kw = array_filter(array_map('trim', explode(',', (string) $existing_focus)));
             $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
             update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
@@ -824,6 +827,51 @@ class Core {
         update_post_meta($post_id, 'rank_math_pillar_content', 'on');
         $focus_for_log = $preserve_focus && $existing_focus !== '' ? $existing_focus : $rm['focus'];
         error_log(self::TAG . " [RM] set focus='" . $focus_for_log . "' extras=" . json_encode($rm['extras']) . " for post#$post_id");
+    }
+
+    public static function normalize_manual_focus_keyword(string $focus): string {
+        $focus = trim($focus);
+        if ($focus === '') {
+            return '';
+        }
+        $parts = preg_split('/\s+/', $focus);
+        $first = $parts[0] ?? '';
+        $first = self::sanitize_sfw_text($first, '');
+        return trim($first);
+    }
+
+    protected static function build_video_rankmath_title(string $focus, string $manual_title): string {
+        if ($focus === '') {
+            return self::truncate_seo_text($manual_title, 60);
+        }
+
+        if (stripos($manual_title, $focus) === 0) {
+            return self::truncate_seo_text($manual_title, 60);
+        }
+
+        return self::truncate_seo_text(sprintf('%s: %s', $focus, $manual_title), 60);
+    }
+
+    protected static function build_video_rankmath_description(string $focus, string $manual_title): string {
+        $desc = sprintf(
+            'Watch %s webcam highlights. %s — full recap and moments.',
+            $focus,
+            $manual_title
+        );
+        return self::truncate_seo_text($desc, 180);
+    }
+
+    protected static function truncate_seo_text(string $text, int $max): string {
+        $text = trim($text);
+        if (mb_strlen($text) <= $max) {
+            return $text;
+        }
+        $trimmed = mb_substr($text, 0, $max);
+        $last_space = mb_strrpos($trimmed, ' ');
+        if ($last_space !== false && $last_space > 20) {
+            $trimmed = mb_substr($trimmed, 0, $last_space);
+        }
+        return rtrim($trimmed, " \t\n\r\0\x0B-—–,:;");
     }
 
     protected static function is_old_video_title(string $title, string $focus): bool {
