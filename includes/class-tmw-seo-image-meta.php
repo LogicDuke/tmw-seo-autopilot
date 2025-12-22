@@ -41,10 +41,6 @@ class Image_Meta {
             return;
         }
 
-        if (\TMW_SEO\Core::should_skip_request($post, 'image_meta_set_thumbnail')) {
-            return;
-        }
-
         Image_Meta_Generator::generate_for_featured_image($thumb_id, $post);
     }
 
@@ -57,10 +53,6 @@ class Image_Meta {
      */
     public static function on_save_post_with_thumbnail(int $post_id, \WP_Post $post, bool $update): void {
         if (!in_array($post->post_type, ['video', 'model'], true)) {
-            return;
-        }
-
-        if (\TMW_SEO\Core::should_skip_request($post, 'image_meta_save_post')) {
             return;
         }
 

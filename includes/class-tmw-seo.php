@@ -9,50 +9,6 @@ class Core {
     const POST_TYPE = 'model';
     const MODEL_PT = 'model';
     const VIDEO_PT = 'video';
-    const DEBUG_GUARD = 'TMW_SEO_UPLOAD_DEBUG';
-
-    public static function should_skip_request(?\WP_Post $post, string $context, bool $require_publish = true): bool {
-        $reasons = [];
-
-        if (wp_doing_ajax()) {
-            $reasons[] = 'ajax';
-        }
-        if (defined('REST_REQUEST') && REST_REQUEST) {
-            $reasons[] = 'rest';
-        }
-        if (defined('DOING_CRON') && DOING_CRON) {
-            $reasons[] = 'cron';
-        }
-        if (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST) {
-            $reasons[] = 'xmlrpc';
-        }
-        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-            $reasons[] = 'autosave_const';
-        }
-
-        if ($post instanceof \WP_Post) {
-            if (wp_is_post_autosave($post->ID)) {
-                $reasons[] = 'autosave';
-            }
-            if (wp_is_post_revision($post->ID)) {
-                $reasons[] = 'revision';
-            }
-            if ($require_publish && $post->post_status !== 'publish') {
-                $reasons[] = 'status:' . $post->post_status;
-            }
-        }
-
-        if (!$reasons) {
-            return false;
-        }
-
-        if (defined(self::DEBUG_GUARD) && constant(self::DEBUG_GUARD)) {
-            $post_id = $post instanceof \WP_Post ? $post->ID : 0;
-            error_log(sprintf('%s [GUARD] %s post#%d skipped (%s)', self::TAG, $context, $post_id, implode(', ', $reasons)));
-        }
-
-        return true;
-    }
 
     public static function video_post_types(): array {
         $opt = get_option('tmwseo_video_pts');
@@ -399,112 +355,6 @@ class Core {
         return sprintf('Cam Model %s', $name);
     }
 
-    /**
-     * Build varied, deterministic video titles to avoid repetitive patterns across large inventories.
-     * Keeps the model name prominent and rotates common SEO phrases without stuffing.
-     */
-    public static function build_video_title_variant(string $model_name, int $seed, string $tag_descriptor = ''): string {
-        $model_name = trim((string)$model_name);
-        $tag_descriptor = trim((string)$tag_descriptor);
-
-        $prefixes = [
-            '%s',
-            '%s Live Cam',
-            '%s Webcam',
-            'Live Cam with %s',
-            '%s Live Stream',
-            '%s Stream',
-        ];
-
-        $counts = [3,4,5,6,7,8,9,10];
-
-        $adjectives = [
-            'Must-See',
-            'Top',
-            'Best',
-            'Hot',
-            'Fresh',
-            'New',
-            'Fan-Favorite',
-            'Exclusive',
-            'Unmissable',
-            'Prime',
-        ];
-
-        $content_nouns = [
-            'Highlights',
-            'Best Moments',
-            'Live Moments',
-            'Stream Clips',
-            'Show Recap',
-            'Top Clips',
-            'Key Moments',
-            'Live Reel',
-            'Scene Picks',
-            'Moment Mix',
-        ];
-
-        $extra_bits = [
-            '',
-            'Tonight',
-            'In Action',
-            'On Cam',
-            'Live Session',
-            'Live Set',
-        ];
-
-        // Deterministic picks
-        $p = $prefixes[$seed % count($prefixes)];
-        $c = $counts[$seed % count($counts)];
-        $a = $adjectives[$seed % count($adjectives)];
-        $n = $content_nouns[$seed % count($content_nouns)];
-        $e = $extra_bits[$seed % count($extra_bits)];
-
-        $base = sprintf($p, $model_name);
-        $parts = array_filter([
-            $base,
-            '—',
-            (string)$c,
-            $a,
-            $n,
-            $e,
-        ]);
-
-        $title = trim(preg_replace('/\s+/', ' ', implode(' ', $parts)));
-
-        // Optionally add a soft descriptor if it helps uniqueness, but only when short.
-        if ($tag_descriptor !== '' && mb_strlen($title) < 52) {
-            $title2 = $title . ' · ' . $tag_descriptor;
-            if (mb_strlen($title2) <= 60) {
-                $title = $title2;
-            }
-        }
-
-        // Hard cap ~60 chars for Google snippets.
-        if (mb_strlen($title) > 60) {
-            $title = rtrim(mb_substr($title, 0, 57)) . '...';
-        }
-
-        return $title;
-    }
-
-    public static function build_video_meta_variant(string $model_name, int $count, string $brand, string $tag_descriptor = ''): string {
-        $model_name = trim((string)$model_name);
-        $tag_descriptor = trim((string)$tag_descriptor);
-        $lead = sprintf('%s — %d live moments on %s.', $model_name, $count, $brand);
-        if ($tag_descriptor !== '') {
-            $lead .= ' ' . ucfirst($tag_descriptor) . ' vibe + quick links to chat & profile.';
-        } else {
-            $lead .= ' Quick links to live chat & profile.';
-        }
-        if (mb_strlen($lead) > 160) {
-            $lead = mb_substr($lead, 0, 157) . '...';
-        }
-        return $lead;
-    }
-
-
-
     protected static function build_ctx_model(int $model_id, string $name, array $args): array {
         $looks = self::first_looks($model_id);
         $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
@@ -694,30 +544,408 @@ class Core {
         $extras         = array_slice($all_extras, 0, 4);
         $tag_descriptor = $tag_keywords[0] ?? ($generic[0] ?? 'webcam model');
 
-        
-        $title_seed = absint( $post_id ?: crc32( $model_name ) );
-        $counts     = [ 3, 4, 5, 6, 7, 8, 9, 10 ];
-        $count      = $counts[ $title_seed % count( $counts ) ];
+        $title_seed  = absint($post->ID ?: crc32($name));
+        $numbers     = [3, 4, 5, 6, 7, 8, 9];
+        $power_words = ['Must-See', 'Exclusive', 'Top', 'Prime'];
+        $number      = $numbers[$title_seed % count($numbers)];
+        $power       = $power_words[$title_seed % count($power_words)];
 
-        // Try to reuse a soft descriptor from tags for extra uniqueness (stored by VideoSEO).
-        $tag_descriptor = '';
-        $stored_tags = get_post_meta( $post_id, '_tmwseo_video_tag_keywords', true );
-        if ( is_array( $stored_tags ) && ! empty( $stored_tags ) ) {
-            $tag_descriptor = (string) $stored_tags[0];
+        $title = sprintf('Cam Model %s — %d %s Live Highlights', $name, $number, $power);
+        $desc  = sprintf(
+            '%s in %d %s live highlights on %s. %s vibes with quick links to live chat and profile.',
+            $name,
+            $number,
+            strtolower($power),
+            $brand,
+            $tag_descriptor
+        );
+
+        return [
+            'focus'  => $focus,
+            'extras' => $extras,
+            'title'  => $title,
+            'desc'   => $desc,
+        ];
+    }
+
+    protected static function model_extra_keyword_pool(): array {
+    return [
+        'adult webcams',
+        'adult web cams',
+        'adult webcam',
+        'adult webcam chat',
+        'adult cam',
+        'adult cam chat',
+        'adult live cams',
+        'adult live webcam',
+        'adult cam site',
+        'adult cam website',
+        'adult cam streaming',
+        'live cam model',
+        'live cam models',
+        'live webcam models',
+        'live webcam chat',
+        'live webcam streaming',
+        'live webcam girls',
+        'live cam girls',
+        'live cam girl',
+        'cam girl live',
+        'cam girls online',
+        'webcam girls live',
+        'webcam chat live',
+        'live cam show',
+        'live cam shows',
+        'live cam performers',
+        'live cam broadcast',
+        'live cam profiles',
+        'webcam model profile',
+        'cam model online',
+    ];
+}
+
+    public static function get_model_extra_keyword_pool(): array {
+        return self::model_extra_keyword_pool();
+    }
+
+    protected static function model_random_extras(int $count = 4): array {
+        $pool = self::model_extra_keyword_pool();
+        shuffle($pool);
+        return array_slice($pool, 0, $count);
+    }
+
+    /**
+     * Build soft, non-explicit keywords from model tags.
+     * Only uses an allow-list of safe descriptive tags (hair, style, vibe, role, etc.).
+     */
+    protected static function safe_model_tag_keywords(array $looks): array {
+        if (empty($looks)) {
+            return [];
         }
 
-        $new_title = self::build_video_title_variant( $model_name, $title_seed, $tag_descriptor );
+        // Map lowercased tag names to generic, soft-adult keyword phrases.
+        $map = [
+            'amateur'           => 'amateur cam girl',
+            'asian'             => 'asian webcam model',
+            'athletic'          => 'athletic webcam model',
+            'auburn hair'       => 'auburn hair cam girl',
+            'bbw'               => 'curvy bbw webcam model',
+            'black hair'        => 'black hair webcam model',
+            'blonde'            => 'blonde cam girl',
+            'blond hair'        => 'blonde webcam model',
+            'blue eyes'         => 'blue eyed cam girl',
+            'brown eyes'        => 'brown eyed webcam model',
+            'brown hair'        => 'brunette webcam model',
+            'brunette'          => 'brunette cam girl',
+            'cam girl'          => 'cam girl live',
+            'cheerleader'       => 'cheerleader webcam model',
+            'college girl'      => 'college girl cam model',
+            'cosplay'           => 'cosplay webcam model',
+            'curious'           => 'curious cam girl',
+            'cute'              => 'cute cam girl',
+            'dance'             => 'dancing webcam model',
+            'ebony'             => 'ebony webcam model',
+            'eye contact'       => 'eye contact on cam',
+            'fire red hair'     => 'red hair cam model',
+            'glamour'           => 'glamour cam model',
+            'glasses'           => 'glasses webcam model',
+            'green eyes'        => 'green eyed webcam model',
+            'gym'               => 'fit gym cam girl',
+            'homemade'          => 'homemade style webcam show',
+            'hot'               => 'hot webcam model',
+            'hot flirt'         => 'hot flirt cam girl',
+            'housewife'         => 'housewife webcam model',
+            'innocent'          => 'innocent cam girl',
+            'jeans'             => 'jeans webcam show',
+            'kitchen'           => 'kitchen cam show',
+            'large build'       => 'curvy cam model',
+            'latex'             => 'latex outfit cam model',
+            'latin'             => 'latin webcam model',
+            'latina'            => 'latina cam girl',
+            'leather'           => 'leather outfit webcam model',
+            'lesbian'           => 'lesbian webcam model',
+            'lingerie'          => 'lingerie webcam model',
+            'long hair'         => 'long hair webcam girl',
+            'long nails'        => 'long nails cam girl',
+            'maid'              => 'maid roleplay cam',
+            'massage'           => 'massage webcam show',
+            'mature'            => 'mature cam model',
+            'milf'              => 'milf webcam model',
+            'muscular'          => 'muscular webcam model',
+            'nurse'             => 'nurse roleplay cam',
+            'nylon'             => 'nylon stockings cam model',
+            'office'            => 'office roleplay webcam',
+            'outdoor'           => 'outdoor webcam show',
+            'party'             => 'party webcam show',
+            'petite'            => 'petite cam girl',
+            'piercing'          => 'pierced webcam model',
+            'pink hair'         => 'pink hair cam girl',
+            'pool'              => 'poolside webcam show',
+            'princess'          => 'princess roleplay cam',
+            'public'            => 'public chat cam show',
+            'pvc'               => 'pvc outfit cam model',
+            'redhead'           => 'redhead cam girl',
+            'roleplay'          => 'roleplay webcam show',
+            'romantic'          => 'romantic cam model',
+            'secretary'         => 'secretary roleplay cam',
+            'sensual'           => 'sensual webcam show',
+            'sexy'              => 'sexy webcam model',
+            'short girl'        => 'short cam girl',
+            'short hair'        => 'short hair webcam model',
+            'shoulder lenght hair' => 'shoulder length hair cam girl',
+            'shy'               => 'shy webcam girl',
+            'skinny'            => 'slim webcam model',
+            'smoking'           => 'smoking cam girl',
+            'solo'              => 'solo webcam show',
+            'sologirl'          => 'solo girl webcam',
+            'stockings'         => 'stockings webcam model',
+            'striptease'        => 'striptease cam show',
+            'tall'              => 'tall webcam model',
+            'tattoo'            => 'tattooed cam girl',
+            'teacher'           => 'teacher roleplay webcam',
+            'teasing'           => 'teasing cam girl',
+            'uniform'           => 'uniform roleplay webcam',
+            'white'             => 'white webcam model',
+        ];
+
+        $keywords = [];
+        foreach ($looks as $raw) {
+            $key = strtolower(trim($raw));
+            if (isset($map[$key])) {
+                $keywords[] = $map[$key];
+            }
+        }
+
+        return array_values(array_unique($keywords));
+    }
+
+    public static function get_safe_model_tag_keywords(array $looks): array {
+        return self::safe_model_tag_keywords($looks);
+    }
+
+    /**
+     * Compute the extra keywords for a model post, based on safe tags and
+     * the generic soft adult pool. Uses tags from the model itself and,
+     * when available, from its latest linked video.
+     */
+    protected static function compute_model_extras( \WP_Post $post, array $ctx = [] ): array {
+        // 1) Collect looks from model.
+        $looks = self::first_looks( $post->ID );
+
+        // 2) Also include looks from latest linked video, if any.
+        $video_id = (int) get_post_meta( $post->ID, '_tmwseo_latest_video_id', true );
+        if ( $video_id ) {
+            $looks = array_merge( $looks, self::first_looks( $video_id ) );
+        }
+
+        $looks = array_values( array_unique( $looks ) );
+
+        // 3) Build keywords.
+        $tag_keywords = self::safe_model_tag_keywords( $looks );
+        $generic      = self::model_random_extras( 4 );
+
+        $all_extras = array_values( array_unique( array_merge( $tag_keywords, $generic ) ) );
+        $extras     = array_slice( $all_extras, 0, 4 );
+
+        return $extras;
+    }
+
+    public static function compose_rankmath_for_model( \WP_Post $post, array $ctx ): array {
+        $name  = $ctx['name'];
+        $focus = $name; // focus keyword is ONLY the name
+
+        $looks = self::first_looks( $post->ID );
+        $video_id = (int) get_post_meta( $post->ID, '_tmwseo_latest_video_id', true );
+        if ( $video_id > 0 ) {
+            $looks = array_merge( $looks, self::first_looks( $video_id ) );
+        }
+        $looks = array_values( array_unique( $looks ) );
+
+        $tag_keywords = self::safe_model_tag_keywords( $looks );
+        $generic      = self::model_random_extras( 4 );
+
+        $all_extras = array_values( array_unique( array_merge( $tag_keywords, $generic ) ) );
+        $extras     = array_slice( $all_extras, 0, 4 );
+
+        if (class_exists(__NAMESPACE__ . '\\RankMath') && method_exists(RankMath::class, 'generate_model_snippet_title')) {
+            $title = RankMath::generate_model_snippet_title($post);
+        } else {
+            $title = sprintf('%s — Live Cam Model Profile & Schedule', $name);
+        }
+        $desc  = sprintf(
+            '%s on Top Models Webcam. Profile, photos, schedule tips, and live chat links. Follow %s for highlights and updates.',
+            $name,
+            $name
+        );
+
+        error_log(self::TAG . " [MODEL-EXTRAS] post#{$post->ID} looks=" . json_encode($looks) . " tag_kw=" . json_encode($tag_keywords) . " generic=" . json_encode($generic) . " extras=" . json_encode($extras));
+        error_log(self::TAG . " [RM-MODEL] focus='{$focus}' extras=" . json_encode($extras) . " for post#{$post->ID}");
+
+        return [
+            'focus' => $focus,
+            'extras' => $extras,
+            'title' => $title,
+            'desc'  => $desc,
+        ];
+    }
+
+    public static function update_rankmath_meta(int $post_id, array $rm, bool $protect_manual = false, bool $preserve_focus = false): void {
+        $existing_focus = trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true));
+
+        if ( $preserve_focus && $existing_focus !== '' ) {
+            $kw = array_filter(array_map('trim', explode(',', (string) $existing_focus)));
+        } else {
+            $kw = array_filter(array_map('trim', array_merge([$rm['focus']], $rm['extras'] ?? [])));
+            update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
+        }
+
+        $existing_title = get_post_meta($post_id, 'rank_math_title', true);
+        $existing_desc  = get_post_meta($post_id, 'rank_math_description', true);
+
+        $should_update_title = !$protect_manual || $existing_title === '' || self::is_old_video_title($existing_title, $rm['focus']);
+        $should_update_desc  = !$protect_manual || $existing_desc === '' || self::is_old_video_description($existing_desc, $rm['focus']);
+
+        if ($should_update_title) {
+            update_post_meta($post_id, 'rank_math_title', $rm['title']);
+        }
+
+        if ($should_update_desc) {
+            update_post_meta($post_id, 'rank_math_description', $rm['desc']);
+        }
+
+        update_post_meta($post_id, 'rank_math_pillar_content', 'on');
+        $focus_for_log = $preserve_focus && $existing_focus !== '' ? $existing_focus : $rm['focus'];
+        error_log(self::TAG . " [RM] set focus='" . $focus_for_log . "' extras=" . json_encode($rm['extras']) . " for post#$post_id");
+    }
+
+    protected static function is_old_video_title(string $title, string $focus): bool {
+        return stripos($title, $focus) !== false && stripos($title, 'featured moments') !== false;
+    }
+
+    protected static function is_old_video_description(string $desc, string $focus): bool {
+        return stripos($desc, $focus) !== false && stripos($desc, 'quick reel') !== false;
+    }
+
+    protected static function build_video_post_title( \WP_Post $post, string $focus, string $model_name ): string {
+        $original = trim( (string) $post->post_title );
+        $focus    = trim( (string) $focus );
+
+        if ( $original !== '' && stripos( $original, $focus ) !== false ) {
+            return $original;
+        }
+
+        if ( $original !== '' ) {
+            return sprintf( '%s — %s', $focus, $original );
+        }
+
+        return $focus;
+    }
+
+    public static function maybe_update_video_title( \WP_Post $post, string $focus, string $model_name ): void {
+        $post_id = $post->ID;
+
+        $post = get_post( $post_id );
+        if (
+            ! ( $post instanceof \WP_Post ) ||
+            ! in_array( $post->post_type, self::video_post_types(), true ) ||
+            $post->post_status !== 'publish'
+        ) {
+            return;
+        }
+
+        $original       = trim( (string) $post->post_title );
+        $too_long       = mb_strlen( $original ) > 110;
+        $has_brand_tail = stripos( $original, 'Only on Top-Models.Webcam' ) !== false;
+
+        // If we've already adjusted this title once, never touch it again unless it's clearly legacy/too long.
+        if ( get_post_meta( $post_id, '_tmwseo_video_title_locked', true ) && ! ( $too_long || $has_brand_tail ) ) {
+            return;
+        }
+
+        $existing_focus = trim( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
+        if ( $existing_focus !== '' && ! $too_long && ! $has_brand_tail ) {
+            return;
+        }
+
+        $focus      = trim( (string) $focus );
+        $model_name = trim( (string) $model_name );
+        if ( $focus === '' || $model_name === '' ) {
+            return;
+        }
+
+        // Deterministic variety: generate titles with many patterns so large batches don't look repetitive.
+        $seed = absint( $post_id ?: crc32( $model_name ) );
+
+        $numbers = [ 3, 4, 5, 6, 7, 8, 9 ];
+        $number  = $numbers[ $seed % count( $numbers ) ];
+
+        $powers = [ 'Must-See', 'Exclusive', 'Top', 'Prime', 'Hot', 'Best' ];
+        $power  = $powers[ $seed % count( $powers ) ];
+
+        // Rotate nouns so we don't repeat "Highlights" on every post.
+        $nouns = [
+            'Live Highlights',
+            'Best Moments',
+            'Stream Clips',
+            'Top Moments',
+            'Show Recap',
+            'Key Moments',
+            'Live Clips',
+        ];
+        $noun = $nouns[ ( $seed >> 2 ) % count( $nouns ) ];
+
+        // Light-touch descriptor from focus keyword (keeps intent without forcing the same phrase everywhere).
+        $focus_short = trim( preg_replace( '/\s+/', ' ', (string) $focus ) );
+        // Remove obvious repeated boilerplate.
+        $focus_short = preg_replace( '/\b(cam\s*model|highlights?)\b/i', '', $focus_short );
+        $focus_short = trim( preg_replace( '/\s+/', ' ', $focus_short ) );
+
+        $templates = [
+            '{model} — {number} {power} {noun}',
+            '{power} {noun}: {model}',
+            '{model} {power} {noun}',
+            '{number} {noun} with {model}',
+            '{model} — {noun}',
+        ];
+        $tpl = $templates[ ( $seed >> 4 ) % count( $templates ) ];
+
+        $new_title = strtr(
+            $tpl,
+            [
+                '{model}'  => $model_name,
+                '{number}' => (string) $number,
+                '{power}'  => $power,
+                '{noun}'   => $noun,
+            ]
+        );
+
+        // Optionally append a short focus fragment if it increases uniqueness and fits length.
+        if ( $focus_short !== '' ) {
+            $candidate = $new_title . ' — ' . $focus_short;
+            if ( mb_strlen( $candidate ) <= 110 ) {
+                $new_title = $candidate;
+            }
+        }
+
+        $new_title = trim( (string) $new_title );
+
+        // Keep titles reasonable for SERPs.
+        if ( mb_strlen( $new_title ) > 110 ) {
+            $new_title = trim( mb_substr( $new_title, 0, 107 ) ) . '…';
+        }
 
         // Lock immediately to prevent re-entrancy when wp_update_post triggers save_post again.
         update_post_meta( $post_id, '_tmwseo_video_title_locked', 1 );
 
         if ( $new_title !== '' && $new_title !== $post->post_title ) {
+            // Prevent save_post recursion when updating the title.
+            remove_action( 'save_post', [ 'TMW_SEO\\VideoSEO', 'on_save' ], 35 );
             wp_update_post(
                 [
                     'ID'         => $post_id,
                     'post_title' => $new_title,
                 ]
             );
+            add_action( 'save_post', [ 'TMW_SEO\\VideoSEO', 'on_save' ], 35, 3 );
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {

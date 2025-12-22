@@ -22,15 +22,28 @@ class VideoTemplate {
         $extras     = array_slice(array_merge($raw_extras, $fallback_extras), 0, 4);
         $keywords   = array_merge([$focus], $extras);
 
-                // Varied deterministic title to avoid repetition across large inventories.
-        $seed   = absint(crc32($name));
-        $counts = [3,4,5,6,7,8,9,10];
-        $count  = $counts[$seed % count($counts)];
-        $tag_descriptor = $extras[0] ?? '';
+        $number        = 5;
+        $sentiment     = 'Calm';
+        $power_word    = 'Prime';
+        $title_suffix  = sprintf(' — %d %s %s Highlights', $number, $sentiment, $power_word);
+        $title         = $focus . $title_suffix;
+        if (mb_strlen($title) > 60) {
+            $available = max(10, 60 - mb_strlen($title_suffix));
+            $trimmed   = rtrim(mb_substr($focus, 0, $available));
+            $title     = $trimmed . $title_suffix;
+        }
 
-        $title = Core::build_video_title_variant($name, $seed, $tag_descriptor);
-
-                $meta = Core::build_video_meta_variant($name, $count, $site ?: 'Live Cam Stream', $tag_descriptor);
+        $meta = sprintf(
+            '%s shares mellow tales as %s, %s, %s, and %s guide a cozy flow.',
+            $focus,
+            $extras[0],
+            $extras[1],
+            $extras[2],
+            $extras[3]
+        );
+        if (mb_strlen($meta) > 160) {
+            $meta = mb_substr($meta, 0, 157) . '...';
+        }
 
         $blocks = [];
         $intro_one = sprintf(

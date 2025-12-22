@@ -44,10 +44,6 @@ class Media {
             return;
         }
 
-        if (Core::should_skip_request($post, 'media_set_thumbnail')) {
-            return;
-        }
-
         self::fill_attachment_fields((int) $thumb_id, $post);
 
         if (in_array($post->post_type, Core::video_post_types(), true)) {
@@ -95,10 +91,6 @@ class Media {
             return;
         }
 
-        if (Core::should_skip_request($post, 'media_thumbnail_meta')) {
-            return;
-        }
-
         // Re-use the existing logic that already knows how to build
         // alt/title/caption/description from the parent post context.
         self::fill_attachment_fields($thumb_id, $post);
@@ -106,10 +98,6 @@ class Media {
 
     public static function on_add_attachment($att_id) {
         $att = get_post($att_id);
-        if ($att instanceof \WP_Post && Core::should_skip_request($att, 'media_add_attachment', false)) {
-            return;
-        }
-
         if ($att && 'attachment' === $att->post_type && empty($att->post_title)) {
             wp_update_post(['ID' => $att_id, 'post_title' => basename($att->guid)]);
         }
@@ -129,9 +117,6 @@ class Media {
             return;
         }
         if (!current_user_can('edit_post', $post_id)) {
-            return;
-        }
-        if (Core::should_skip_request($post, 'media_save_video')) {
             return;
         }
 

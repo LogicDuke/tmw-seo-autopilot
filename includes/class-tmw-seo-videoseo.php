@@ -4,29 +4,41 @@ if (!defined('ABSPATH')) exit;
 
 class VideoSEO {
     public static function boot() {
-        add_action('transition_post_status', [__CLASS__, 'on_transition'], 35, 3);
+        add_action('save_post', [__CLASS__, 'on_save'], 35, 3);
     }
 
-    public static function on_transition($new_status, $old_status, $post) {
+    public static function on_save($post_id, $post, $update) {
+        // Guard against re-entrancy (e.g. wp_update_post inside generation).
+        static $processing = [];
+        if (!empty($processing[$post_id])) {
+            return;
+        }
+
+        // Do not interfere with importers/AJAX/REST requests.
+        if (function_exists('wp_doing_ajax') && wp_doing_ajax()) {
+            return;
+        }
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            return;
+        }
+        // Extra safety: skip on LiveJasmin admin import page.
+        if (is_admin() && isset($_GET['page']) && stripos((string) $_GET['page'], 'livejasmin') !== false) {
+            return;
+        }
+
         if (!$post instanceof \WP_Post) {
             return;
         }
 
-        if ($new_status !== 'publish' || $old_status === 'publish') {
+        if ($post->post_status !== 'publish') {
             return;
         }
 
-        if (Core::should_skip_request($post, 'videoseo_transition')) {
+        if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
             return;
         }
 
-        $post_id = $post->ID;
         if (!in_array($post->post_type, Core::video_post_types(), true)) {
-            return;
-        }
-
-        static $processing = [];
-        if (!empty($processing[$post_id])) {
             return;
         }
 
@@ -66,6 +78,10 @@ class VideoSEO {
                 'highlights_count'  => 7,
             ]
         );
+
+        Core::maybe_update_video_title( $post, $rm['focus'], $model_name );
+
+        Core::maybe_update_video_slug( $post, $rm['focus'] );
 
         Core::update_rankmath_meta( $post_id, $rm, true );
 
