@@ -63,8 +63,16 @@ class Core {
         $args = wp_parse_args($args, [
             'strategy' => 'template',
             'force'    => false,
+            'respect_manual' => true,
+            'preserve_title' => true,
+            'preserve_focus' => true,
+            'update_slug_from_manual_title' => true,
         ]);
         $force = ! empty( $args['force'] );
+        $respect_manual = ! empty( $args['respect_manual'] );
+        $preserve_title = ! empty( $args['preserve_title'] );
+        $preserve_focus = ! empty( $args['preserve_focus'] );
+        $update_slug_from_manual_title = ! empty( $args['update_slug_from_manual_title'] );
         $post = get_post($video_id);
         if (!$post || !self::is_video_post_type($post->post_type)) {
             return ['ok' => false, 'message' => 'Not a video'];
@@ -75,13 +83,6 @@ class Core {
             return ['ok' => false, 'message' => 'Skipped: SEO already generated.'];
         }
 
-        $manual_focus = self::normalize_manual_focus_keyword(
-            (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
-        );
-        if ($manual_focus === '') {
-            return ['ok' => false, 'message' => 'Missing manual focus keyword.'];
-        }
-
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
             error_log(
                 sprintf(
@@ -89,7 +90,7 @@ class Core {
                     self::TAG,
                     $video_id,
                     wp_json_encode( $args ),
-                    $manual_focus !== '' ? 'yes' : 'no'
+                    get_post_meta($post->ID, 'rank_math_focus_keyword', true) !== '' ? 'yes' : 'no'
                 )
             );
         }
@@ -104,6 +105,13 @@ class Core {
         $ctx_video = self::build_ctx_video($video_id, $model_id, $name, $args);
         $ctx_model = self::build_ctx_model($model_id, $name, array_merge($args, ['video_id' => $video_id]));
 
+        $manual = self::resolve_video_manual_inputs($post, $name);
+        $manual_focus = $manual['manual_focus'];
+        $focus_for_video = ($preserve_focus && $manual_focus !== '') ? $manual_focus : $manual['focus'];
+        if ($manual_focus === '' && $focus_for_video !== '') {
+            update_post_meta($post->ID, 'rank_math_focus_keyword', $focus_for_video);
+        }
+
         $highlights_count = $ctx_video['highlights_count'] ?? 7;
 
         $rm_video = self::compose_rankmath_for_video(
@@ -114,14 +122,16 @@ class Core {
                 'brand_url'        => $ctx_video['brand_url'] ?? '',
                 'model_url'        => $ctx_video['model_url'] ?? '',
                 'highlights_count' => $highlights_count,
+                'focus'            => $focus_for_video,
+                'manual_title'     => $manual['manual_title'],
             ]
         );
 
-        $focus_for_video = $manual_focus !== '' ? $manual_focus : $rm_video['focus'];
+        if (!($respect_manual && $preserve_title && $manual['manual_title_raw'] !== '')) {
+            self::maybe_update_video_title( $post, $focus_for_video, $name );
+        }
 
-        self::maybe_update_video_title( $post, $focus_for_video, $name );
-
-        $ctx_video['focus'] = $rm_video['focus'];
+        $ctx_video['focus'] = $focus_for_video;
         if (!empty($rm_video['extras'])) {
             $ctx_video['extras'] = $rm_video['extras'];
         }
@@ -138,7 +148,11 @@ class Core {
         self::write_all($video_id, $payload_video, 'VIDEO', true, $ctx_video);
         self::write_all($model_id, $payload_model, 'MODEL', true, $ctx_model);
 
-        self::update_rankmath_meta($post->ID, $rm_video, !$force, false);
+        self::update_rankmath_meta($post->ID, $rm_video, !$force, $preserve_focus);
+
+        if ($update_slug_from_manual_title) {
+            self::update_video_slug_from_manual_inputs($post, $focus_for_video, $manual['manual_title']);
+        }
 
         $looks         = self::first_looks( $video_id );
         $tag_keywords  = self::safe_model_tag_keywords( $looks );
@@ -177,6 +191,42 @@ class Core {
         update_post_meta($post->ID, '_tmwseo_video_seo_done', gmdate('c'));
         error_log(self::TAG . " generated video#$video_id & model#$model_id for {$name}");
         return ['ok' => true, 'video' => $payload_video, 'model' => $payload_model, 'model_id' => $model_id];
+    }
+
+    public static function resolve_video_manual_inputs(\WP_Post $post, string $model_name): array {
+        $manual_title_raw = trim((string) $post->post_title);
+        $fallback_title = sprintf(
+            '%s Webcam Highlights',
+            self::sanitize_sfw_text($model_name, 'Live Cam Model')
+        );
+        $manual_title = self::sanitize_sfw_text(
+            $manual_title_raw,
+            $fallback_title
+        );
+        $manual_title = self::normalize_sfw_phrase($manual_title);
+
+        $manual_focus = self::normalize_manual_focus_keyword(
+            (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
+        );
+
+        $focus = $manual_focus;
+        if ($focus === '') {
+            $focus = self::fallback_video_focus_keyword($post->ID, $manual_title);
+        }
+
+        return [
+            'manual_title_raw' => $manual_title_raw,
+            'manual_title' => $manual_title,
+            'manual_focus' => $manual_focus,
+            'focus' => $focus,
+        ];
+    }
+
+    protected static function fallback_video_focus_keyword(int $post_id, string $seed): string {
+        $pool = ['webcam', 'cam', 'webcams', 'models', 'highlights'];
+        $seed_value = $seed !== '' ? crc32($seed) : $post_id;
+        $index = absint($seed_value) % count($pool);
+        return $pool[$index];
     }
 
     /** Manual model generation for admin / CLI compatibility */
@@ -538,16 +588,18 @@ class Core {
     }
 
     public static function compose_rankmath_for_video(\WP_Post $post, array $ctx): array {
-        $manual_title_raw = trim((string) $post->post_title);
+        $manual_title_raw = trim((string) ($ctx['manual_title'] ?? $post->post_title));
         $manual_title = self::sanitize_sfw_text(
             $manual_title_raw,
             $manual_title_raw !== '' ? $manual_title_raw : 'Live Cam Highlights'
         );
         $manual_title = self::normalize_sfw_phrase($manual_title);
 
-        $focus = self::normalize_manual_focus_keyword(
-            (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
-        );
+        $focus = isset($ctx['focus'])
+            ? self::normalize_manual_focus_keyword((string) $ctx['focus'])
+            : self::normalize_manual_focus_keyword(
+                (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
+            );
 
         $title = self::build_video_rankmath_title($focus, $manual_title);
         $desc  = self::build_video_rankmath_description($focus, $manual_title);
@@ -795,7 +847,8 @@ class Core {
         $post = get_post($post_id);
         if ($post instanceof \WP_Post && self::is_video_post_type($post->post_type)) {
             $manual_focus = self::normalize_manual_focus_keyword($existing_focus);
-            $kw = $manual_focus !== '' ? [$manual_focus] : [];
+            $focus_to_use = $manual_focus !== '' ? $manual_focus : self::normalize_manual_focus_keyword((string) ($rm['focus'] ?? ''));
+            $kw = $focus_to_use !== '' ? [$focus_to_use] : [];
             if (!empty($kw)) {
                 $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
                 update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
@@ -849,7 +902,7 @@ class Core {
             return self::truncate_seo_text($manual_title, 60);
         }
 
-        return self::truncate_seo_text(sprintf('%s: %s', $focus, $manual_title), 60);
+        return self::truncate_seo_text(sprintf('%s %s', $focus, $manual_title), 60);
     }
 
     protected static function build_video_rankmath_description(string $focus, string $manual_title): string {
@@ -1001,6 +1054,43 @@ class Core {
             ]
         );
         update_post_meta( $post->ID, '_tmwseo_slug_locked', 1 );
+    }
+
+    public static function update_video_slug_from_manual_inputs(\WP_Post $post, string $focus, string $manual_title): void {
+        if (!in_array($post->post_type, self::video_post_types(), true)) {
+            return;
+        }
+
+        $slug = self::build_video_slug($focus, $manual_title);
+        if ($slug === '' || $slug === $post->post_name) {
+            return;
+        }
+
+        wp_update_post(
+            [
+                'ID'        => $post->ID,
+                'post_name' => $slug,
+            ]
+        );
+    }
+
+    protected static function build_video_slug(string $focus, string $manual_title): string {
+        $slug = sanitize_title(trim(sprintf('%s %s', $focus, $manual_title)));
+        if ($slug === '') {
+            return '';
+        }
+
+        if (mb_strlen($slug) <= 60) {
+            return $slug;
+        }
+
+        $trimmed = mb_substr($slug, 0, 60);
+        $last_dash = mb_strrpos($trimmed, '-');
+        if ($last_dash !== false && $last_dash > 20) {
+            $trimmed = mb_substr($trimmed, 0, $last_dash);
+        }
+
+        return trim($trimmed, '-');
     }
 
     public static function sanitize_sfw_text(string $text, string $fallback = 'Live Cam Model'): string {
