@@ -525,8 +525,9 @@ class Core {
     }
 
     public static function compose_rankmath_for_video(\WP_Post $post, array $ctx): array {
-        $name  = self::sanitize_sfw_text($ctx['name'] ?? '', 'Live Cam Model');
-        $focus = self::sanitize_sfw_text(self::video_focus($name), 'Live Cam Model live cam highlights');
+        $name    = self::sanitize_sfw_text($ctx['name'] ?? '', 'Live Cam Model');
+        $rewrite = self::rewrite_sfw_video_title($post);
+        $focus   = $rewrite['focus'];
 
         $site  = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $brand = ucfirst(self::brand_order()[0] ?? $site);
@@ -544,10 +545,10 @@ class Core {
         $number      = $numbers[$title_seed % count($numbers)];
         $power       = $power_words[$title_seed % count($power_words)];
 
-        $title = sprintf('%s — Live Cam Highlights', $name);
+        $title = $rewrite['title'];
         $desc  = sprintf(
             '%s in %d %s live highlights on %s. %s vibes with quick links to live chat and profile.',
-            $name,
+            $rewrite['phrase'],
             $number,
             strtolower($power),
             $brand,
@@ -874,14 +875,13 @@ class Core {
             return;
         }
 
-        $focus      = self::sanitize_sfw_text( (string) $focus, 'Live Cam Model live cam highlights' );
-        $model_name = self::sanitize_sfw_text( (string) $model_name, 'Live Cam Model' );
-        if ( $focus === '' || $model_name === '' ) {
+        $rewrite = self::rewrite_sfw_video_title( $post );
+        $focus   = self::sanitize_sfw_text( (string) $focus, 'Live Cam Model live cam highlights' );
+        if ( $focus === '' || $rewrite['title'] === '' ) {
             return;
         }
 
-        $new_title = sprintf( '%s — Live Cam Highlights', $model_name );
-        $new_title = self::sanitize_sfw_text( (string) $new_title, 'Live Cam Model — Live Cam Highlights' );
+        $new_title = self::sanitize_sfw_text( (string) $rewrite['title'], 'Live Cam Model — Live Cam Highlights' );
 
         // Keep titles reasonable for SERPs.
         if ( mb_strlen( $new_title ) > 110 ) {
@@ -1019,6 +1019,63 @@ class Core {
         }
 
         return $clean;
+    }
+
+    protected static function normalize_sfw_phrase(string $text): string {
+        $text = preg_replace('/\s*[-–—]+\s*/', ' ', $text);
+        $text = preg_replace('/\s*[:;|]+\s*/', ' ', $text);
+        $text = preg_replace('/\s+/', ' ', $text);
+        return trim($text, " \t\n\r\0\x0B-—–,:;|");
+    }
+
+    protected static function video_category_fallback(int $post_id): string {
+        if (!taxonomy_exists('video_category')) {
+            return 'Live Cam';
+        }
+        $terms = wp_get_post_terms($post_id, 'video_category', ['fields' => 'names']);
+        if (is_wp_error($terms) || empty($terms)) {
+            return 'Live Cam';
+        }
+        return (string) $terms[0];
+    }
+
+    public static function rewrite_sfw_video_title(\WP_Post $post): array {
+        $raw_title  = (string) $post->post_title;
+        $sfw_phrase = self::sanitize_sfw_text($raw_title, '');
+        $sfw_phrase = self::normalize_sfw_phrase($sfw_phrase);
+
+        if ($sfw_phrase === '' || mb_strlen($sfw_phrase) < 8) {
+            $fallback  = self::video_category_fallback((int) $post->ID);
+            $sfw_phrase = self::sanitize_sfw_text($fallback, 'Live Cam');
+            $sfw_phrase = self::normalize_sfw_phrase($sfw_phrase);
+        }
+
+        if ($sfw_phrase === '' || mb_strlen($sfw_phrase) < 8) {
+            $sfw_phrase = 'Live Cam';
+        }
+
+        $suffixes = [
+            'Live Cam Highlights',
+            'Webcam Highlights',
+            'Live Cam Moments',
+            'Stream Highlights',
+            'Cam Session Highlights',
+        ];
+        $seed  = absint($post->ID ?: crc32($raw_title));
+        $suffix = $suffixes[$seed % count($suffixes)];
+
+        $final_title = sprintf('%s — %s', $sfw_phrase, $suffix);
+
+        $final_focus = strtolower($sfw_phrase . ' live cam highlights');
+        $final_focus = self::sanitize_sfw_text($final_focus, 'Live Cam live cam highlights');
+        $final_focus = strtolower($final_focus);
+
+        return [
+            'raw'   => $raw_title,
+            'phrase' => $sfw_phrase,
+            'title' => $final_title,
+            'focus' => $final_focus,
+        ];
     }
 
     protected static function sanitize_sfw_keywords(array $keywords, array $fallbacks = []): array {
