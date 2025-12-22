@@ -49,13 +49,6 @@ class VideoSEO {
             return;
         }
 
-        $manual_focus = Core::normalize_manual_focus_keyword(
-            (string) get_post_meta($post_id, 'rank_math_focus_keyword', true)
-        );
-        if ($manual_focus === '') {
-            return;
-        }
-
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
             error_log(
                 sprintf(
@@ -77,17 +70,28 @@ class VideoSEO {
         $raw_model_name = Core::get_video_model_name_raw($post);
         $model_name = Core::sanitize_sfw_text($raw_model_name, 'Live Cam Model');
 
+        $manual = Core::resolve_video_manual_inputs($post, $model_name);
+        if ($manual['manual_focus'] === '' && $manual['focus'] !== '') {
+            update_post_meta($post_id, 'rank_math_focus_keyword', $manual['focus']);
+        }
+
         $rm = Core::compose_rankmath_for_video(
             $post,
             [
                 'name'              => $model_name,
                 'highlights_count'  => 7,
+                'focus'             => $manual['focus'],
+                'manual_title'      => $manual['manual_title'],
             ]
         );
 
-        Core::maybe_update_video_title( $post, $rm['focus'], $model_name );
+        if ($manual['manual_title_raw'] === '') {
+            Core::maybe_update_video_title( $post, $rm['focus'], $model_name );
+        }
 
         Core::update_rankmath_meta( $post_id, $rm, true );
+
+        Core::update_video_slug_from_manual_inputs($post, $manual['focus'], $manual['manual_title']);
 
         $raw_tags = [];
         foreach (['video_tag', 'post_tag', 'livejasmin_tag'] as $tax) {

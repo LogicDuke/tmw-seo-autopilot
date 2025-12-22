@@ -193,6 +193,11 @@ class Admin {
         if (!$post_id || !current_user_can('edit_post', $post_id)) wp_die('No permission');
         check_admin_referer('tmwseo_generate_now_' . $post_id);
 
+        $post = get_post($post_id);
+        if (!$post) {
+            wp_die('Post not found');
+        }
+
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
             error_log(
                 sprintf(
@@ -202,13 +207,21 @@ class Admin {
             );
         }
 
-        $res = \TMW_SEO\Core::generate_for_video(
-            $post_id,
-            [
-                'strategy' => 'template',
-                'force'    => true,
-            ]
-        );
+        if (\TMW_SEO\Core::is_video_post_type($post->post_type)) {
+            $res = \TMW_SEO\Core::generate_for_video(
+                $post_id,
+                [
+                    'strategy' => 'template',
+                    'force'    => true,
+                    'respect_manual' => true,
+                    'preserve_title' => true,
+                    'preserve_focus' => true,
+                    'update_slug_from_manual_title' => true,
+                ]
+            );
+        } else {
+            $res = ['ok' => false, 'message' => 'Not a video post type'];
+        }
         update_post_meta($post_id, '_tmwseo_last_message', $res['ok'] ? 'Generated via Manual Run' : 'Failed: ' . $res['message']);
         wp_safe_redirect(get_edit_post_link($post_id, ''));
         exit;
