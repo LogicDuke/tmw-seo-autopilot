@@ -4,13 +4,17 @@ if (!defined('ABSPATH')) exit;
 
 class VideoSEO {
     public static function boot() {
-        add_action('save_post', [__CLASS__, 'on_save'], 35, 3);
+        add_action('transition_post_status', [__CLASS__, 'on_transition'], 35, 3);
     }
 
-    public static function on_save($post_id, $post, $update) {
+    public static function on_transition($new_status, $old_status, $post) {
+        if ($new_status !== 'publish' || $old_status === 'publish') {
+            return;
+        }
+
         // Guard against re-entrancy (e.g. wp_update_post inside generation).
         static $processing = [];
-        if (!empty($processing[$post_id])) {
+        if (!empty($processing[$post->ID ?? 0])) {
             return;
         }
 
@@ -30,11 +34,7 @@ class VideoSEO {
             return;
         }
 
-        if ($post->post_status !== 'publish') {
-            return;
-        }
-
-        if (wp_is_post_autosave($post_id) || wp_is_post_revision($post_id)) {
+        if (wp_is_post_autosave($post->ID) || wp_is_post_revision($post->ID)) {
             return;
         }
 
@@ -42,34 +42,38 @@ class VideoSEO {
             return;
         }
 
+        $post_id = (int) $post->ID;
+
+        $already_generated = get_post_meta($post_id, '_tmwseo_video_seo_generated', true);
+        if (!empty($already_generated)) {
+            return;
+        }
+
         $existing_focus = get_post_meta($post_id, 'rank_math_focus_keyword', true);
         if (!empty($existing_focus)) {
+            update_post_meta($post_id, '_tmwseo_video_seo_generated', 'existing_focus');
             return;
+        }
+
+        if (defined('TMW_DEBUG') && TMW_DEBUG) {
+            error_log(
+                sprintf(
+                    '%s [VIDEO-SEO] transition to publish post#%d (%s)',
+                    Core::TAG,
+                    $post_id,
+                    $post->post_type
+                )
+            );
         }
 
         $processing[$post_id] = true;
         self::generate_for_video($post_id, $post);
+        update_post_meta($post_id, '_tmwseo_video_seo_generated', gmdate('c'));
         unset($processing[$post_id]);
     }
 
     protected static function generate_for_video(int $post_id, \WP_Post $post): void {
-        $model_name = trim((string) get_post_meta($post_id, 'tmwseo_model_name', true));
-
-        if ($model_name === '') {
-            $model_terms = wp_get_post_terms($post_id, 'models');
-            if (!is_wp_error($model_terms) && !empty($model_terms)) {
-                $model_name = $model_terms[0]->name ?? '';
-            }
-        }
-
-        if ($model_name === '') {
-            $model_name = $post->post_title;
-        }
-
-        $model_name = trim((string) $model_name);
-        if ($model_name === '') {
-            return;
-        }
+        $model_name = Core::get_video_model_name($post);
 
         $rm = Core::compose_rankmath_for_video(
             $post,
@@ -80,8 +84,6 @@ class VideoSEO {
         );
 
         Core::maybe_update_video_title( $post, $rm['focus'], $model_name );
-
-        Core::maybe_update_video_slug( $post, $rm['focus'] );
 
         Core::update_rankmath_meta( $post_id, $rm, true );
 
