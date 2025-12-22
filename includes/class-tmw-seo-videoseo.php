@@ -73,6 +73,7 @@ class VideoSEO {
     }
 
     protected static function generate_for_video(int $post_id, \WP_Post $post): void {
+        $rewrite = Core::rewrite_sfw_video_title($post);
         $raw_model_name = Core::get_video_model_name_raw($post);
         $model_name = Core::sanitize_sfw_text($raw_model_name, 'Live Cam Model');
 
@@ -106,6 +107,17 @@ class VideoSEO {
         update_post_meta($post_id, '_tmwseo_video_tag_keywords', $tag_keywords);
 
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
+            error_log(
+                sprintf(
+                    '%s [VIDEO-SFW] post#%d raw_title="%s" sfw_phrase="%s" final_title="%s" final_focus="%s"',
+                    Core::TAG,
+                    $post_id,
+                    $rewrite['raw'],
+                    $rewrite['phrase'],
+                    $rewrite['title'],
+                    $rewrite['focus']
+                )
+            );
             error_log(
                 sprintf(
                     '%s [RM-VIDEO] post#%d model_raw="%s" model_sfw="%s" final_title="%s" final_focus="%s" desc_contains_focus=%s',
