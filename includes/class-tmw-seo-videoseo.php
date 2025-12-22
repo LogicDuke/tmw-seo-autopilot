@@ -44,14 +44,14 @@ class VideoSEO {
 
         $post_id = (int) $post->ID;
 
-        $already_generated = get_post_meta($post_id, '_tmwseo_video_seo_generated', true);
+        $already_generated = get_post_meta($post_id, '_tmwseo_video_seo_done', true);
         if (!empty($already_generated)) {
             return;
         }
 
         $existing_focus = get_post_meta($post_id, 'rank_math_focus_keyword', true);
         if (!empty($existing_focus)) {
-            update_post_meta($post_id, '_tmwseo_video_seo_generated', 'existing_focus');
+            update_post_meta($post_id, '_tmwseo_video_seo_done', 'existing_focus');
             return;
         }
 
@@ -68,12 +68,13 @@ class VideoSEO {
 
         $processing[$post_id] = true;
         self::generate_for_video($post_id, $post);
-        update_post_meta($post_id, '_tmwseo_video_seo_generated', gmdate('c'));
+        update_post_meta($post_id, '_tmwseo_video_seo_done', gmdate('c'));
         unset($processing[$post_id]);
     }
 
     protected static function generate_for_video(int $post_id, \WP_Post $post): void {
-        $model_name = Core::get_video_model_name($post);
+        $raw_model_name = Core::get_video_model_name_raw($post);
+        $model_name = Core::sanitize_sfw_text($raw_model_name, 'Live Cam Model');
 
         $rm = Core::compose_rankmath_for_video(
             $post,
@@ -107,11 +108,13 @@ class VideoSEO {
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
             error_log(
                 sprintf(
-                    '%s [RM-VIDEO] post#%d focus="%s" title="%s" desc_contains_focus=%s',
+                    '%s [RM-VIDEO] post#%d model_raw="%s" model_sfw="%s" final_title="%s" final_focus="%s" desc_contains_focus=%s',
                     Core::TAG,
                     $post_id,
-                    $rm['focus'],
+                    $raw_model_name,
+                    $model_name,
                     $rm['title'],
+                    $rm['focus'],
                     strpos( $rm['desc'], $rm['focus'] ) !== false ? 'yes' : 'no'
                 )
             );

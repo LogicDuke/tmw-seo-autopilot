@@ -246,6 +246,17 @@ class Core {
     }
 
     public static function get_video_model_name(\WP_Post $post): string {
+        $raw_name = self::get_video_model_name_raw($post);
+        $safe_name = self::sanitize_sfw_text($raw_name, 'Live Cam Model');
+
+        if (defined('TMW_DEBUG') && TMW_DEBUG && $raw_name === '') {
+            error_log(self::TAG . " [MODEL] fallback name used for video#{$post->ID}");
+        }
+
+        return $safe_name;
+    }
+
+    public static function get_video_model_name_raw(\WP_Post $post): string {
         $raw_name = trim((string) get_post_meta($post->ID, 'tmwseo_model_name', true));
 
         if ($raw_name === '' && taxonomy_exists('models')) {
@@ -255,13 +266,7 @@ class Core {
             }
         }
 
-        $safe_name = self::sanitize_sfw_text($raw_name, 'Live Cam Model');
-
-        if (defined('TMW_DEBUG') && TMW_DEBUG && $raw_name === '') {
-            error_log(self::TAG . " [MODEL] fallback name used for video#{$post->ID}");
-        }
-
-        return $safe_name;
+        return $raw_name;
     }
 
     /** Build CTA (LiveJasmin first, with fallbacks) */
@@ -339,7 +344,7 @@ class Core {
 
     public static function video_focus(string $name): string {
         $safe_name = self::sanitize_sfw_text($name, 'Live Cam Model');
-        return self::sanitize_sfw_text(sprintf('Cam Model %s', $safe_name), 'Live Cam Model');
+        return self::sanitize_sfw_text(sprintf('%s live cam highlights', $safe_name), 'Live Cam Model live cam highlights');
     }
 
     protected static function build_ctx_model(int $model_id, string $name, array $args): array {
@@ -419,16 +424,18 @@ class Core {
         update_post_meta($post_id, "_tmwseo_prev_{$type}", $prev);
 
         $keywords = $payload['keywords'] ?? ($payload['focus'] ?? []);
-        $keywords = array_map('sanitize_text_field', (array) $keywords);
+        $keywords = self::sanitize_sfw_keywords((array) $keywords, ['Live Cam Model']);
+        $safe_title = self::sanitize_sfw_text((string) $payload['title'], 'Live Cam Model — Live Cam Highlights');
+        $safe_desc  = self::sanitize_sfw_text((string) ($payload['meta'] ?? ''), 'Live cam highlights.');
 
-        update_post_meta($post_id, 'rank_math_title', sanitize_text_field($payload['title']));
-        update_post_meta($post_id, 'rank_math_description', sanitize_text_field($payload['meta'] ?? ''));
+        update_post_meta($post_id, 'rank_math_title', $safe_title);
+        update_post_meta($post_id, 'rank_math_description', $safe_desc);
         update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $keywords));
 
-        update_post_meta($post_id, 'rank_math_facebook_title', sanitize_text_field($payload['title']));
-        update_post_meta($post_id, 'rank_math_facebook_description', sanitize_text_field($payload['meta'] ?? ''));
-        update_post_meta($post_id, 'rank_math_twitter_title', sanitize_text_field($payload['title']));
-        update_post_meta($post_id, 'rank_math_twitter_description', sanitize_text_field($payload['meta'] ?? ''));
+        update_post_meta($post_id, 'rank_math_facebook_title', $safe_title);
+        update_post_meta($post_id, 'rank_math_facebook_description', $safe_desc);
+        update_post_meta($post_id, 'rank_math_twitter_title', $safe_title);
+        update_post_meta($post_id, 'rank_math_twitter_description', $safe_desc);
         if (self::default_og()) {
             update_post_meta($post_id, 'rank_math_facebook_image', esc_url_raw(self::default_og()));
             update_post_meta($post_id, 'rank_math_twitter_image', esc_url_raw(self::default_og()));
@@ -519,7 +526,7 @@ class Core {
 
     public static function compose_rankmath_for_video(\WP_Post $post, array $ctx): array {
         $name  = self::sanitize_sfw_text($ctx['name'] ?? '', 'Live Cam Model');
-        $focus = self::sanitize_sfw_text(self::video_focus($name), 'Live Cam Model');
+        $focus = self::sanitize_sfw_text(self::video_focus($name), 'Live Cam Model live cam highlights');
 
         $site  = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $brand = ucfirst(self::brand_order()[0] ?? $site);
@@ -537,7 +544,7 @@ class Core {
         $number      = $numbers[$title_seed % count($numbers)];
         $power       = $power_words[$title_seed % count($power_words)];
 
-        $title = sprintf('Cam Model %s — %d %s Live Highlights', $name, $number, $power);
+        $title = sprintf('%s — Live Cam Highlights', $name);
         $desc  = sprintf(
             '%s in %d %s live highlights on %s. %s vibes with quick links to live chat and profile.',
             $name,
@@ -546,7 +553,7 @@ class Core {
             $brand,
             $tag_descriptor
         );
-        $title = self::sanitize_sfw_text($title, sprintf('Live Cam Model — %d %s Live Highlights', $number, $power));
+        $title = self::sanitize_sfw_text($title, 'Live Cam Model — Live Cam Highlights');
         $desc  = self::sanitize_sfw_text($desc, sprintf('Live cam highlights on %s.', $brand));
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
@@ -786,11 +793,16 @@ class Core {
 
     public static function update_rankmath_meta(int $post_id, array $rm, bool $protect_manual = false, bool $preserve_focus = false): void {
         $existing_focus = trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true));
+        $safe_title = self::sanitize_sfw_text((string) ($rm['title'] ?? ''), 'Live Cam Model — Live Cam Highlights');
+        $safe_desc  = self::sanitize_sfw_text((string) ($rm['desc'] ?? ''), 'Live cam highlights.');
 
         if ( $preserve_focus && $existing_focus !== '' ) {
             $kw = array_filter(array_map('trim', explode(',', (string) $existing_focus)));
+            $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
+            update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
         } else {
             $kw = array_filter(array_map('trim', array_merge([$rm['focus']], $rm['extras'] ?? [])));
+            $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
             update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
         }
 
@@ -801,11 +813,11 @@ class Core {
         $should_update_desc  = !$protect_manual || $existing_desc === '' || self::is_old_video_description($existing_desc, $rm['focus']);
 
         if ($should_update_title) {
-            update_post_meta($post_id, 'rank_math_title', $rm['title']);
+            update_post_meta($post_id, 'rank_math_title', $safe_title);
         }
 
         if ($should_update_desc) {
-            update_post_meta($post_id, 'rank_math_description', $rm['desc']);
+            update_post_meta($post_id, 'rank_math_description', $safe_desc);
         }
 
         update_post_meta($post_id, 'rank_math_pillar_content', 'on');
@@ -862,67 +874,14 @@ class Core {
             return;
         }
 
-        $focus      = self::sanitize_sfw_text( (string) $focus );
-        $model_name = self::sanitize_sfw_text( (string) $model_name );
+        $focus      = self::sanitize_sfw_text( (string) $focus, 'Live Cam Model live cam highlights' );
+        $model_name = self::sanitize_sfw_text( (string) $model_name, 'Live Cam Model' );
         if ( $focus === '' || $model_name === '' ) {
             return;
         }
 
-        // Deterministic variety: generate titles with many patterns so large batches don't look repetitive.
-        $seed = absint( $post_id ?: crc32( $model_name ) );
-
-        $numbers = [ 3, 4, 5, 6, 7, 8, 9 ];
-        $number  = $numbers[ $seed % count( $numbers ) ];
-
-        $powers = [ 'Must-See', 'Exclusive', 'Top', 'Prime', 'Hot', 'Best' ];
-        $power  = $powers[ $seed % count( $powers ) ];
-
-        // Rotate nouns so we don't repeat "Highlights" on every post.
-        $nouns = [
-            'Live Highlights',
-            'Best Moments',
-            'Stream Clips',
-            'Top Moments',
-            'Show Recap',
-            'Key Moments',
-            'Live Clips',
-        ];
-        $noun = $nouns[ ( $seed >> 2 ) % count( $nouns ) ];
-
-        // Light-touch descriptor from focus keyword (keeps intent without forcing the same phrase everywhere).
-        $focus_short = trim( preg_replace( '/\s+/', ' ', (string) $focus ) );
-        // Remove obvious repeated boilerplate.
-        $focus_short = preg_replace( '/\b(cam\s*model|highlights?)\b/i', '', $focus_short );
-        $focus_short = trim( preg_replace( '/\s+/', ' ', $focus_short ) );
-
-        $templates = [
-            '{model} — {number} {power} {noun}',
-            '{power} {noun}: {model}',
-            '{model} {power} {noun}',
-            '{number} {noun} with {model}',
-            '{model} — {noun}',
-        ];
-        $tpl = $templates[ ( $seed >> 4 ) % count( $templates ) ];
-
-        $new_title = strtr(
-            $tpl,
-            [
-                '{model}'  => $model_name,
-                '{number}' => (string) $number,
-                '{power}'  => $power,
-                '{noun}'   => $noun,
-            ]
-        );
-
-        // Optionally append a short focus fragment if it increases uniqueness and fits length.
-        if ( $focus_short !== '' ) {
-            $candidate = $new_title . ' — ' . $focus_short;
-            if ( mb_strlen( $candidate ) <= 110 ) {
-                $new_title = $candidate;
-            }
-        }
-
-        $new_title = self::sanitize_sfw_text( (string) $new_title, $focus );
+        $new_title = sprintf( '%s — Live Cam Highlights', $model_name );
+        $new_title = self::sanitize_sfw_text( (string) $new_title, 'Live Cam Model — Live Cam Highlights' );
 
         // Keep titles reasonable for SERPs.
         if ( mb_strlen( $new_title ) > 110 ) {
@@ -939,6 +898,7 @@ class Core {
                 [
                     'ID'         => $post_id,
                     'post_title' => $new_title,
+                    'post_name'  => $post->post_name,
                 ]
             );
             add_action( 'transition_post_status', [ 'TMW_SEO\\VideoSEO', 'on_transition' ], 35, 3 );
@@ -995,7 +955,7 @@ class Core {
         update_post_meta( $post->ID, '_tmwseo_slug_locked', 1 );
     }
 
-    protected static function sanitize_sfw_text(string $text, string $fallback = ''): string {
+    public static function sanitize_sfw_text(string $text, string $fallback = 'Live Cam Model'): string {
         $clean = wp_strip_all_tags($text);
         $clean = trim($clean);
         if ($clean === '') {
@@ -1004,26 +964,49 @@ class Core {
 
         $blacklist = [
             'adult',
-            'xxx',
+            'anal',
+            'ass',
+            'bdsm',
+            'blowjob',
+            'boobs',
+            'boob',
+            'bj',
+            'bukkake',
+            'butt',
+            'cameltoe',
+            'cock',
+            'cum',
+            'cumming',
+            'cunt',
+            'dick',
+            'deepthroat',
+            'erotic',
+            'explicit',
+            'fetish',
+            'fuck',
+            'fucking',
+            'handjob',
+            'hardcore',
+            'horny',
+            'hot',
+            'milf',
+            'naked',
+            'nude',
+            'orgasm',
+            'orgy',
+            'penis',
             'porn',
             'porno',
+            'pussy',
             'sex',
             'sexual',
             'sexy',
-            'nude',
-            'naked',
-            'erotic',
-            'fetish',
-            'hardcore',
-            'orgasm',
-            'blowjob',
-            'bj',
-            'anal',
             'strip',
             'striptease',
-            'milf',
+            'threesome',
+            'tits',
+            'xxx',
             'nsfw',
-            'explicit',
         ];
 
         $pattern = '/\b(' . implode('|', array_map('preg_quote', $blacklist)) . ')\b/i';
@@ -1031,7 +1014,7 @@ class Core {
         $clean = preg_replace('/\s+/', ' ', $clean);
         $clean = trim($clean, " \t\n\r\0\x0B-—–,:;|");
 
-        if ($clean === '') {
+        if ($clean === '' || mb_strlen($clean) < 3) {
             return $fallback;
         }
 
@@ -1041,7 +1024,7 @@ class Core {
     protected static function sanitize_sfw_keywords(array $keywords, array $fallbacks = []): array {
         $out = [];
         foreach ($keywords as $keyword) {
-            $clean = self::sanitize_sfw_text((string) $keyword);
+            $clean = self::sanitize_sfw_text((string) $keyword, '');
             if ($clean !== '') {
                 $out[] = $clean;
             }
@@ -1051,7 +1034,7 @@ class Core {
 
         if (empty($out) && !empty($fallbacks)) {
             foreach ($fallbacks as $fallback) {
-                $clean = self::sanitize_sfw_text((string) $fallback);
+                $clean = self::sanitize_sfw_text((string) $fallback, '');
                 if ($clean !== '') {
                     $out[] = $clean;
                 }
