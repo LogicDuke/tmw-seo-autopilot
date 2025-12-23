@@ -71,7 +71,17 @@ class VideoSEO {
         $model_name = Core::sanitize_sfw_text($raw_model_name, 'Live Cam Model');
 
         $manual = Core::resolve_video_manual_inputs($post, $model_name);
-        if ($manual['manual_focus'] === '' && $manual['focus'] !== '') {
+
+        $looks    = Core::first_looks( $post_id );
+        $lj_title = get_the_title( $post_id );
+        $csv_title_focus = Core::select_video_title_focus_csv( $post, $looks, $lj_title );
+        $csv_focus       = $csv_title_focus['focus_keyword'] ?? '';
+        $csv_title       = $csv_title_focus['seo_title'] ?? '';
+        $video_extras    = Core::select_video_extras_csv( $post, $looks, $lj_title );
+
+        if ( $csv_focus !== '' ) {
+            update_post_meta( $post_id, 'rank_math_focus_keyword', $csv_focus );
+        } elseif ($manual['manual_focus'] === '' && $manual['focus'] !== '') {
             update_post_meta($post_id, 'rank_math_focus_keyword', $manual['focus']);
         }
 
@@ -80,12 +90,25 @@ class VideoSEO {
             [
                 'name'              => $model_name,
                 'highlights_count'  => 7,
-                'focus'             => $manual['focus'],
-                'manual_title'      => $manual['manual_title'],
+                'focus'             => $csv_focus !== '' ? $csv_focus : $manual['focus'],
+                'manual_title'      => $csv_title !== '' ? $csv_title : $manual['manual_title'],
+                'csv_title'         => $csv_title,
+                'csv_focus'         => $csv_focus,
+                'csv_extras'        => $video_extras,
             ]
         );
 
-        if ($manual['manual_title_raw'] === '') {
+        if ( $csv_title !== '' && ! get_post_meta( $post_id, '_tmwseo_video_title_locked', true ) ) {
+            update_post_meta( $post_id, '_tmwseo_video_title_locked', 1 );
+            wp_update_post(
+                [
+                    'ID'         => $post_id,
+                    'post_title' => $csv_title,
+                    'post_name'  => $post->post_name,
+                ]
+            );
+            delete_post_meta( $post_id, '_tmwseo_video_title_locked' );
+        } elseif ($manual['manual_title_raw'] === '') {
             Core::maybe_update_video_title( $post, $rm['focus'], $model_name );
         }
 
