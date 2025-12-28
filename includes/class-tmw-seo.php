@@ -1241,7 +1241,19 @@ class Core {
             update_post_meta($post_id, 'rank_math_description', $safe_desc);
         }
 
-        update_post_meta($post_id, 'rank_math_pillar_content', 'on');
+        $post_type = get_post_type($post_id);
+        $existing_pillar = get_post_meta($post_id, 'rank_math_pillar_content', true);
+        if ($post_type === 'video') {
+            if ($existing_pillar !== '') {
+                delete_post_meta($post_id, 'rank_math_pillar_content');
+                error_log('[TMW-SEO-RM] pillar cleared for video #' . $post_id);
+            }
+        } elseif ($post_type === 'model') {
+            if ($existing_pillar !== 'on') {
+                update_post_meta($post_id, 'rank_math_pillar_content', 'on');
+                error_log('[TMW-SEO-RM] pillar enabled for model #' . $post_id);
+            }
+        }
         $focus_for_log = $preserve_focus && $existing_focus !== '' ? $existing_focus : ( $rm['focus_raw'] ?? ( $rm['focus'] ?? '' ) );
         error_log(self::TAG . " [RM] set focus='" . $focus_for_log . "' extras=" . json_encode($rm['extras']) . " for post#$post_id");
     }
