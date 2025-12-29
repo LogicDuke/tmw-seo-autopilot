@@ -31,7 +31,7 @@ class Content_Generator {
         $content = implode("\n\n", $sections[$layout]);
         $word_count = str_word_count(strip_tags($content));
         if ($word_count < self::MIN_MODEL_WORDS) {
-            $content .= self::pad_content($content, self::MIN_MODEL_WORDS - $word_count, $name, 'model');
+            $content = self::pad_content($content, self::MIN_MODEL_WORDS - $word_count, $name, 'model');
         }
 
         $density = Keyword_Manager::apply_density($content, $name, $pair, 'model');
@@ -66,7 +66,7 @@ class Content_Generator {
         $content = implode("\n\n", [$intro, $details, $comparison, $faqs_html]);
         $word_count = str_word_count(strip_tags($content));
         if ($word_count < self::MIN_VIDEO_WORDS) {
-            $content .= self::pad_content($content, self::MIN_VIDEO_WORDS - $word_count, $name, 'video');
+            $content = self::pad_content($content, self::MIN_VIDEO_WORDS - $word_count, $name, 'video');
         }
 
         $density = Keyword_Manager::apply_density($content, $name, $pair, 'video');
@@ -119,39 +119,91 @@ class Content_Generator {
     }
 
     protected static function render_related(array $context, string $name): string {
-        $related_videos = $context['related_videos'] ?? [];
-        $related_models = $context['related_models'] ?? [];
-        $out  = '<h2>Related Content</h2>';
-        $out .= '<p>More from ' . esc_html($name) . ':</p>';
+        $out = '<h2>Related Content</h2>';
+
+        $related_videos = [];
+        if (!empty($context['model_id'])) {
+            $related_videos = get_posts([
+                'post_type'      => Core::video_post_types(),
+                'posts_per_page' => 6,
+                'post_status'    => 'publish',
+                'meta_query'     => [
+                    [
+                        'key'   => '_tmwseo_model_id',
+                        'value' => (int) $context['model_id'],
+                    ],
+                ],
+            ]);
+        }
+
+        $related_models = [];
+        if (!empty($context['looks'])) {
+            $related_models = get_posts([
+                'post_type'      => Core::MODEL_PT,
+                'posts_per_page' => 4,
+                'post_status'    => 'publish',
+                'post__not_in'   => !empty($context['model_id']) ? [(int) $context['model_id']] : [],
+                'orderby'        => 'rand',
+            ]);
+        }
+
         if (!empty($related_videos)) {
+            $out .= '<h3>More from ' . esc_html($name) . '</h3>';
             $out .= '<ul>';
             foreach (array_slice($related_videos, 0, 6) as $video) {
-                $out .= '<li>' . esc_html($video) . '</li>';
+                $url   = get_permalink($video->ID);
+                $title = get_the_title($video->ID);
+                $out  .= '<li><a href="' . esc_url($url) . '">' . esc_html($title) . '</a></li>';
             }
             $out .= '</ul>';
         }
+
         if (!empty($related_models)) {
-            $out .= '<p>Similar Models:</p><ul>';
-            foreach (array_slice($related_models, 0, 4) as $model) {
-                $out .= '<li>' . esc_html($model) . '</li>';
+            $out .= '<h3>Similar Models</h3>';
+            $out .= '<ul>';
+            foreach ($related_models as $model) {
+                $url   = get_permalink($model->ID);
+                $title = get_the_title($model->ID);
+                $out  .= '<li><a href="' . esc_url($url) . '">' . esc_html($title) . '</a></li>';
             }
             $out .= '</ul>';
         }
+
         return $out;
     }
 
     protected static function pad_content(string $content, int $missing_words, string $name, string $type): string {
-        $sentences = [];
-        $synonyms = ['performer', 'creator', 'entertainer', 'webcam model', 'cam performer', 'star'];
-        $shows     = ['show', 'session', 'performance', 'broadcast', 'stream', 'private show'];
-        for ($i = 0; $i < $missing_words; $i += 25) {
-            $sentences[] = sprintf(
-                '%s keeps the %s focused on live interaction and steady pacing, reminding fans that LiveJasmin sessions feel more personal than static OnlyFans posts or crowded %s rooms.',
-                $name,
-                $synonyms[array_rand($synonyms)],
-                $type === 'video' ? 'recorded Chaturbate clips' : 'Chaturbate'
-            );
+        if ($missing_words < 50) {
+            return $content;
         }
-        return "\n\n" . implode(' ', $sentences);
+
+        $natural_additions = [
+            "Community members consistently praise {$name} for maintaining authentic energy across sessions. Rather than following a rigid script, {$name} adapts to each room's vibe, creating experiences that feel personal rather than performative. This flexibility explains why regular viewers return for multiple shows.",
+
+            "The transition from browsing static OnlyFans content to experiencing live interaction on LiveJasmin represents a shift in how fans connect with {$name}. Real-time responses and spontaneous moments create engagement that pre-recorded videos simply cannot replicate, no matter how well produced.",
+
+            "Viewers who discover {$name} through OnlyFans searches often express surprise at how much more engaging live sessions feel. The ability to make requests, receive immediate acknowledgment, and influence the show's direction transforms passive viewing into active participation.",
+
+            "Technical quality matters in adult entertainment, and LiveJasmin's infrastructure supports this priority. HD streaming with stable framerates, crystal-clear audio, and professional lighting create premium viewing experiences that justify the platform's reputation over crowded alternatives like Chaturbate or Stripchat.",
+
+            "Regular attendees of {$name}'s shows develop rapport over time, with inside jokes and callbacks that create community. This ongoing relationship dynamic differs fundamentally from OnlyFans' transactional model where creators post content and subscribers consume it without ongoing dialogue.",
+        ];
+
+        shuffle($natural_additions);
+
+        $added         = '';
+        $current_added = 0;
+
+        foreach ($natural_additions as $addition) {
+            if ($current_added >= $missing_words) {
+                break;
+            }
+
+            $addition = str_replace('{$name}', $name, $addition);
+            $added   .= "\n\n<p>" . $addition . '</p>';
+            $current_added += str_word_count($addition);
+        }
+
+        return $content . $added;
     }
 }

@@ -8,6 +8,9 @@ $questions = [
     "How do I watch {name} live?" => "Click the LiveJasmin link above, log in, and join the room a few minutes early to catch the intro.",
     "Is this safer than public rooms?" => "LiveJasmin moderation keeps chat respectful, avoiding spam that can appear on {platform_a} or {platform_b}.",
     "Why mention OnlyFans here?" => "People search '{name} OnlyFans', and this page guides them to LiveJasmin where live experiences outperform static posts.",
+    "Why search '{name} OnlyFans' when LiveJasmin is better?" => "Many fans start with OnlyFans searches but prefer LiveJasmin once they experience {name}'s live shows. Real-time chat, HD streaming, and personal attention make LiveJasmin worth the switch from OnlyFans' static content.",
+    "Does {name} prefer OnlyFans or LiveJasmin?" => "{name} uses both platforms strategically: OnlyFans for curated photo sets and LiveJasmin for live interaction. Fans seeking immediate responses and personalized attention find LiveJasmin delivers what OnlyFans cannot.",
+    "How is {name}'s LiveJasmin different from OnlyFans?" => "OnlyFans provides on-demand viewing of {name}'s pre-recorded content. LiveJasmin offers real-time conversation, custom requests, and HD video chat. Fans who've tried both consistently prefer LiveJasmin for the interactive experience.",
 ];
 
 $faqs = [];
