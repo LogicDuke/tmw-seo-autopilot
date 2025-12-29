@@ -393,6 +393,12 @@ class Core {
         }
         self::write_all($post_id, $payload, 'MODEL', !empty($args['insert_content']), $ctx);
         self::update_rankmath_meta($post_id, $rm_model);
+        $strategy_used     = sanitize_text_field((string) ($args['strategy'] ?? 'template'));
+        $onlyfans_mentions = substr_count(strtolower(wp_strip_all_tags((string) ($payload['content'] ?? ''))), 'onlyfans');
+
+        update_post_meta($post_id, '_tmwseo_strategy', $strategy_used);
+        update_post_meta($post_id, '_tmwseo_onlyfans_count', $onlyfans_mentions);
+        update_post_meta($post_id, '_tmwseo_generated_date', current_time('mysql'));
         return ['ok' => true, 'payload' => $payload];
     }
 
@@ -569,7 +575,9 @@ class Core {
         }
 
         if ( empty( $rows ) ) {
-            error_log( self::TAG . ' video_seo_titles.csv missing, unreadable, or empty at ' . self::csv_path( 'video_seo_titles.csv' ) );
+            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+                error_log( self::TAG . ' video_seo_titles.csv not found, using template defaults' );
+            }
             return [];
         }
 
@@ -639,7 +647,9 @@ class Core {
         }
 
         if ( empty( $rows ) ) {
-            error_log( self::TAG . ' video_extra_keywords.csv missing, unreadable, or empty at ' . self::csv_path( 'video_extra_keywords.csv' ) );
+            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+                error_log( self::TAG . ' video_extra_keywords.csv not found, using template defaults' );
+            }
             return [];
         }
 
@@ -708,7 +718,9 @@ class Core {
         }
 
         if ( empty( $rows ) ) {
-            error_log( self::TAG . ' model_extra_keywords.csv missing, unreadable, or empty at ' . self::csv_path( 'model_extra_keywords.csv' ) );
+            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+                error_log( self::TAG . ' model_extra_keywords.csv not found, using template defaults' );
+            }
             return [];
         }
 

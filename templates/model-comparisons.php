@@ -8,6 +8,9 @@ $points = [
     "LiveJasmin replays and highlight reels let viewers revisit favorite moments without waiting for uploads.",
     "Compared to browsing OnlyFans collections, a LiveJasmin chat with {name} feels spontaneous and human.",
     "LiveJasmin moderators keep the vibe respectful, giving {name} room to guide the conversation.",
+    "OnlyFans excels at curated photo sets and videos, but LiveJasmin's strength is immediate interaction with {name} in HD quality.",
+    "While OnlyFans subscribers wait for new posts, LiveJasmin viewers chat with {name} live and request specific moments.",
+    "The OnlyFans browsing experience focuses on archives; LiveJasmin creates fresh experiences every session with {name}.",
 ];
 
 $templates = [];
