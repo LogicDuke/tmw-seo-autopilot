@@ -100,15 +100,15 @@ class Content_Generator {
         $extra = Keyword_Library::pick_multi($categories, 'extra', 10, $seed, [], 30, $post_id, $post_type);
         $longtail = Keyword_Library::pick_multi($categories, 'longtail', 6, $seed, $extra, 30, $post_id, $post_type);
 
-        $tag_slice = array_slice($safe_tags, 0, max(4, min(6, count($safe_tags))));
-        $tag_text  = !empty($tag_slice) ? implode(', ', $tag_slice) : 'live webcam shows';
+        $safe_tags_slice = array_slice($safe_tags, 0, max(4, min(6, count($safe_tags))));
+        $safe_tags_text  = !empty($safe_tags_slice) ? implode(', ', $safe_tags_slice) : 'live webcam shows';
         return [
             'name'                 => $name,
             'platform_a'           => $pair[0] ?? 'Chaturbate',
             'platform_b'           => $pair[1] ?? 'Stripchat',
             'live_brand'           => 'LiveJasmin',
             'site'                 => $context['site'] ?? get_bloginfo('name'),
-            'tags'                 => $tag_text,
+            'tags'                 => $safe_tags_text,
             'safe_tags'            => $safe_tags,
             'categories'           => $categories,
             'extra_keywords'       => $extra,

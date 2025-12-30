@@ -35,6 +35,29 @@ class Keyword_Manager {
         ];
     }
 
+    /**
+     * Determine whether a keyword needs filling. Returns keywords to add.
+     */
+    public static function fill_keyword(string $content, string $keyword, int $min, int $max): array {
+        $keyword = trim($keyword);
+        if ($keyword === '') {
+            return [];
+        }
+
+        $pattern = '/' . preg_quote($keyword, '/') . '/i';
+        $count   = preg_match_all($pattern, $content, $matches);
+
+        if ($count > $max) {
+            return [];
+        }
+
+        if ($count >= $min) {
+            return [];
+        }
+
+        return [$keyword];
+    }
+
     public static function apply_density(string $content, string $name, array $pair, string $type = 'model'): array {
         $keywords = array_filter(array_unique([
             $name,
@@ -48,6 +71,18 @@ class Keyword_Manager {
         ]));
 
         $content = self::reduce_focus_density($content, $name, $type);
+
+        $pattern      = $name !== '' ? '/' . preg_quote($name, '/') . '/i' : '';
+        $current_hits = $pattern !== '' ? preg_match_all($pattern, $content, $matches) : 0;
+        $target_min   = $type === 'video' ? 2 : 3;
+
+        if ($pattern !== '' && $current_hits < $target_min) {
+            $filler = sprintf(
+                '\n\n<p>%s keeps conversations feeling live and personal.</p>',
+                esc_html($name)
+            );
+            $content .= $filler;
+        }
 
         return [
             'content'  => $content,

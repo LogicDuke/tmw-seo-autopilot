@@ -1,13 +1,13 @@
 <?php
 $intro_hooks = [
-    "Fans searching '{name} OnlyFans video' end up here because this LiveJasmin recording shows real interaction instead of static uploads.",
-    "People typing '{name} {platform_a} recording' discover how LiveJasmin keeps the camera steady and the conversation flowing.",
-    "Those looking for '{name} highlights' will find this recap proves why LiveJasmin private sessions beat public rooms.",
-    "This five-minute reel captures the intimacy that OnlyFans clips miss, with LiveJasmin audio that feels present.",
+    "Fans searching '{name} OnlyFans video' end up here because this {live_brand} recording shows real interaction instead of static uploads.",
+    "People typing '{name} {platform_a} recording' discover how {live_brand} keeps the camera steady and the conversation flowing.",
+    "Those looking for '{name} highlights' will find this recap proves why {live_brand} private sessions beat public rooms like {platform_b}.",
+    "This five-minute reel captures the intimacy that OnlyFans clips miss, with {live_brand} audio that feels present.",
 ];
 
 $video_details = [
-    "Duration: five-minute highlight pulled from a recent LiveJasmin session where {name} answered live requests.",
+    "Duration: five-minute highlight pulled from a recent {live_brand} session where {name} answered live requests.",
     "Quality: filmed in 1080p with stable lighting so every smile and hand gesture is crisp.",
     "Categories: {tags}, blended into a comfortable pace that avoids harsh cuts.",
     "Viewers hear the difference: quiet background, clear whispers, and no noisy tip alerts like on {platform_b}.",
@@ -16,14 +16,14 @@ $video_details = [
 $engagement = [
     "The clip shows how she asks viewers for mood checks before changing songs, something you cannot feel on OnlyFans.",
     "Live chat reactions guide her pacing, letting shy fans type questions that she answers in real time.",
-    "She offers quick reminders to hydrate and stretch, matching the mindful tone of her LiveJasmin room.",
+    "She offers quick reminders to hydrate and stretch, matching the mindful tone of her {live_brand} room.",
     "Expect playful commentary and calm smiles rather than chaotic public chat; this recording highlights that care.",
 ];
 
 $cta = [
-    "Watch the full show by joining LiveJasmin now and ask {name} for a fresh request.",
-    "Open LiveJasmin to experience her next stream live and compare it to any OnlyFans clip you've seen.",
-    "Click through to LiveJasmin, follow {name}, and get an alert when the next private room opens.",
+    "Watch the full show by joining {live_brand} now and ask {name} for a fresh request.",
+    "Open {live_brand} to experience her next stream live and compare it to any OnlyFans clip you've seen.",
+    "Click through to {live_brand}, follow {name}, and get an alert when the next private room opens.",
 ];
 
 $templates = [];
