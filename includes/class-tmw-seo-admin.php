@@ -21,6 +21,7 @@ class Admin {
         add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
+        add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
     }
 
     public static function assets($hook) {
@@ -227,6 +228,92 @@ class Admin {
             'message'  => 'Success',
             'keywords' => array_slice($keywords, 0, 5),
         ]);
+    }
+
+    public static function ajax_build_keyword_pack() {
+        check_ajax_referer('tmwseo_build_keyword_pack', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+
+        $lock_key = 'tmwseo_serper_build_lock';
+        if (get_transient($lock_key)) {
+            wp_send_json_error(['message' => 'Build already running']);
+        }
+
+        set_transient($lock_key, 1, 30);
+
+        $fail = function ($message) use ($lock_key) {
+            delete_transient($lock_key);
+            wp_send_json_error(['message' => $message]);
+        };
+
+        $categories = Keyword_Library::categories();
+        $category   = sanitize_key($_POST['category'] ?? '');
+        if (!in_array($category, $categories, true)) {
+            $fail('Invalid category');
+        }
+
+        $seeds_input = $_POST['seeds'] ?? [];
+        if (is_string($seeds_input)) {
+            $seeds_input = preg_split('/\r?\n/', $seeds_input);
+        }
+
+        $seeds = [];
+        foreach ((array) $seeds_input as $seed) {
+            $seed = trim(sanitize_text_field((string) $seed));
+            if ($seed !== '') {
+                $seeds[] = $seed;
+            }
+        }
+
+        if (empty($seeds)) {
+            $fail('Please provide at least one seed.');
+        }
+
+        $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+        if ($api_key === '') {
+            $fail('Serper API key missing.');
+        }
+
+        $gl             = sanitize_text_field($_POST['gl'] ?? (string) get_option('tmwseo_serper_gl', 'us'));
+        $hl             = sanitize_text_field($_POST['hl'] ?? (string) get_option('tmwseo_serper_hl', 'en'));
+        $per_seed       = max(1, min(50, (int) ($_POST['per_seed'] ?? 10)));
+        $include_comp   = !empty($_POST['competitor']);
+        $dry_run        = !empty($_POST['dry_run']);
+
+        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed);
+
+        $response = [
+            'message' => $dry_run ? 'Dry run completed.' : 'Keyword packs built.',
+            'preview' => $build,
+        ];
+
+        if (!$dry_run) {
+            $counts = [];
+            $counts['extra']    = Keyword_Pack_Builder::merge_write_csv($category, 'extra', $build['extra'] ?? []);
+            $counts['longtail'] = Keyword_Pack_Builder::merge_write_csv($category, 'longtail', $build['longtail'] ?? []);
+
+            if ($include_comp) {
+                $comp_seeds = apply_filters('tmwseo_competitor_seeds', ['livejasmin vs chaturbate', 'livejasmin vs stripchat']);
+                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed);
+                $comp_kw    = array_merge($comp_build['extra'] ?? [], $comp_build['longtail'] ?? []);
+                $counts['competitor'] = Keyword_Pack_Builder::merge_write_csv($category, 'competitor', $comp_kw);
+            }
+
+            Keyword_Library::flush_cache();
+
+            $uploads_base = Keyword_Library::uploads_base_dir();
+            $response['paths']  = [
+                'extra'      => trailingslashit($uploads_base) . "{$category}/extra.csv",
+                'longtail'   => trailingslashit($uploads_base) . "{$category}/longtail.csv",
+                'competitor' => trailingslashit($uploads_base) . "{$category}/competitor.csv",
+            ];
+            $response['counts'] = $counts;
+        }
+
+        delete_transient($lock_key);
+        wp_send_json_success($response);
     }
 
     public static function bulk_action($actions) {
@@ -560,6 +647,8 @@ class Admin {
         $serper_gl      = (string) get_option('tmwseo_serper_gl', 'us');
         $serper_hl      = (string) get_option('tmwseo_serper_hl', 'en');
         $serper_nonce   = wp_create_nonce('tmwseo_serper_test');
+        $build_nonce    = wp_create_nonce('tmwseo_build_keyword_pack');
+        $default_per    = 10;
 
         ?>
         <div class="wrap">
@@ -592,6 +681,54 @@ class Admin {
                     <button type="submit" class="button button-primary">Save Serper Settings</button>
                     <button type="button" class="button" id="tmwseo-serper-test" data-nonce="<?php echo esc_attr($serper_nonce); ?>">Test Serper</button>
                     <span id="tmwseo-serper-result" style="margin-left:10px;"></span>
+                </p>
+            </form>
+
+            <h2 class="title" style="margin-top:30px;">Build Keyword Packs (Serper)</h2>
+            <p>Use Serper suggestions to auto-build <code>extra.csv</code> and <code>longtail.csv</code> files inside your uploads folder. Results are cleaned, deduped, and blacklisted phrases are skipped.</p>
+            <form id="tmwseo-build-form" style="max-width:760px;">
+                <input type="hidden" name="tmwseo_build_nonce" id="tmwseo_build_nonce" value="<?php echo esc_attr($build_nonce); ?>">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_category">Category</label></th>
+                        <td>
+                            <select id="tmwseo_build_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>"><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_seeds">Seeds (one per line)</label></th>
+                        <td>
+                            <textarea id="tmwseo_build_seeds" rows="5" class="large-text" placeholder="livejasmin tips&#10;best cam sites"></textarea>
+                            <p class="description">Each seed triggers a Serper search; suggestions are sanitized and deduped.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_gl">gl</label></th>
+                        <td><input type="text" id="tmwseo_build_gl" value="<?php echo esc_attr($serper_gl); ?>" class="regular-text" placeholder="us"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_hl">hl</label></th>
+                        <td><input type="text" id="tmwseo_build_hl" value="<?php echo esc_attr($serper_hl); ?>" class="regular-text" placeholder="en"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_per_seed">Suggestions per seed</label></th>
+                        <td><input type="number" id="tmwseo_build_per_seed" value="<?php echo (int) $default_per; ?>" min="1" max="50"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Optional</th>
+                        <td>
+                            <label><input type="checkbox" id="tmwseo_build_competitor" value="1"> Also write competitor.csv</label>
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="button" class="button button-primary" id="tmwseo-build-save">Generate &amp; Save</button>
+                    <button type="button" class="button" id="tmwseo-build-preview">Dry Run Preview</button>
+                    <span id="tmwseo-build-result" style="margin-left:10px;"></span>
                 </p>
             </form>
 
@@ -686,6 +823,77 @@ class Admin {
                     }).always(function(){
                         $btn.prop('disabled', false);
                     });
+                });
+
+                function tmwseoRunBuild(dryRun){
+                    var seeds = ($('#tmwseo_build_seeds').val() || '').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(function(s){ return s.length; });
+                    var $out = $('#tmwseo-build-result');
+                    var $btns = $('#tmwseo-build-save, #tmwseo-build-preview');
+
+                    if (!seeds.length) {
+                        $out.text('Please enter at least one seed.');
+                        return;
+                    }
+
+                    $btns.prop('disabled', true);
+                    $out.text(dryRun ? 'Previewing…' : 'Building…');
+
+                    var data = {
+                        action: 'tmwseo_build_keyword_pack',
+                        nonce: $('#tmwseo_build_nonce').val(),
+                        category: $('#tmwseo_build_category').val(),
+                        seeds: seeds,
+                        gl: $('#tmwseo_build_gl').val(),
+                        hl: $('#tmwseo_build_hl').val(),
+                        per_seed: $('#tmwseo_build_per_seed').val(),
+                        competitor: $('#tmwseo_build_competitor').is(':checked') ? 1 : 0,
+                        dry_run: dryRun ? 1 : 0
+                    };
+
+                    $.post(ajaxurl, data, function(resp){
+                        if (resp && resp.success) {
+                            var msg = resp.data && resp.data.message ? resp.data.message : 'Success';
+
+                            if (resp.data) {
+                                if (resp.data.counts) {
+                                    msg += ' | extra: ' + (resp.data.counts.extra || 0) + ' | longtail: ' + (resp.data.counts.longtail || 0);
+                                    if (typeof resp.data.counts.competitor !== 'undefined') {
+                                        msg += ' | competitor: ' + resp.data.counts.competitor;
+                                    }
+                                } else if (resp.data.preview) {
+                                    var preview = resp.data.preview;
+                                    var extraCount = preview.extra ? preview.extra.length : 0;
+                                    var longCount = preview.longtail ? preview.longtail.length : 0;
+                                    msg += ' | preview extra: ' + extraCount + ' | preview longtail: ' + longCount;
+                                }
+                            }
+
+                            $out.text(msg);
+
+                            if (!dryRun) {
+                                setTimeout(function(){
+                                    location.reload();
+                                }, 800);
+                            }
+                        } else {
+                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
+                            $out.text('Error: ' + message);
+                        }
+                    }).fail(function(){
+                        $out.text('Error: request failed');
+                    }).always(function(){
+                        $btns.prop('disabled', false);
+                    });
+                }
+
+                $('#tmwseo-build-save').on('click', function(e){
+                    e.preventDefault();
+                    tmwseoRunBuild(false);
+                });
+
+                $('#tmwseo-build-preview').on('click', function(e){
+                    e.preventDefault();
+                    tmwseoRunBuild(true);
                 });
             })(jQuery);
             </script>
