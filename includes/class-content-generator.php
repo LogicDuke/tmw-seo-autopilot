@@ -14,11 +14,13 @@ class Content_Generator {
         $seed     = $name . '-' . $model_id;
         $layout   = absint(crc32($seed)) % 3;
 
-        $intro      = Template_Engine::render(Template_Engine::pick('model-intros', $seed), self::base_context($name, $pair, $tags, $context));
-        $bio        = Template_Engine::render(Template_Engine::pick('model-bios', $seed, 1), self::base_context($name, $pair, $tags, $context));
-        $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), self::base_context($name, $pair, $tags, $context));
+        $base = self::base_context($name, $pair, $tags, $context);
+
+        $intro      = Template_Engine::render(Template_Engine::pick('model-intros', $seed), $base);
+        $bio        = Template_Engine::render(Template_Engine::pick('model-bios', $seed, 1), $base);
+        $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), $base);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 5);
-        $faqs_html  = self::render_faqs($faqs_tpl, $name, $pair);
+        $faqs_html  = self::render_faqs($faqs_tpl, $base);
 
         $related = self::render_related($context, $name);
 
@@ -39,7 +41,7 @@ class Content_Generator {
 
         $similarity = Uniqueness_Checker::similarity_score($content, Core::MODEL_PT);
         if ($similarity > 70) {
-            $alt_intro = Template_Engine::render(Template_Engine::pick('model-intros', $seed, 3), self::base_context($name, $pair, $tags, $context));
+            $alt_intro = Template_Engine::render(Template_Engine::pick('model-intros', $seed, 3), $base);
             $content   = implode("\n\n", [$alt_intro, $bio, $comparison, $faqs_html, $related]);
         }
 
@@ -57,11 +59,13 @@ class Content_Generator {
         $pair     = Keyword_Manager::competitor_pair(max(1, $video_id));
         $seed     = $name . '-' . $video_id;
 
-        $intro      = Template_Engine::render(Template_Engine::pick('video-templates', $seed), self::base_context($name, $pair, $tags, $context));
-        $details    = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 1), self::base_context($name, $pair, $tags, $context));
-        $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), self::base_context($name, $pair, $tags, $context));
+        $base = self::base_context($name, $pair, $tags, $context);
+
+        $intro      = Template_Engine::render(Template_Engine::pick('video-templates', $seed), $base);
+        $details    = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 1), $base);
+        $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), $base);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 4);
-        $faqs_html  = self::render_faqs($faqs_tpl, $name, $pair);
+        $faqs_html  = self::render_faqs($faqs_tpl, $base);
 
         $content = implode("\n\n", [$intro, $details, $comparison, $faqs_html]);
         $word_count = str_word_count(strip_tags($content));
@@ -74,7 +78,7 @@ class Content_Generator {
 
         $similarity = Uniqueness_Checker::similarity_score($content, Core::VIDEO_PT);
         if ($similarity > 70) {
-            $alt_intro = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 5), self::base_context($name, $pair, $tags, $context));
+            $alt_intro = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 5), $base);
             $content   = implode("\n\n", [$alt_intro, $details, $comparison, $faqs_html]);
         }
 
@@ -86,33 +90,31 @@ class Content_Generator {
     }
 
     protected static function base_context(string $name, array $pair, array $tags, array $context): array {
-        $tag_text = !empty($tags) ? implode(', ', array_slice($tags, 0, 6)) : 'live webcam shows';
+        $safe_tags = Core::get_safe_model_tag_keywords($tags);
+        $tag_slice = array_slice($safe_tags, 0, max(4, min(6, count($safe_tags))));
+        $tag_text  = !empty($tag_slice) ? implode(', ', $tag_slice) : 'live webcam shows';
         return [
             'name'         => $name,
-            'platform_a'   => 'other cam sites',
-            'platform_b'   => 'popular live platforms',
-            'live_brand'   => 'live cam shows',
+            'platform_a'   => $pair[0] ?? 'Chaturbate',
+            'platform_b'   => $pair[1] ?? 'Stripchat',
+            'live_brand'   => 'LiveJasmin',
             'site'         => $context['site'] ?? get_bloginfo('name'),
             'tags'         => $tag_text,
             'cta_url'      => $context['brand_url'] ?? '',
         ];
     }
 
-    protected static function render_faqs(array $faqs, string $name, array $pair): string {
+    protected static function render_faqs(array $faqs, array $base): string {
         $html = '<h2>FAQ</h2>';
+        $used_questions = [];
         foreach ($faqs as $faq) {
-            $q = Template_Engine::render($faq['q'], [
-                'name' => $name,
-                'platform_a' => 'other cam sites',
-                'platform_b' => 'popular live platforms',
-                'live_brand' => 'live cam shows',
-            ]);
-            $a = Template_Engine::render($faq['a'], [
-                'name' => $name,
-                'platform_a' => 'other cam sites',
-                'platform_b' => 'popular live platforms',
-                'live_brand' => 'live cam shows',
-            ]);
+            $q = Template_Engine::render($faq['q'], $base);
+            $q_key = strtolower(trim($q));
+            if ($q_key === '' || isset($used_questions[$q_key])) {
+                continue;
+            }
+            $used_questions[$q_key] = true;
+            $a = Template_Engine::render($faq['a'], $base);
             $html .= '<h3>' . esc_html($q) . '</h3><p>' . esc_html($a) . '</p>';
         }
         return $html;
@@ -153,7 +155,12 @@ class Content_Generator {
             foreach (array_slice($related_videos, 0, 6) as $video) {
                 $url   = get_permalink($video->ID);
                 $title = get_the_title($video->ID);
-                $out  .= '<li><a href="' . esc_url($url) . '">' . esc_html($title) . '</a></li>';
+                $safe_title = Core::sanitize_sfw_text((string) $title, '');
+                if ($safe_title === '') {
+                    continue;
+                }
+                $safe_title = Core::sanitize_sfw_text($safe_title, 'Watch now');
+                $out  .= '<li><a href="' . esc_url($url) . '">' . esc_html($safe_title) . '</a></li>';
             }
             $out .= '</ul>';
         }
@@ -164,7 +171,12 @@ class Content_Generator {
             foreach ($related_models as $model) {
                 $url   = get_permalink($model->ID);
                 $title = get_the_title($model->ID);
-                $out  .= '<li><a href="' . esc_url($url) . '">' . esc_html($title) . '</a></li>';
+                $safe_title = Core::sanitize_sfw_text((string) $title, '');
+                if ($safe_title === '') {
+                    continue;
+                }
+                $safe_title = Core::sanitize_sfw_text($safe_title, 'Watch now');
+                $out  .= '<li><a href="' . esc_url($url) . '">' . esc_html($safe_title) . '</a></li>';
             }
             $out .= '</ul>';
         }

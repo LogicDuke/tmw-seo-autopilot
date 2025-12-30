@@ -56,12 +56,38 @@ class Template_Engine {
         if (empty($templates)) {
             return [];
         }
-        $selected = [];
-        for ($i = 0; $i < $count; $i++) {
-            $index = absint((crc32($seed . 'faq-' . $i) + $offset) % count($templates));
-            $selected[] = $templates[$index];
+        $weighted = [];
+        foreach ($templates as $index => $faq) {
+            $hash              = sprintf('%u', crc32($seed . '-' . $offset . '-' . $index));
+            $weighted[$hash . '-' . $index] = $faq;
         }
-        return $selected;
+
+        ksort($weighted, SORT_STRING);
+
+        $unique = [];
+        $seen   = [];
+        foreach ($weighted as $faq) {
+            $fingerprint = strtolower(trim(($faq['q'] ?? '') . '|' . ($faq['a'] ?? '')));
+            if ($fingerprint === '|' || isset($seen[$fingerprint])) {
+                continue;
+            }
+            $seen[$fingerprint] = true;
+            $unique[]           = $faq;
+            if (count($unique) >= $count) {
+                break;
+            }
+        }
+
+        if (count($unique) < $count) {
+            foreach ($weighted as $faq) {
+                if (count($unique) >= $count) {
+                    break;
+                }
+                $unique[] = $faq;
+            }
+        }
+
+        return $unique;
     }
 
     /**
@@ -70,8 +96,21 @@ class Template_Engine {
     public static function render(string $template, array $context): string {
         $replacements = [];
         foreach ($context as $key => $value) {
+            if (is_array($value)) {
+                $value = implode(', ', array_map('strval', $value));
+            } elseif (is_scalar($value)) {
+                $value = (string) $value;
+            } elseif (is_object($value)) {
+                $value = method_exists($value, '__toString') ? (string) $value : '';
+            } else {
+                $value = '';
+            }
             $replacements['{' . $key . '}'] = $value;
         }
-        return strtr($template, $replacements);
+
+        $rendered = strtr($template, $replacements);
+        $rendered = preg_replace('/\{[^}]+\}/', '', $rendered);
+
+        return $rendered;
     }
 }
