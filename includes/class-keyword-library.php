@@ -4,14 +4,7 @@ if (!defined('ABSPATH')) exit;
 
 class Keyword_Library {
     protected static $cache = [];
-    protected static $blacklist = ['leak', 'download', 'nude', 'torrent'];
-
-    protected static $category_map = [
-        'roleplay' => ['roleplay', 'fantasy', 'story', 'character'],
-        'chat'     => ['chat', 'interactive', 'talk', 'conversation'],
-        'cosplay'  => ['cosplay', 'costume'],
-        'couples'  => ['couple', 'duo'],
-    ];
+    protected static $blacklist = ['leak', 'download', 'nude', 'torrent', 'teen'];
 
     public static function uploads_base_dir(): string {
         $uploads = wp_upload_dir();
@@ -23,58 +16,122 @@ class Keyword_Library {
     }
 
     public static function ensure_dirs_and_placeholders(): void {
-        $categories = ['general', 'roleplay', 'chat', 'cosplay', 'couples'];
-        $types      = ['extra', 'longtail'];
+        $categories = self::categories();
+        $types      = ['extra', 'longtail', 'competitor'];
 
-        foreach ($categories as $category) {
-            $dir = trailingslashit(self::uploads_base_dir()) . $category;
-            if (!is_dir($dir)) {
-                wp_mkdir_p($dir);
-            }
+        $bases = [self::uploads_base_dir(), self::plugin_base_dir()];
 
-            $placeholder_rows = [
-                ['keyword'],
-                ['chat tips'],
-                ['live stream ideas'],
-                ['viewer engagement'],
-            ];
-
-            foreach ($types as $type) {
-                $file = trailingslashit($dir) . "{$type}.csv";
-                if (!file_exists($file)) {
-                    $fh = fopen($file, 'w');
-                    if ($fh) {
-                        foreach ($placeholder_rows as $row) {
-                            fputcsv($fh, $row);
-                        }
-                        fclose($fh);
-                    }
+        foreach ($bases as $base) {
+            foreach ($categories as $category) {
+                $dir = trailingslashit($base) . $category;
+                if (!is_dir($dir)) {
+                    wp_mkdir_p($dir);
                 }
-            }
 
-            if ($category === 'general') {
-                $file = trailingslashit($dir) . 'competitor.csv';
-                if (!file_exists($file)) {
-                    $fh = fopen($file, 'w');
-                    if ($fh) {
-                        foreach ($placeholder_rows as $row) {
-                            fputcsv($fh, $row);
+                $placeholder_rows = [
+                    ['keyword'],
+                ];
+
+                foreach ($types as $type) {
+                    $file = trailingslashit($dir) . "{$type}.csv";
+                    if (!file_exists($file)) {
+                        $fh = fopen($file, 'w');
+                        if ($fh) {
+                            foreach ($placeholder_rows as $row) {
+                                fputcsv($fh, $row);
+                            }
+                            fclose($fh);
                         }
-                        fclose($fh);
                     }
                 }
             }
         }
     }
 
+    public static function categories(): array {
+        return [
+            'general',
+            'livejasmin',
+            'compare-platforms',
+            'roleplay',
+            'cosplay',
+            'chatty',
+            'dance',
+            'glamour',
+            'romantic',
+            'dominant',
+            'fitness',
+            'outdoor',
+            'uniforms',
+            'couples',
+            'fetish-lite',
+            'petite',
+            'curvy',
+            'athletic',
+            'big-boobs',
+            'big-butt',
+            'asian',
+            'latina',
+            'ebony',
+            'interracial',
+            'white',
+            'blonde',
+            'brunette',
+            'redhead',
+            'tattoo-piercing',
+        ];
+    }
+
     public static function categories_from_safe_tags(array $safe_tags): array {
+        $safe_tags = array_map('strtolower', array_map('trim', $safe_tags));
+        foreach ($safe_tags as $tag) {
+            if ($tag !== '' && strpos($tag, 'teen') !== false) {
+                return ['general'];
+            }
+        }
+
+        $category_map = [
+            'roleplay'         => ['roleplay', 'princess', 'romantic', 'sensual', 'curious'],
+            'cosplay'          => ['cosplay', 'costume', 'cheerleader'],
+            'chatty'           => ['flirting', 'teasing', 'eye contact', 'chatty', 'talkative'],
+            'dance'            => ['dance', 'dancing', 'twerk'],
+            'glamour'          => ['glamour', 'lingerie', 'high heels', 'fishnet', 'boots', 'sexy'],
+            'romantic'         => ['romantic', 'sensual', 'soft'],
+            'dominant'         => ['dominant', 'domme', 'mistress', 'control'],
+            'fitness'          => ['gym', 'athletic', 'muscular', 'fit'],
+            'outdoor'          => ['outdoor', 'pool', 'public'],
+            'uniforms'         => ['nurse', 'teacher', 'doctor', 'maid', 'secretary', 'office', 'cop', 'schoolgirl', 'uniform'],
+            'couples'          => ['couple'],
+            'fetish-lite'      => ['fetish', 'kinky', 'bdsm', 'light fetish'],
+            'petite'           => ['petite'],
+            'curvy'            => ['curvy', 'thick'],
+            'athletic'         => ['athletic', 'muscular'],
+            'big-boobs'        => ['big-boobs', 'boobs', 'busty', 'big chest'],
+            'big-butt'         => ['big-butt', 'booty', 'ass', 'big butt'],
+            'asian'            => ['asian'],
+            'latina'           => ['latina'],
+            'ebony'            => ['ebony', 'black'],
+            'interracial'      => ['interracial'],
+            'white'            => ['white'],
+            'blonde'           => ['blonde'],
+            'brunette'         => ['brunette', 'brown hair'],
+            'redhead'          => ['redhead', 'ginger'],
+            'tattoo-piercing'  => ['tattoo', 'piercing', 'ink'],
+            'livejasmin'       => ['livejasmin', 'jasmin'],
+            'compare-platforms'=> ['compare', 'versus', 'vs'],
+        ];
+
         $matches = [];
         foreach ($safe_tags as $tag) {
-            $tag = strtolower((string) $tag);
-            foreach (self::$category_map as $category => $needles) {
+            if ($tag === '') {
+                continue;
+            }
+            foreach ($category_map as $category => $needles) {
                 foreach ($needles as $needle) {
-                    if (strpos($tag, $needle) !== false) {
-                        $matches[] = $category;
+                    if ($needle !== '' && strpos($tag, $needle) !== false) {
+                        if (!in_array($category, $matches, true)) {
+                            $matches[] = $category;
+                        }
                         break 2;
                     }
                 }
@@ -84,7 +141,7 @@ class Keyword_Library {
             }
         }
 
-        $matches = array_values(array_unique($matches));
+        $matches = array_values(array_unique(array_intersect($matches, self::categories())));
         if (!in_array('general', $matches, true)) {
             $matches[] = 'general';
         }
@@ -169,34 +226,94 @@ class Keyword_Library {
         return array_values(array_unique($picked));
     }
 
-    public static function pick_multi(array $categories, string $type, int $count, string $seed): array {
-        $pool = [];
+    public static function pick_multi(array $categories, string $type, int $count, string $seed, array $used_on_page = [], int $cooldown_days = 30, int $post_id = 0, string $post_type = ''): array {
         $categories = array_values(array_unique(array_filter(array_map('sanitize_key', $categories))));
+        $primary_category = $categories[0] ?? 'general';
         if (!in_array('general', $categories, true)) {
             $categories[] = 'general';
         }
 
+        $pool_sources = [];
         foreach ($categories as $cat) {
-            $pool = array_merge($pool, self::load($cat, $type));
+            foreach (self::load($cat, $type) as $kw) {
+                $pool_sources[$kw] = $pool_sources[$kw] ?? $cat;
+            }
         }
 
-        $pool = array_values(array_unique($pool));
+        if (empty($pool_sources)) {
+            return [];
+        }
+
+        $used_lookup = [];
+        foreach ($used_on_page as $used_kw) {
+            $key = strtolower(trim((string) $used_kw));
+            if ($key !== '') {
+                $used_lookup[$key] = true;
+            }
+        }
+
+        $pool = [];
+        foreach ($pool_sources as $kw => $source_cat) {
+            $key = strtolower(trim($kw));
+            if ($key === '' || isset($used_lookup[$key])) {
+                continue;
+            }
+            $pool[$kw] = $source_cat;
+        }
+
         if (empty($pool)) {
             return [];
         }
 
-        $scored = [];
-        foreach ($pool as $kw) {
+        $cooldown_days = (int) apply_filters('tmwseo_keyword_cooldown_days', $cooldown_days);
+        $usage_stats   = Keyword_Usage::get_usage_stats(array_keys($pool), $primary_category, $type);
+
+        $candidates = [];
+        foreach ($pool as $kw => $source_cat) {
+            $stats = $usage_stats[$kw] ?? ['count' => 0, 'last_used' => null];
+            $recent_block = false;
+            if ($cooldown_days > 0 && !empty($stats['last_used'])) {
+                $recent_block = Keyword_Usage::is_within_days($stats['last_used'], $cooldown_days);
+            }
+
             $hash = crc32($seed . '|' . $kw);
-            $scored[] = ['kw' => $kw, 'score' => $hash];
+            $candidates[] = [
+                'kw'        => $kw,
+                'count'     => (int) $stats['count'],
+                'last_used' => $stats['last_used'] ?: null,
+                'recent'    => $recent_block,
+                'score'     => $hash,
+                'category'  => $source_cat,
+            ];
         }
 
-        usort($scored, function ($a, $b) {
-            return $a['score'] <=> $b['score'];
+        $filtered = array_filter($candidates, function ($item) {
+            return empty($item['recent']);
+        });
+        if (empty($filtered)) {
+            $filtered = $candidates; // Allow reuse if pool is too small.
+        }
+
+        usort($filtered, function ($a, $b) {
+            if ($a['count'] === $b['count']) {
+                $a_time = $a['last_used'] ? strtotime($a['last_used']) : 0;
+                $b_time = $b['last_used'] ? strtotime($b['last_used']) : 0;
+                if ($a_time === $b_time) {
+                    return $a['score'] <=> $b['score'];
+                }
+                return $a_time <=> $b_time;
+            }
+            return $a['count'] <=> $b['count'];
         });
 
-        $picked = array_slice(array_column($scored, 'kw'), 0, $count);
-        return array_values(array_unique($picked));
+        $picked = array_slice(array_column($filtered, 'kw'), 0, $count);
+        $picked = array_values(array_unique($picked));
+
+        if (!empty($picked)) {
+            Keyword_Usage::record_usage($picked, $primary_category, $type, $post_id, $post_type ?: '');
+        }
+
+        return $picked;
     }
 
     protected static function sanitize_keyword(string $keyword): string {

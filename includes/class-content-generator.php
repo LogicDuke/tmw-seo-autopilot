@@ -95,8 +95,10 @@ class Content_Generator {
         $categories = Keyword_Library::categories_from_safe_tags($safe_tags);
         $seed_source = $context['model_id'] ?? $context['video_id'] ?? null;
         $seed = $seed_source !== null ? (string) $seed_source : (string) crc32($name);
-        $extra = Keyword_Library::pick_multi($categories, 'extra', 10, $seed);
-        $longtail = Keyword_Library::pick_multi($categories, 'longtail', 6, $seed);
+        $post_id   = (int) ($context['model_id'] ?? $context['video_id'] ?? 0);
+        $post_type = !empty($context['model_id']) ? Core::MODEL_PT : (!empty($context['video_id']) ? Core::VIDEO_PT : '');
+        $extra = Keyword_Library::pick_multi($categories, 'extra', 10, $seed, [], 30, $post_id, $post_type);
+        $longtail = Keyword_Library::pick_multi($categories, 'longtail', 6, $seed, $extra, 30, $post_id, $post_type);
 
         $tag_slice = array_slice($safe_tags, 0, max(4, min(6, count($safe_tags))));
         $tag_text  = !empty($tag_slice) ? implode(', ', $tag_slice) : 'live webcam shows';
