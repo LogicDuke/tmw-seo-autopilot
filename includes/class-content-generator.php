@@ -86,12 +86,14 @@ class Content_Generator {
     }
 
     protected static function base_context(string $name, array $pair, array $tags, array $context): array {
-        $tag_text = !empty($tags) ? implode(', ', array_slice($tags, 0, 6)) : 'live webcam shows';
+        $safe_tags = Core::get_safe_model_tag_keywords($tags);
+        $tag_text  = !empty($safe_tags) ? implode(', ', array_slice($safe_tags, 0, 6)) : 'live webcam shows';
+
         return [
             'name'         => $name,
-            'platform_a'   => 'other cam sites',
-            'platform_b'   => 'popular live platforms',
-            'live_brand'   => 'live cam shows',
+            'platform_a'   => $pair[0] ?? 'Chaturbate',
+            'platform_b'   => $pair[1] ?? 'Stripchat',
+            'live_brand'   => 'LiveJasmin',
             'site'         => $context['site'] ?? get_bloginfo('name'),
             'tags'         => $tag_text,
             'cta_url'      => $context['brand_url'] ?? '',
@@ -99,19 +101,27 @@ class Content_Generator {
     }
 
     protected static function render_faqs(array $faqs, string $name, array $pair): string {
-        $html = '<h2>FAQ</h2>';
+        $html           = '<h2>FAQ</h2>';
+        $used_questions = [];
+
         foreach ($faqs as $faq) {
             $q = Template_Engine::render($faq['q'], [
                 'name' => $name,
-                'platform_a' => 'other cam sites',
-                'platform_b' => 'popular live platforms',
-                'live_brand' => 'live cam shows',
+                'platform_a' => $pair[0] ?? 'Chaturbate',
+                'platform_b' => $pair[1] ?? 'Stripchat',
+                'live_brand' => 'LiveJasmin',
             ]);
+
+            if (in_array($q, $used_questions, true)) {
+                continue;
+            }
+            $used_questions[] = $q;
+
             $a = Template_Engine::render($faq['a'], [
                 'name' => $name,
-                'platform_a' => 'other cam sites',
-                'platform_b' => 'popular live platforms',
-                'live_brand' => 'live cam shows',
+                'platform_a' => $pair[0] ?? 'Chaturbate',
+                'platform_b' => $pair[1] ?? 'Stripchat',
+                'live_brand' => 'LiveJasmin',
             ]);
             $html .= '<h3>' . esc_html($q) . '</h3><p>' . esc_html($a) . '</p>';
         }
