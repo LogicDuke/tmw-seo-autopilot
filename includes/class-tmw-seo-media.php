@@ -27,7 +27,9 @@ class Media {
 
         add_action('set_post_thumbnail', [__CLASS__, 'on_set_thumb'], 10, 3);
         add_action('add_attachment', [__CLASS__, 'on_add_attachment']);
-        add_action('save_post_' . Core::VIDEO_PT, [__CLASS__, 'on_save_video'], 10, 3);
+        foreach ( Core::video_post_types() as $video_pt ) {
+            add_action( 'save_post_' . $video_pt, [ __CLASS__, 'on_save_video' ], 10, 3 );
+        }
 
         // Also react when _thumbnail_id meta is written directly.
         add_action('added_post_meta', [__CLASS__, 'on_thumb_meta'], 10, 4);
@@ -54,7 +56,7 @@ class Media {
             }
         }
 
-        error_log(self::TAG . " set_post_thumbnail post#$post_id thumb#$thumb_id");
+        Core::debug_log(self::TAG . " set_post_thumbnail post#$post_id thumb#$thumb_id");
     }
 
     /**
@@ -113,7 +115,7 @@ class Media {
         if (!is_admin() || wp_doing_ajax() || (defined('REST_REQUEST') && REST_REQUEST) || (defined('DOING_CRON') && DOING_CRON)) {
             return;
         }
-        if (!$post || $post->post_type !== Core::VIDEO_PT) {
+        if (!$post || !Core::is_video_post_type($post->post_type)) {
             return;
         }
         if (!current_user_can('edit_post', $post_id)) {
@@ -149,7 +151,7 @@ class Media {
         }
 
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
-            error_log(self::TAG . " filled thumbnail meta for post {$parent_post->ID} / attachment {$thumb_id}");
+            Core::debug_log(self::TAG . " filled thumbnail meta for post {$parent_post->ID} / attachment {$thumb_id}");
         }
     }
 

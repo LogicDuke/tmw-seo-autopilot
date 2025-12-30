@@ -10,6 +10,15 @@ class Core {
     const MODEL_PT = 'model';
     const VIDEO_PT = 'video';
 
+    /**
+     * Debug log helper: only logs when TMW_DEBUG is truthy.
+     */
+    public static function debug_log( $message ): void {
+        if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+            error_log( (string) $message );
+        }
+    }
+
     public static function csv_dir(): string {
         $uploads = wp_upload_dir();
         $dir     = trailingslashit( $uploads['basedir'] ) . 'tmwseo-csv/';
@@ -20,15 +29,40 @@ class Core {
     }
 
     public static function csv_path( string $file ): string {
-        return trailingslashit( self::csv_dir() ) . ltrim( $file, '/\\' );
+        $file       = ltrim( $file, '/\\' );
+        $upload_dir = trailingslashit( self::csv_dir() );
+        $data_dir   = trailingslashit( plugin_dir_path( __FILE__ ) . '../data' );
+        $root_dir   = trailingslashit( plugin_dir_path( __FILE__ ) . '..' );
+
+        $candidates = [
+            $upload_dir . $file,
+            $data_dir . $file,
+            $root_dir . $file,
+        ];
+
+        foreach ( $candidates as $candidate ) {
+            if ( is_readable( $candidate ) ) {
+                return $candidate; // First readable match wins.
+            }
+        }
+
+        return $upload_dir . $file; // Default path for new files.
     }
 
     public static function read_csv_assoc( string $path ): array {
-        if ( ! is_readable( $path ) ) {
+        static $cache = [];
+
+        $resolved_path = is_readable( $path ) ? $path : self::csv_path( $path );
+
+        if ( isset( $cache[ $resolved_path ] ) ) {
+            return $cache[ $resolved_path ];
+        }
+
+        if ( ! is_readable( $resolved_path ) ) {
             return [];
         }
 
-        $handle = fopen( $path, 'r' );
+        $handle = fopen( $resolved_path, 'r' );
         if ( ! $handle ) {
             return [];
         }
@@ -55,6 +89,8 @@ class Core {
         }
 
         fclose( $handle );
+        $cache[ $resolved_path ] = $rows;
+
         return $rows;
     }
 
@@ -170,7 +206,7 @@ class Core {
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-            error_log(
+            Core::debug_log(
                 sprintf(
                     '%s [RM-VIDEO] post#%d opts=%s existing_focus=%s',
                     self::TAG,
@@ -183,7 +219,7 @@ class Core {
 
         $name = self::detect_model_name_from_video($post);
         if (!$name) {
-            error_log(self::TAG . " abort: video#{$post->ID} '{$post->post_title}' has no detectable model name");
+            Core::debug_log(self::TAG . " abort: video#{$post->ID} '{$post->post_title}' has no detectable model name");
             return ['ok' => false, 'message' => 'No model name detected'];
         }
 
@@ -296,7 +332,7 @@ class Core {
         update_post_meta( $post->ID, '_tmwseo_video_tag_keywords', $tag_keywords );
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-            error_log(
+            Core::debug_log(
                 sprintf(
                     '%s [RM-VIDEO] post#%d focus="%s" extras=%s',
                     self::TAG,
@@ -313,7 +349,7 @@ class Core {
         self::link_model_to_video($model_id, $video_id);
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-            error_log(
+            Core::debug_log(
                 sprintf(
                     '%s [VIDEO] #%d focus="%s" title="%s" desc_contains_focus=%s',
                     self::TAG,
@@ -326,7 +362,7 @@ class Core {
         }
 
         update_post_meta($post->ID, '_tmwseo_video_seo_done', gmdate('c'));
-        error_log(self::TAG . " generated video#$video_id & model#$model_id for {$name}");
+        Core::debug_log(self::TAG . " generated video#$video_id & model#$model_id for {$name}");
         return ['ok' => true, 'video' => $payload_video, 'model' => $payload_model, 'model_id' => $model_id];
     }
 
@@ -426,7 +462,7 @@ class Core {
         }
         delete_post_meta($post_id, "_tmwseo_prev_{$type}");
         delete_post_meta($post_id, '_tmwseo_prev');
-        error_log(self::TAG . " rollback done for #$post_id");
+        Core::debug_log(self::TAG . " rollback done for #$post_id");
         return ['ok' => true];
     }
 
@@ -442,7 +478,7 @@ class Core {
             'post_title' => $name,
             'post_content' => '',
         ]);
-        error_log(self::TAG . " created model#$id for {$name}");
+        Core::debug_log(self::TAG . " created model#$id for {$name}");
         return (int) $id;
     }
 
@@ -456,7 +492,7 @@ class Core {
         $safe_name = self::sanitize_sfw_text($raw_name, 'Live Cam Model');
 
         if (defined('TMW_DEBUG') && TMW_DEBUG && $raw_name === '') {
-            error_log(self::TAG . " [MODEL] fallback name used for video#{$post->ID}");
+            Core::debug_log(self::TAG . " [MODEL] fallback name used for video#{$post->ID}");
         }
 
         return $safe_name;
@@ -575,45 +611,70 @@ class Core {
         }
 
         if ( empty( $rows ) ) {
-            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-                error_log( self::TAG . ' video_seo_titles.csv not found, using template defaults' );
-            }
+            Core::debug_log( self::TAG . ' video_seo_titles.csv not found, using template defaults' );
             return [];
         }
 
-        $used = get_option( 'tmwseo_used_video_title_keys', [] );
-        if ( ! is_array( $used ) ) {
-            $used = [];
-        }
-
-        $needle_tokens = self::normalize_tokens( $lj_title . ' ' . implode( ' ', $looks ) );
-        $best_row      = null;
-        $best_key      = '';
-        $best_score    = -1;
-
-        foreach ( $rows as $row ) {
-            $key = self::video_title_row_key( $row );
-            if ( $key === '' || in_array( $key, $used, true ) ) {
-                continue;
+        $lock_acquired = false;
+        for ( $i = 0; $i < 5; $i++ ) {
+            if ( add_option( 'tmwseo_lock_video_title_keys', time(), '', 'no' ) ) {
+                $lock_acquired = true;
+                break;
             }
-            $score = self::score_video_row( $row, $needle_tokens );
-            if ( $score > $best_score ) {
-                $best_score = $score;
-                $best_row   = $row;
-                $best_key   = $key;
+            $lock_time = (int) get_option( 'tmwseo_lock_video_title_keys', 0 );
+            if ( ( time() - $lock_time ) > 30 ) {
+                delete_option( 'tmwseo_lock_video_title_keys' );
             }
+            usleep( 200000 );
         }
-
-        if ( ! $best_row ) {
+        if ( ! $lock_acquired ) {
+            Core::debug_log( self::TAG . ' video title key lock busy, skipping selection' );
             return [];
         }
 
-        update_post_meta( $post->ID, '_tmwseo_csv_video_title_key', $best_key );
-        update_post_meta( $post->ID, '_tmwseo_csv_video_title', $best_row['seo_title'] ?? '' );
-        update_post_meta( $post->ID, '_tmwseo_csv_video_focus', $best_row['focus_keyword'] ?? '' );
-        $used[] = $best_key;
-        $used   = array_values( array_unique( $used ) );
-        update_option( 'tmwseo_used_video_title_keys', $used, false );
+        $used_raw = get_option( 'tmwseo_used_video_title_keys', [] );
+        $used     = [];
+        if ( is_array( $used_raw ) ) {
+            foreach ( $used_raw as $k => $v ) {
+                if ( is_string( $v ) && is_int( $k ) ) {
+                    $used[ $v ] = true;
+                } else {
+                    $used[ (string) $k ] = (bool) $v;
+                }
+            }
+        }
+
+        try {
+            $needle_tokens = self::normalize_tokens( $lj_title . ' ' . implode( ' ', $looks ) );
+            $best_row      = null;
+            $best_key      = '';
+            $best_score    = -1;
+
+            foreach ( $rows as $row ) {
+                $key = self::video_title_row_key( $row );
+                if ( $key === '' || isset( $used[ $key ] ) ) {
+                    continue;
+                }
+                $score = self::score_video_row( $row, $needle_tokens );
+                if ( $score > $best_score ) {
+                    $best_score = $score;
+                    $best_row   = $row;
+                    $best_key   = $key;
+                }
+            }
+
+            if ( ! $best_row ) {
+                return [];
+            }
+
+            update_post_meta( $post->ID, '_tmwseo_csv_video_title_key', $best_key );
+            update_post_meta( $post->ID, '_tmwseo_csv_video_title', $best_row['seo_title'] ?? '' );
+            update_post_meta( $post->ID, '_tmwseo_csv_video_focus', $best_row['focus_keyword'] ?? '' );
+            $used[ $best_key ] = true; // associative set for O(1) lookups
+            update_option( 'tmwseo_used_video_title_keys', $used, false );
+        } finally {
+            delete_option( 'tmwseo_lock_video_title_keys' );
+        }
 
         return [
             'seo_title'     => trim( (string) ( $best_row['seo_title'] ?? '' ) ),
@@ -647,9 +708,7 @@ class Core {
         }
 
         if ( empty( $rows ) ) {
-            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-                error_log( self::TAG . ' video_extra_keywords.csv not found, using template defaults' );
-            }
+            Core::debug_log( self::TAG . ' video_extra_keywords.csv not found, using template defaults' );
             return [];
         }
 
@@ -718,9 +777,7 @@ class Core {
         }
 
         if ( empty( $rows ) ) {
-            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-                error_log( self::TAG . ' model_extra_keywords.csv not found, using template defaults' );
-            }
+            Core::debug_log( self::TAG . ' model_extra_keywords.csv not found, using template defaults' );
             return [];
         }
 
@@ -964,7 +1021,7 @@ class Core {
         $desc  = self::build_video_rankmath_description($focus, $manual_title);
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-            error_log(
+            Core::debug_log(
                 sprintf(
                     '%s [RM-VIDEO-SAFE] post#%d focus="%s" title="%s"',
                     self::TAG,
@@ -1194,8 +1251,8 @@ class Core {
             $name
         );
 
-        error_log(self::TAG . " [MODEL-EXTRAS] post#{$post->ID} looks=" . json_encode($looks) . " tag_kw=" . json_encode($tag_keywords) . " generic=" . json_encode($generic) . " extras=" . json_encode($extras));
-        error_log(self::TAG . " [RM-MODEL] focus='{$focus}' extras=" . json_encode($extras) . " for post#{$post->ID}");
+        Core::debug_log(self::TAG . " [MODEL-EXTRAS] post#{$post->ID} looks=" . json_encode($looks) . " tag_kw=" . json_encode($tag_keywords) . " generic=" . json_encode($generic) . " extras=" . json_encode($extras));
+        Core::debug_log(self::TAG . " [RM-MODEL] focus='{$focus}' extras=" . json_encode($extras) . " for post#{$post->ID}");
 
         return [
             'focus' => $focus,
@@ -1255,30 +1312,32 @@ class Core {
 
         $post_type = get_post_type($post_id);
         $existing_pillar = get_post_meta($post_id, 'rank_math_pillar_content', true);
-        if ($post_type === 'video') {
-            if ($existing_pillar !== '') {
-                delete_post_meta($post_id, 'rank_math_pillar_content');
-                error_log('[TMW-SEO-RM] pillar cleared for video #' . $post_id);
+        if ( Core::is_video_post_type( $post_type ) ) {
+            if ( $existing_pillar !== '' ) {
+                delete_post_meta( $post_id, 'rank_math_pillar_content' );
+                Core::debug_log( '[TMW-SEO-RM] pillar cleared for video #' . $post_id );
             }
-        } elseif ($post_type === 'model') {
-            if ($existing_pillar !== 'on') {
-                update_post_meta($post_id, 'rank_math_pillar_content', 'on');
-                error_log('[TMW-SEO-RM] pillar enabled for model #' . $post_id);
+        } elseif ( $post_type === Core::MODEL_PT ) {
+            if ( $existing_pillar !== 'on' ) {
+                update_post_meta( $post_id, 'rank_math_pillar_content', 'on' );
+                Core::debug_log( '[TMW-SEO-RM] pillar enabled for model #' . $post_id );
             }
         }
         $focus_for_log = $preserve_focus && $existing_focus !== '' ? $existing_focus : ( $rm['focus_raw'] ?? ( $rm['focus'] ?? '' ) );
-        error_log(self::TAG . " [RM] set focus='" . $focus_for_log . "' extras=" . json_encode($rm['extras']) . " for post#$post_id");
+        Core::debug_log( self::TAG . " [RM] set focus='" . $focus_for_log . "' extras=" . json_encode( $rm['extras'] ) . " for post#$post_id" );
     }
 
     public static function normalize_manual_focus_keyword(string $focus): string {
-        $focus = trim($focus);
-        if ($focus === '') {
+        $focus = preg_replace( '/\s+/', ' ', (string) $focus );
+        $focus = trim( (string) $focus );
+        if ( $focus === '' ) {
             return '';
         }
-        $parts = preg_split('/\s+/', $focus);
-        $first = $parts[0] ?? '';
-        $first = self::sanitize_sfw_text($first, '');
-        return trim($first);
+        $focus = self::sanitize_sfw_text( $focus, '' );
+        $focus = trim( preg_replace( '/\s+/', ' ', $focus ) );
+
+        // Keep phrases intact but cap extreme lengths to avoid junk.
+        return mb_substr( $focus, 0, 80 );
     }
 
     protected static function build_video_rankmath_title(string $focus, string $manual_title): string {
@@ -1394,7 +1453,7 @@ class Core {
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-            error_log(
+            Core::debug_log(
                 sprintf(
                     '%s [VIDEO-H1] #%d type=%s old="%s" new="%s" focus="%s"',
                     self::TAG,
@@ -1410,7 +1469,7 @@ class Core {
 
     public static function maybe_update_video_slug( \WP_Post $post, string $focus ): void {
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
-            error_log(self::TAG . " [VIDEO-SLUG] Skipping slug update for post#{$post->ID}");
+            Core::debug_log(self::TAG . " [VIDEO-SLUG] Skipping slug update for post#{$post->ID}");
         }
         return;
 

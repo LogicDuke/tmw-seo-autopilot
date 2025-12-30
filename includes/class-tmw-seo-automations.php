@@ -23,6 +23,7 @@ class Automations {
         $existing_focus = get_post_meta($post->ID, 'rank_math_focus_keyword', true);
         if (!empty($existing_focus)) {
             update_post_meta($post->ID, '_tmwseo_video_seo_generated', 'existing_focus');
+            update_post_meta($post->ID, '_tmwseo_video_seo_done', 'existing_focus');
             return;
         }
 
@@ -34,7 +35,7 @@ class Automations {
         set_transient('_tmwseo_running_'.$post_ID, 1, 15);
 
         $res = Core::generate_for_video($post_ID, ['strategy'=>'template']);
-        error_log(self::TAG." {$source} video#{$post_ID} => ".json_encode($res));
+        Core::debug_log(self::TAG." {$source} video#{$post_ID} => ".json_encode($res));
         if (is_admin()) {
             $msg = $res['ok'] ? 'Generated SEO & content' : 'Skipped: '.$res['message'];
             update_post_meta($post_ID, '_tmwseo_last_message', $msg);

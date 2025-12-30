@@ -49,8 +49,14 @@ class VideoSEO {
             return;
         }
 
+        $existing_focus = trim( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
+        if ( $existing_focus !== '' ) {
+            update_post_meta( $post_id, '_tmwseo_video_seo_done', 'existing_focus' );
+            return; // Respect manual focus keyword.
+        }
+
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
-            error_log(
+            Core::debug_log(
                 sprintf(
                     '%s [VIDEO-SEO] transition to publish post#%d (%s)',
                     Core::TAG,
@@ -134,7 +140,7 @@ class VideoSEO {
         update_post_meta($post_id, '_tmwseo_video_tag_keywords', $tag_keywords);
 
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
-            error_log(
+            Core::debug_log(
                 sprintf(
                     '%s [RM-VIDEO] post#%d model_raw="%s" model_sfw="%s" final_title="%s" final_focus="%s" desc_contains_focus=%s',
                     Core::TAG,

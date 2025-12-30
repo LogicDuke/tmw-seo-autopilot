@@ -36,25 +36,18 @@ class Keyword_Manager {
     }
 
     public static function apply_density(string $content, string $name, array $pair, string $type = 'model'): array {
-        $targets = self::platform_counts($type);
-        $content_lower = strtolower($content);
-        $inserts = [];
+        $keywords = array_filter(array_unique([
+            $name,
+            'live cam',
+            'webcam highlights',
+            'live streaming show',
+        ]));
 
-        $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, 'LiveJasmin', $targets['livejasmin']));
-        $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, 'OnlyFans', $targets['onlyfans']));
-
-        foreach ($pair as $competitor) {
-            $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, $competitor, $targets['competitor']));
-        }
-
-        $name_targets = $type === 'video' ? [6, 10] : [8, 12];
-        $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, $name, $name_targets));
-
-        if (!empty($inserts)) {
-            $content .= "\n\n" . implode("\n\n", $inserts);
-        }
-
-        return ['content' => $content, 'keywords' => array_merge(['LiveJasmin', 'OnlyFans'], $pair)];
+        // Safe mode: do not inject additional paragraphs or brand mentions.
+        return [
+            'content'  => $content,
+            'keywords' => array_values($keywords),
+        ];
     }
 
     protected static function fill_keyword(string $content_lower, string $content, string $needle, array $range): array {

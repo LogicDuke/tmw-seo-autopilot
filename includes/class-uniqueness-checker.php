@@ -7,16 +7,23 @@ class Uniqueness_Checker {
      * Compare candidate content against a random sample of existing posts.
      * Returns max similarity (0-100).
      */
-    public static function similarity_score(string $content, string $post_type, int $limit = 12): float {
+    public static function similarity_score(string $content, $post_type, int $limit = 12): float {
+        $post_types = (array) $post_type;
         $posts = get_posts([
-            'post_type'      => $post_type,
-            'posts_per_page' => $limit,
+            'post_type'      => $post_types,
+            'posts_per_page' => 200,
             'post_status'    => 'publish',
-            'orderby'        => 'rand',
+            'orderby'        => 'date',
+            'order'          => 'DESC',
             'fields'         => 'ids',
         ]);
         if (empty($posts)) {
             return 0.0;
+        }
+
+        if (count($posts) > $limit) {
+            shuffle($posts);
+            $posts = array_slice($posts, 0, $limit);
         }
         $needle_tokens = self::tokenize($content);
         $max = 0.0;

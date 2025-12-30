@@ -21,8 +21,10 @@ class Image_Meta {
         add_action('set_post_thumbnail', [__CLASS__, 'on_set_post_thumbnail'], 10, 2);
 
         // Safety net: when a video/model post is saved and already has a thumbnail.
-        add_action('save_post_video', [__CLASS__, 'on_save_post_with_thumbnail'], 20, 3);
-        add_action('save_post_model', [__CLASS__, 'on_save_post_with_thumbnail'], 20, 3);
+        foreach ( Core::video_post_types() as $pt ) {
+            add_action( "save_post_{$pt}", [ __CLASS__, 'on_save_post_with_thumbnail' ], 20, 3 );
+        }
+        add_action('save_post_' . Core::MODEL_PT, [__CLASS__, 'on_save_post_with_thumbnail'], 20, 3);
     }
 
     /**
@@ -37,7 +39,7 @@ class Image_Meta {
             return;
         }
 
-        if (!in_array($post->post_type, ['video', 'model'], true)) {
+        if ( ! Core::is_video_post_type( $post->post_type ) && $post->post_type !== Core::MODEL_PT ) {
             return;
         }
 
@@ -52,7 +54,7 @@ class Image_Meta {
      * @param bool     $update
      */
     public static function on_save_post_with_thumbnail(int $post_id, \WP_Post $post, bool $update): void {
-        if (!in_array($post->post_type, ['video', 'model'], true)) {
+        if ( ! Core::is_video_post_type( $post->post_type ) && $post->post_type !== Core::MODEL_PT ) {
             return;
         }
 
