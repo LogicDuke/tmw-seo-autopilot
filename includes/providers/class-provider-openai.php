@@ -2,6 +2,8 @@
 namespace TMW_SEO\Providers;
 if (!defined('ABSPATH')) exit;
 
+use TMW_SEO\Core;
+
 class OpenAI {
     public static function is_enabled(): bool {
         return defined('TMW_SEO_OPENAI') || defined('OPENAI_API_KEY');
@@ -122,7 +124,7 @@ class OpenAI {
         ]);
 
         if (is_wp_error($res)) {
-            error_log('[TMW-SEO-GEN] OpenAI error: ' . $res->get_error_message());
+            Core::debug_log('[TMW-SEO-GEN] OpenAI error: ' . $res->get_error_message());
             return [];
         }
 

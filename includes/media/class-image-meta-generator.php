@@ -12,6 +12,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+use TMW_SEO\Core;
+
 class Image_Meta_Generator {
 
     /**
@@ -92,7 +94,7 @@ class Image_Meta_Generator {
         $alt   = sprintf('%s – preview image on %s', $base, $site_name);
         $title = sprintf('%s – featured image', $base);
 
-        if ($parent_post->post_type === 'video') {
+        if ( Core::is_video_post_type( $parent_post->post_type ) ) {
             $caption = sprintf(
                 'Preview thumbnail for the video “%s” on %s.',
                 $base,
@@ -104,7 +106,7 @@ class Image_Meta_Generator {
                 $base,
                 $site_name
             );
-        } elseif ($parent_post->post_type === 'model') {
+        } elseif ($parent_post->post_type === Core::MODEL_PT) {
             $caption = sprintf(
                 'Profile image for %s on %s.',
                 $base,

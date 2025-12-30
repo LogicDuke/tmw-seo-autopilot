@@ -8,6 +8,12 @@ class Core {
     const MODEL_PT = 'model';
     const VIDEO_PT = 'video';
 
+    public static function debug_log( $message ): void {
+        if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+            error_log( (string) $message );
+        }
+    }
+
     public static function video_post_types(): array {
         $opt = get_option('tmwseo_video_pts');
         if (is_array($opt) && !empty($opt)) {
@@ -63,7 +69,7 @@ class Core {
 
         $name = self::detect_model_name_from_video($post);
         if (!$name) {
-            error_log(self::TAG . " abort: video#{$post->ID} '{$post->post_title}' has no detectable model name");
+            self::debug_log(self::TAG . " abort: video#{$post->ID} '{$post->post_title}' has no detectable model name");
             return ['ok' => false, 'message' => 'No model name detected'];
         }
 
@@ -98,7 +104,7 @@ class Core {
         self::link_video_to_model($video_id, $model_id);
         self::link_model_to_video($model_id, $video_id);
 
-        error_log(self::TAG . " generated video#$video_id & model#$model_id for {$name}");
+        self::debug_log(self::TAG . " generated video#$video_id & model#$model_id for {$name}");
         return ['ok' => true, 'video' => $payload_video, 'model' => $payload_model, 'model_id' => $model_id];
     }
 
@@ -154,7 +160,7 @@ class Core {
         }
         delete_post_meta($post_id, "_tmwseo_prev_{$type}");
         delete_post_meta($post_id, '_tmwseo_prev');
-        error_log(self::TAG . " rollback done for #$post_id");
+        self::debug_log(self::TAG . " rollback done for #$post_id");
         return ['ok' => true];
     }
 
@@ -170,7 +176,7 @@ class Core {
             'post_title' => $name,
             'post_content' => '',
         ]);
-        error_log(self::TAG . " created model#$id for {$name}");
+        self::debug_log(self::TAG . " created model#$id for {$name}");
         return (int) $id;
     }
 
@@ -206,7 +212,7 @@ class Core {
         if (preg_match('/\b([A-Z][\p{L}\']+\s+[A-Z][\p{L}\']+)\b/u', $t, $m2)) {
             return trim($m2[1]);
         }
-        error_log(self::TAG . " abort: no model name for video#{$post->ID} title='{$t}'");
+        self::debug_log(self::TAG . " abort: no model name for video#{$post->ID} title='{$t}'");
         return '';
     }
 
@@ -488,7 +494,7 @@ class Core {
          update_post_meta($post_id, 'rank_math_title', $rm['title']);
         update_post_meta($post_id, 'rank_math_description', $rm['desc']);
         update_post_meta($post_id, 'rank_math_pillar_content', 'on');
-        error_log(self::TAG . " [RM] set focus='" . $rm['focus'] . "' extras=" . json_encode($rm['extras']) . " for post#$post_id");
+        self::debug_log(self::TAG . " [RM] set focus='" . $rm['focus'] . "' extras=" . json_encode($rm['extras']) . " for post#$post_id");
     }
 
     /** Cross-links */

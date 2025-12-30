@@ -130,6 +130,14 @@ class Admin {
         $check_uniqueness = !empty($_POST['check_uniqueness']);
         $generate_schema  = !empty($_POST['generate_schema']);
 
+        $allowed_strategies = ['template'];
+        if ( \TMW_SEO\Providers\OpenAI::is_enabled() ) {
+            $allowed_strategies[] = 'openai';
+        }
+        if ( ! in_array( $strategy, $allowed_strategies, true ) ) {
+            $strategy = 'template';
+        }
+
         $results = [
             'success'  => 0,
             'failed'   => 0,
@@ -151,18 +159,10 @@ class Admin {
                 continue;
             }
 
-            if ($strategy === 'hijacking') {
-                $actual_strategy = ($post_id <= 1950) ? 'hijacking' : 'template';
-            } elseif ($strategy === 'semrush') {
-                $actual_strategy = ($post_id > 1950) ? 'semrush' : 'template';
-            } else {
-                $actual_strategy = 'template';
-            }
-
             $result = Core::generate_and_write(
                 $post_id,
                 [
-                    'strategy'       => $actual_strategy,
+                    'strategy'       => $strategy,
                     'insert_content' => true,
                     'check_unique'   => $check_uniqueness,
                     'schema'         => $generate_schema,
@@ -499,17 +499,15 @@ class Admin {
                             <th>Strategy</th>
                             <td>
                                 <label>
-                                    <input type="radio" name="strategy" value="hijacking" checked>
-                                    OnlyFans Hijacking (mention OnlyFans 3-5x)
+                                    <input type="radio" name="strategy" value="template" checked>
+                                    Standard Template (safe defaults)
                                 </label><br>
-                                <label>
-                                    <input type="radio" name="strategy" value="semrush">
-                                    SEMrush Optimized (use search volume data)
-                                </label><br>
-                                <label>
-                                    <input type="radio" name="strategy" value="template">
-                                    Standard Template (no special focus)
-                                </label>
+                                <?php if (\TMW_SEO\Providers\OpenAI::is_enabled()) : ?>
+                                    <label>
+                                        <input type="radio" name="strategy" value="openai">
+                                        OpenAI (when available)
+                                    </label>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <tr>
@@ -747,7 +745,7 @@ class Admin {
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-            error_log(
+            \TMW_SEO\Core::debug_log(
                 sprintf(
                     '[TMW-SEO-ADMIN] Manual video generate_now for post #%d',
                     $post_id

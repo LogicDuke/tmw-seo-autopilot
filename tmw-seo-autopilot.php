@@ -38,5 +38,5 @@ add_action('plugins_loaded', function () {
 });
 
 register_activation_hook(__FILE__, function () {
-    error_log(TMW_SEO_TAG . ' activated v1.0.0');
+    \TMW_SEO\Core::debug_log(TMW_SEO_TAG . ' activated v1.0.0');
 });

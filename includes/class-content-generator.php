@@ -89,9 +89,9 @@ class Content_Generator {
         $tag_text = !empty($tags) ? implode(', ', array_slice($tags, 0, 6)) : 'live webcam shows';
         return [
             'name'         => $name,
-            'platform_a'   => $pair[0] ?? 'Chaturbate',
-            'platform_b'   => $pair[1] ?? 'Stripchat',
-            'live_brand'   => 'LiveJasmin',
+            'platform_a'   => 'other cam sites',
+            'platform_b'   => 'popular live platforms',
+            'live_brand'   => 'live cam shows',
             'site'         => $context['site'] ?? get_bloginfo('name'),
             'tags'         => $tag_text,
             'cta_url'      => $context['brand_url'] ?? '',
@@ -103,15 +103,15 @@ class Content_Generator {
         foreach ($faqs as $faq) {
             $q = Template_Engine::render($faq['q'], [
                 'name' => $name,
-                'platform_a' => $pair[0] ?? 'Chaturbate',
-                'platform_b' => $pair[1] ?? 'Stripchat',
-                'live_brand' => 'LiveJasmin',
+                'platform_a' => 'other cam sites',
+                'platform_b' => 'popular live platforms',
+                'live_brand' => 'live cam shows',
             ]);
             $a = Template_Engine::render($faq['a'], [
                 'name' => $name,
-                'platform_a' => $pair[0] ?? 'Chaturbate',
-                'platform_b' => $pair[1] ?? 'Stripchat',
-                'live_brand' => 'LiveJasmin',
+                'platform_a' => 'other cam sites',
+                'platform_b' => 'popular live platforms',
+                'live_brand' => 'live cam shows',
             ]);
             $html .= '<h3>' . esc_html($q) . '</h3><p>' . esc_html($a) . '</p>';
         }
@@ -180,13 +180,13 @@ class Content_Generator {
         $natural_additions = [
             "Community members consistently praise {$name} for maintaining authentic energy across sessions. Rather than following a rigid script, {$name} adapts to each room's vibe, creating experiences that feel personal rather than performative. This flexibility explains why regular viewers return for multiple shows.",
 
-            "The transition from browsing static OnlyFans content to experiencing live interaction on LiveJasmin represents a shift in how fans connect with {$name}. Real-time responses and spontaneous moments create engagement that pre-recorded videos simply cannot replicate, no matter how well produced.",
+            "Live streaming creates spontaneous moments that recorded clips rarely capture. Real-time responses and the ability to shape the flow of a show help fans feel involved while watching {$name} perform.",
 
-            "Viewers who discover {$name} through OnlyFans searches often express surprise at how much more engaging live sessions feel. The ability to make requests, receive immediate acknowledgment, and influence the show's direction transforms passive viewing into active participation.",
+            "Viewers who discover {$name} through search often express surprise at how much more engaging live sessions feel. The ability to make requests, receive immediate acknowledgment, and influence the show's direction transforms passive viewing into active participation.",
 
-            "Technical quality matters in adult entertainment, and LiveJasmin's infrastructure supports this priority. HD streaming with stable framerates, crystal-clear audio, and professional lighting create premium viewing experiences that justify the platform's reputation over crowded alternatives like Chaturbate or Stripchat.",
+            "Technical quality matters in adult entertainment, and reliable streaming with stable framerates, clear audio, and good lighting creates premium viewing experiences that keep audiences coming back.",
 
-            "Regular attendees of {$name}'s shows develop rapport over time, with inside jokes and callbacks that create community. This ongoing relationship dynamic differs fundamentally from OnlyFans' transactional model where creators post content and subscribers consume it without ongoing dialogue.",
+            "Regular attendees of {$name}'s shows develop rapport over time, with inside jokes and callbacks that create community. This ongoing relationship dynamic differs from one-way content feeds where creators post and subscribers consume without dialogue.",
         ];
 
         shuffle($natural_additions);
