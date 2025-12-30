@@ -1219,7 +1219,7 @@ class Core {
 
     public static function compose_rankmath_for_model( \WP_Post $post, array $ctx ): array {
         $name  = self::sanitize_sfw_text($ctx['name'], 'Live Cam Model');
-        $focus = $name; // focus keyword is ONLY the name
+        $focus = $name; // Model focus keyword is always the name.
 
         $looks        = [];
         $tag_keywords = [];
@@ -1276,7 +1276,7 @@ class Core {
 
         $post = get_post($post_id);
         if ($post instanceof \WP_Post && $post->post_type === Core::MODEL_PT) {
-            $focus_to_use = $preserve_focus && $existing_focus !== '' ? $existing_focus : (string) ( $rm['focus'] ?? '' );
+            $focus_to_use = (!$preserve_focus || $existing_focus === '') ? (string) ( $rm['focus'] ?? '' ) : $existing_focus;
             $focus_to_use = self::sanitize_sfw_text( $focus_to_use, (string) ( $rm['focus'] ?? '' ) );
 
             update_post_meta($post_id, 'rank_math_focus_keyword', $focus_to_use);

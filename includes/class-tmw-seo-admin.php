@@ -218,6 +218,158 @@ class Admin {
 
     public static function tools_page() {
         add_submenu_page('tools.php', 'TMW SEO Autopilot', 'TMW SEO Autopilot', 'manage_options', 'tmw-seo-autopilot', [__CLASS__, 'render_tools']);
+        add_submenu_page('tools.php', 'TMW SEO Keyword Packs', 'TMW SEO Keyword Packs', 'manage_options', 'tmw-seo-keyword-packs', [__CLASS__, 'render_keyword_packs']);
+    }
+
+    public static function render_keyword_packs() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $notices = [];
+        $categories = ['general', 'roleplay', 'chat', 'cosplay', 'couples'];
+        $types      = ['extra', 'longtail', 'competitor'];
+
+        if (!empty($_POST['tmwseo_keyword_action'])) {
+            check_admin_referer('tmwseo_keyword_packs');
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+
+            $action = sanitize_text_field($_POST['tmwseo_keyword_action']);
+
+            if ($action === 'init_placeholders') {
+                Keyword_Library::ensure_dirs_and_placeholders();
+                Keyword_Library::flush_cache();
+                $notices[] = ['type' => 'updated', 'text' => 'Folders and placeholder CSV files initialized.'];
+            }
+
+            if ($action === 'upload' && !empty($_FILES['tmwseo_csv']['tmp_name'])) {
+                $category = sanitize_key($_POST['tmwseo_category'] ?? '');
+                $type     = sanitize_key($_POST['tmwseo_type'] ?? '');
+
+                if (!in_array($category, $categories, true)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Invalid category selected.'];
+                } elseif (!in_array($type, ['extra', 'longtail', 'competitor'], true)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Invalid keyword type selected.'];
+                } elseif (!is_uploaded_file($_FILES['tmwseo_csv']['tmp_name'])) {
+                    $notices[] = ['type' => 'error', 'text' => 'Upload failed.'];
+                } elseif (strtolower(pathinfo($_FILES['tmwseo_csv']['name'], PATHINFO_EXTENSION)) !== 'csv') {
+                    $notices[] = ['type' => 'error', 'text' => 'Please upload a CSV file.'];
+                } else {
+                    Keyword_Library::ensure_dirs_and_placeholders();
+                    $dest_dir  = trailingslashit(Keyword_Library::uploads_base_dir()) . $category;
+                    wp_mkdir_p($dest_dir);
+                    $dest_path = trailingslashit($dest_dir) . "{$type}.csv";
+
+                    if (move_uploaded_file($_FILES['tmwseo_csv']['tmp_name'], $dest_path)) {
+                        Keyword_Library::flush_cache();
+                        $count = count(Keyword_Library::load($category, $type));
+                        $notices[] = ['type' => 'updated', 'text' => sprintf('Uploaded %s keywords for %s (%d entries).', esc_html($type), esc_html($category), (int) $count)];
+                    } else {
+                        $notices[] = ['type' => 'error', 'text' => 'Could not move uploaded file.'];
+                    }
+                }
+            }
+        }
+
+        $uploads_base = Keyword_Library::uploads_base_dir();
+        $status_rows  = [];
+        foreach ($categories as $cat) {
+            foreach ($types as $type) {
+                $upload_path = trailingslashit($uploads_base) . "{$cat}/{$type}.csv";
+                $plugin_path = trailingslashit(Keyword_Library::plugin_base_dir()) . "{$cat}/{$type}.csv";
+                $path        = file_exists($upload_path) ? $upload_path : $plugin_path;
+                $exists      = file_exists($path);
+                $modified    = $exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($path)) : '—';
+                $count       = $exists ? count(Keyword_Library::load($cat, $type)) : 0;
+
+                $status_rows[] = [
+                    'category' => $cat,
+                    'type'     => $type,
+                    'path'     => $path,
+                    'exists'   => $exists,
+                    'modified' => $modified,
+                    'count'    => $count,
+                ];
+            }
+        }
+
+        ?>
+        <div class="wrap">
+            <h1>TMW SEO Keyword Packs</h1>
+            <?php foreach ($notices as $notice) : ?>
+                <div class="<?php echo esc_attr($notice['type']); ?> notice"><p><?php echo esc_html($notice['text']); ?></p></div>
+            <?php endforeach; ?>
+
+            <h2 class="title">Status</h2>
+            <p><strong>Uploads base:</strong> <?php echo esc_html($uploads_base); ?></p>
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Path</th>
+                        <th>Exists</th>
+                        <th>Last Modified</th>
+                        <th>Keywords</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($status_rows as $row) : ?>
+                        <tr>
+                            <td><?php echo esc_html(ucfirst($row['category'])); ?></td>
+                            <td><?php echo esc_html($row['type']); ?></td>
+                            <td><code><?php echo esc_html($row['path']); ?></code></td>
+                            <td><?php echo $row['exists'] ? 'Yes' : 'No'; ?></td>
+                            <td><?php echo esc_html($row['modified']); ?></td>
+                            <td><?php echo (int) $row['count']; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <h2 class="title" style="margin-top:30px;">Upload CSV</h2>
+            <form method="post" enctype="multipart/form-data">
+                <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
+                <input type="hidden" name="tmwseo_keyword_action" value="upload">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_category">Category</label></th>
+                        <td>
+                            <select name="tmwseo_category" id="tmwseo_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>"><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_type">Type</label></th>
+                        <td>
+                            <select name="tmwseo_type" id="tmwseo_type">
+                                <option value="extra">extra</option>
+                                <option value="longtail">longtail</option>
+                                <option value="competitor">competitor</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_csv">CSV File</label></th>
+                        <td><input type="file" name="tmwseo_csv" id="tmwseo_csv" accept=".csv" required></td>
+                    </tr>
+                </table>
+                <p class="submit"><button type="submit" class="button button-primary">Upload</button></p>
+            </form>
+
+            <h2 class="title" style="margin-top:30px;">Maintenance</h2>
+            <form method="post">
+                <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
+                <input type="hidden" name="tmwseo_keyword_action" value="init_placeholders">
+                <p class="submit"><button type="submit" class="button">Create folders / placeholders</button></p>
+            </form>
+        </div>
+        <?php
     }
 
     public static function render_tools() {

@@ -13,6 +13,60 @@ class Keyword_Library {
         'couples'  => ['couple', 'duo'],
     ];
 
+    public static function uploads_base_dir(): string {
+        $uploads = wp_upload_dir();
+        return trailingslashit($uploads['basedir']) . 'tmwseo-keywords';
+    }
+
+    public static function plugin_base_dir(): string {
+        return trailingslashit(TMW_SEO_PATH) . 'data/keywords';
+    }
+
+    public static function ensure_dirs_and_placeholders(): void {
+        $categories = ['general', 'roleplay', 'chat', 'cosplay', 'couples'];
+        $types      = ['extra', 'longtail'];
+
+        foreach ($categories as $category) {
+            $dir = trailingslashit(self::uploads_base_dir()) . $category;
+            if (!is_dir($dir)) {
+                wp_mkdir_p($dir);
+            }
+
+            $placeholder_rows = [
+                ['keyword'],
+                ['chat tips'],
+                ['live stream ideas'],
+                ['viewer engagement'],
+            ];
+
+            foreach ($types as $type) {
+                $file = trailingslashit($dir) . "{$type}.csv";
+                if (!file_exists($file)) {
+                    $fh = fopen($file, 'w');
+                    if ($fh) {
+                        foreach ($placeholder_rows as $row) {
+                            fputcsv($fh, $row);
+                        }
+                        fclose($fh);
+                    }
+                }
+            }
+
+            if ($category === 'general') {
+                $file = trailingslashit($dir) . 'competitor.csv';
+                if (!file_exists($file)) {
+                    $fh = fopen($file, 'w');
+                    if ($fh) {
+                        foreach ($placeholder_rows as $row) {
+                            fputcsv($fh, $row);
+                        }
+                        fclose($fh);
+                    }
+                }
+            }
+        }
+    }
+
     public static function categories_from_safe_tags(array $safe_tags): array {
         $matches = [];
         foreach ($safe_tags as $tag) {
@@ -47,14 +101,19 @@ class Keyword_Library {
             return self::$cache[$cache_key];
         }
 
-        $transient_key = 'tmwseo_kw_' . md5($cache_key);
+        $uploads_path = trailingslashit(self::uploads_base_dir()) . "{$category}/{$type}.csv";
+        $plugin_path  = trailingslashit(self::plugin_base_dir()) . "{$category}/{$type}.csv";
+
+        $path = file_exists($uploads_path) ? $uploads_path : $plugin_path;
+        $ver  = file_exists($path) ? (int) filemtime($path) : 0;
+
+        $transient_key = 'tmwseo_kw_' . md5($cache_key . '|' . $ver);
         $cached = get_transient($transient_key);
         if (is_array($cached)) {
             self::$cache[$cache_key] = $cached;
             return $cached;
         }
 
-        $path = trailingslashit(TMW_SEO_PATH) . "data/keywords/{$category}/{$type}.csv";
         $keywords = [];
         if (file_exists($path)) {
             $fh = fopen($path, 'r');
@@ -154,5 +213,17 @@ class Keyword_Library {
             }
         }
         return false;
+    }
+
+    public static function flush_cache(): void {
+        global $wpdb;
+        self::$cache = [];
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+                $wpdb->esc_like('_transient_tmwseo_kw_') . '%',
+                $wpdb->esc_like('_transient_timeout_tmwseo_kw_') . '%'
+            )
+        );
     }
 }

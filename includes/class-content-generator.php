@@ -93,7 +93,8 @@ class Content_Generator {
     protected static function base_context(string $name, array $pair, array $tags, array $context): array {
         $safe_tags = Core::get_safe_model_tag_keywords($tags);
         $categories = Keyword_Library::categories_from_safe_tags($safe_tags);
-        $seed = (string) ($context['model_id'] ?? $context['video_id'] ?? $name);
+        $seed_source = $context['model_id'] ?? $context['video_id'] ?? null;
+        $seed = $seed_source !== null ? (string) $seed_source : (string) crc32($name);
         $extra = Keyword_Library::pick_multi($categories, 'extra', 10, $seed);
         $longtail = Keyword_Library::pick_multi($categories, 'longtail', 6, $seed);
 
