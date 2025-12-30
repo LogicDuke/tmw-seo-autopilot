@@ -44,4 +44,7 @@ register_activation_hook(__FILE__, function () {
     \TMW_SEO\Core::debug_log(TMW_SEO_TAG . ' activated v1.0.0');
     \TMW_SEO\Keyword_Library::ensure_dirs_and_placeholders();
     \TMW_SEO\Keyword_Usage::install();
+    add_option('tmwseo_used_video_seo_title_hashes', [], '', 'no');
+    add_option('tmwseo_used_video_focus_keyword_hashes', [], '', 'no');
+    add_option('tmwseo_used_video_title_focus_hashes', [], '', 'no');
 });
