@@ -1,9 +1,9 @@
 <?php
 $bio_openers = [
     "{name} treats each LiveJasmin session like a guided experience, mixing slow pacing with check-ins so newcomers feel welcome.",
-    "This performer balances playful jokes with focused storytelling, helping fans escape endless OnlyFans scrolling by delivering live energy.",
-    "Community members describe {name} as a thoughtful entertainer who keeps private chats respectful and attentive.",
-    "Instead of guessing when a model goes live, viewers rely on {name}'s consistent LiveJasmin schedule and calm updates.",
+    "This performer balances playful energy with focused attention, helping fans escape endless OnlyFans scrolling by delivering live interaction.",
+    "She maintains a welcoming environment during private chats, keeping conversations respectful and attentive.",
+    "Instead of guessing when to tune in, viewers rely on a consistent LiveJasmin schedule and timely updates.",
 ];
 
 $specialties = [

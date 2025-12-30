@@ -70,7 +70,10 @@ class Template_Engine {
     public static function render(string $template, array $context): string {
         $replacements = [];
         foreach ($context as $key => $value) {
-            $replacements['{' . $key . '}'] = $value;
+            if (is_array($value)) {
+                $value = implode(', ', $value);
+            }
+            $replacements['{' . $key . '}'] = (string) $value;
         }
         return strtr($template, $replacements);
     }
