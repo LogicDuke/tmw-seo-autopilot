@@ -249,7 +249,22 @@ class Core {
             update_post_meta($post->ID, 'rank_math_focus_keyword', $focus_for_video);
         }
 
-        $video_extras = self::select_video_extras_csv( $post, $looks, $lj_title );
+        $video_extras = get_post_meta( $post->ID, '_tmwseo_video_extras_list', true );
+        $video_extras = is_array( $video_extras ) ? array_values( array_filter( array_map( 'trim', $video_extras ) ) ) : [];
+        if ( empty( $video_extras ) ) {
+            $pool_slugs = array_map( 'sanitize_title', Core::get_safe_model_tag_keywords( $looks ) );
+            foreach ( self::normalize_tokens( $lj_title ) as $token ) {
+                $pool_slugs[] = sanitize_title( $token );
+            }
+            $pool_slugs   = array_values( array_filter( array_unique( $pool_slugs ) ) );
+            $pool_extras  = Keyword_Pool::pick_keywords( $pool_slugs, 4, 'video', $post->ID, get_permalink( $post->ID ) );
+            if ( ! empty( $pool_extras ) ) {
+                $video_extras = $pool_extras;
+                update_post_meta( $post->ID, '_tmwseo_video_extras_list', $pool_extras );
+            } else {
+                $video_extras = self::select_video_extras_csv( $post, $looks, $lj_title );
+            }
+        }
 
         $highlights_count = $ctx_video['highlights_count'] ?? 7;
 
@@ -1307,7 +1322,15 @@ class Core {
         $looks        = [];
         $tag_keywords = [];
         $generic      = [];
-        $extras = self::select_model_extras_csv( $post );
+        $locked_extras = get_post_meta( $post->ID, '_tmwseo_extras_list', true );
+        $extras        = is_array( $locked_extras ) && get_post_meta( $post->ID, '_tmwseo_extras_locked', true )
+            ? array_values( array_filter( array_map( 'trim', $locked_extras ) ) )
+            : [];
+
+        if ( empty( $extras ) ) {
+            $extras = self::select_model_extras_csv( $post );
+        }
+
         if ( empty( $extras ) ) {
             $looks = self::first_looks( $post->ID );
             $video_id = (int) get_post_meta( $post->ID, '_tmwseo_latest_video_id', true );
@@ -1319,12 +1342,25 @@ class Core {
             $tag_keywords = self::safe_model_tag_keywords( $looks );
             $generic      = self::sanitize_sfw_keywords( self::model_random_extras( 4 ) );
 
-            $categories = Keyword_Library::categories_from_safe_tags( $tag_keywords );
-            $seed       = (string) ( $post->ID ?: crc32( $name ) );
-            $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed, $tag_keywords, 30, $post->ID, $post->post_type );
+            $category_slugs = array_map( 'sanitize_title', $tag_keywords );
+            $category_slugs = array_values( array_filter( array_unique( $category_slugs ) ) );
+            $pool_extras    = Keyword_Pool::pick_keywords( $category_slugs, 4, 'model', $post->ID, get_permalink( $post->ID ) );
 
-            $all_extras = array_values( array_unique( array_merge( $library_extras, $tag_keywords, $generic ) ) );
-            $extras     = array_slice( $all_extras, 0, 10 );
+            if ( ! empty( $pool_extras ) ) {
+                $extras = $pool_extras;
+            } else {
+                $categories = Keyword_Library::categories_from_safe_tags( $tag_keywords );
+                $seed       = (string) ( $post->ID ?: crc32( $name ) );
+                $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed, $tag_keywords, 30, $post->ID, $post->post_type );
+
+                $all_extras = array_values( array_unique( array_merge( $library_extras, $tag_keywords, $generic ) ) );
+                $extras     = array_slice( $all_extras, 0, 10 );
+            }
+
+            if ( ! empty( $extras ) ) {
+                update_post_meta( $post->ID, '_tmwseo_extras_list', $extras );
+                update_post_meta( $post->ID, '_tmwseo_extras_locked', 1 );
+            }
         }
 
         if (class_exists(__NAMESPACE__ . '\\RankMath') && method_exists(RankMath::class, 'generate_model_snippet_title')) {

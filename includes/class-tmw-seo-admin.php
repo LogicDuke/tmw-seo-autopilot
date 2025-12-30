@@ -20,6 +20,7 @@ class Admin {
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'handle_save_settings']);
         add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
+        add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
     }
 
     public static function assets($hook) {
@@ -200,6 +201,32 @@ class Admin {
         $post_id = (int)($_POST['post_id'] ?? 0);
         $res = Core::rollback($post_id);
         $res['ok'] ? wp_send_json_success() : wp_send_json_error();
+    }
+
+    public static function ajax_serper_test() {
+        check_ajax_referer('tmwseo_serper_test', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+
+        $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+        if ($api_key === '') {
+            wp_send_json_error(['message' => 'API key missing']);
+        }
+
+        $gl = sanitize_text_field((string) get_option('tmwseo_serper_gl', 'us'));
+        $hl = sanitize_text_field((string) get_option('tmwseo_serper_hl', 'en'));
+
+        $result = Serper_Client::search($api_key, 'tmw seo autopilot keyword test', $gl, $hl, 5);
+        if (!empty($result['error'])) {
+            wp_send_json_error(['message' => $result['error']]);
+        }
+
+        $keywords = Serper_Client::extract_keywords($result['data'] ?? []);
+        wp_send_json_success([
+            'message'  => 'Success',
+            'keywords' => array_slice($keywords, 0, 5),
+        ]);
     }
 
     public static function bulk_action($actions) {
@@ -529,12 +556,44 @@ class Admin {
             }
         }
 
+        $serper_api_key = (string) get_option('tmwseo_serper_api_key', '');
+        $serper_gl      = (string) get_option('tmwseo_serper_gl', 'us');
+        $serper_hl      = (string) get_option('tmwseo_serper_hl', 'en');
+        $serper_nonce   = wp_create_nonce('tmwseo_serper_test');
+
         ?>
         <div class="wrap">
             <h1>TMW SEO Keyword Packs</h1>
             <?php foreach ($notices as $notice) : ?>
                 <div class="<?php echo esc_attr($notice['type']); ?> notice"><p><?php echo esc_html($notice['text']); ?></p></div>
             <?php endforeach; ?>
+
+            <h2 class="title">Serper (optional)</h2>
+            <p>Store your Serper API key and locale defaults to generate keyword packs via CLI or the test button. Frontend rendering never calls Serper.</p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:640px;">
+                <?php wp_nonce_field('tmwseo_save_settings', 'tmwseo_settings_nonce'); ?>
+                <input type="hidden" name="action" value="tmwseo_save_settings">
+                <input type="hidden" name="redirect_to" value="<?php echo esc_attr(admin_url('tools.php?page=tmw-seo-keyword-packs')); ?>">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_serper_api_key">API Key</label></th>
+                        <td><input type="text" name="tmwseo_serper_api_key" id="tmwseo_serper_api_key" value="<?php echo esc_attr($serper_api_key); ?>" class="regular-text"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_serper_gl">gl (country)</label></th>
+                        <td><input type="text" name="tmwseo_serper_gl" id="tmwseo_serper_gl" value="<?php echo esc_attr($serper_gl); ?>" class="regular-text" placeholder="us"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_serper_hl">hl (language)</label></th>
+                        <td><input type="text" name="tmwseo_serper_hl" id="tmwseo_serper_hl" value="<?php echo esc_attr($serper_hl); ?>" class="regular-text" placeholder="en"></td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="submit" class="button button-primary">Save Serper Settings</button>
+                    <button type="button" class="button" id="tmwseo-serper-test" data-nonce="<?php echo esc_attr($serper_nonce); ?>">Test Serper</button>
+                    <span id="tmwseo-serper-result" style="margin-left:10px;"></span>
+                </p>
+            </form>
 
             <h2 class="title">Status</h2>
             <p><strong>Uploads base:</strong> <?php echo esc_html($uploads_base); ?></p>
@@ -607,6 +666,29 @@ class Admin {
                 <input type="hidden" name="tmwseo_keyword_action" value="flush_cache">
                 <p class="submit"><button type="submit" class="button">Flush keyword cache</button></p>
             </form>
+            <script>
+            (function($){
+                $('#tmwseo-serper-test').on('click', function(){
+                    var $btn = $(this);
+                    var $out = $('#tmwseo-serper-result');
+                    $btn.prop('disabled', true);
+                    $out.text('Testing…');
+                    $.post(ajaxurl, {action: 'tmwseo_serper_test', nonce: $btn.data('nonce')}, function(resp){
+                        if (resp && resp.success) {
+                            var preview = resp.data && resp.data.keywords ? resp.data.keywords.join(', ') : 'Success';
+                            $out.text('Success: ' + preview);
+                        } else {
+                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
+                            $out.text('Error: ' + message);
+                        }
+                    }).fail(function(){
+                        $out.text('Error: request failed');
+                    }).always(function(){
+                        $btn.prop('disabled', false);
+                    });
+                });
+            })(jQuery);
+            </script>
         </div>
         <?php
     }
@@ -1299,10 +1381,18 @@ class Admin {
     public static function handle_save_settings() {
         if (!current_user_can('manage_options')) wp_die('No permission');
         if (!isset($_POST['tmwseo_settings_nonce']) || !wp_verify_nonce($_POST['tmwseo_settings_nonce'], 'tmwseo_save_settings')) wp_die('Bad nonce');
+        $redirect = !empty($_POST['redirect_to']) ? esc_url_raw($_POST['redirect_to']) : admin_url('tools.php?page=tmw-seo-autopilot&saved=1');
         $pts = isset($_POST['tmwseo_video_pts']) ? (array) $_POST['tmwseo_video_pts'] : [];
         $pts = array_values(array_unique(array_map('sanitize_key', $pts)));
         update_option('tmwseo_video_pts', $pts, false);
-        wp_safe_redirect(admin_url('tools.php?page=tmw-seo-autopilot&saved=1'));
+        $serper_api = isset($_POST['tmwseo_serper_api_key']) ? sanitize_text_field((string) $_POST['tmwseo_serper_api_key']) : '';
+        $serper_gl  = isset($_POST['tmwseo_serper_gl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_gl']) : 'us';
+        $serper_hl  = isset($_POST['tmwseo_serper_hl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_hl']) : 'en';
+        update_option('tmwseo_serper_api_key', $serper_api, false);
+        update_option('tmwseo_serper_gl', $serper_gl, false);
+        update_option('tmwseo_serper_hl', $serper_hl, false);
+
+        wp_safe_redirect($redirect);
         exit;
     }
 

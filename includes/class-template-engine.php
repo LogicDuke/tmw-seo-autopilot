@@ -97,7 +97,23 @@ class Template_Engine {
         $replacements = [];
         foreach ($context as $key => $value) {
             if (is_array($value)) {
-                $value = implode(', ', array_map('strval', $value));
+                $flattened = [];
+                $stack     = [$value];
+                while (!empty($stack)) {
+                    $current = array_pop($stack);
+                    foreach ((array) $current as $item) {
+                        if (is_array($item)) {
+                            $stack[] = $item;
+                        } elseif (is_object($item)) {
+                            if (method_exists($item, '__toString')) {
+                                $flattened[] = (string) $item;
+                            }
+                        } elseif (is_scalar($item)) {
+                            $flattened[] = (string) $item;
+                        }
+                    }
+                }
+                $value = implode(', ', array_filter($flattened, 'strlen'));
             } elseif (is_scalar($value)) {
                 $value = (string) $value;
             } elseif (is_object($value)) {
