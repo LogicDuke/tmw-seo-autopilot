@@ -18,6 +18,7 @@ class Admin {
         add_action('save_post', [__CLASS__, 'save_video_metabox'], 10, 2);
         add_action('admin_post_tmwseo_generate_now', [__CLASS__, 'handle_generate_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'handle_save_settings']);
+        add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
     }
 
@@ -220,6 +221,233 @@ class Admin {
         add_submenu_page('tools.php', 'TMW SEO Autopilot', 'TMW SEO Autopilot', 'manage_options', 'tmw-seo-autopilot', [__CLASS__, 'render_tools']);
         add_submenu_page('tools.php', 'TMW SEO Keyword Packs', 'TMW SEO Keyword Packs', 'manage_options', 'tmw-seo-keyword-packs', [__CLASS__, 'render_keyword_packs']);
         add_submenu_page('tools.php', 'TMW SEO Keyword Usage', 'TMW SEO Keyword Usage', 'manage_options', 'tmw-seo-keyword-usage', [__CLASS__, 'render_keyword_usage']);
+        add_submenu_page('tools.php', 'TMW SEO Usage', 'TMW SEO Usage', 'manage_options', 'tmw-seo-usage', [__CLASS__, 'render_usage_dashboard']);
+    }
+
+    protected static function normalize_for_hash_admin(string $value): string {
+        $value = trim($value);
+        $value = preg_replace('/\s+/', ' ', $value);
+        return strtolower((string)$value);
+    }
+
+    public static function handle_usage_reset() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Access denied');
+        }
+
+        check_admin_referer('tmwseo_usage_reset');
+
+        $enabled = (defined('TMWSEO_ENABLE_USAGE_RESET') && TMWSEO_ENABLE_USAGE_RESET) || apply_filters('tmwseo_enable_usage_reset', false);
+        $redirect = add_query_arg('page', 'tmw-seo-usage', admin_url('tools.php'));
+
+        if (!$enabled) {
+            wp_safe_redirect(add_query_arg('reset_error', 'disabled', $redirect));
+            exit;
+        }
+
+        $confirmation = isset($_POST['tmwseo_reset_confirm']) ? trim((string)$_POST['tmwseo_reset_confirm']) : '';
+        if ($confirmation !== 'RESET') {
+            wp_safe_redirect(add_query_arg('reset_error', 'confirm', $redirect));
+            exit;
+        }
+
+        delete_option('tmwseo_used_video_title_keys');
+        delete_option('tmwseo_used_video_seo_title_hashes');
+        delete_option('tmwseo_used_video_focus_keyword_hashes');
+        delete_option('tmwseo_used_video_title_focus_hashes');
+        delete_option('tmwseo_lock_video_title_keys');
+
+        update_option('tmwseo_used_video_title_keys', [], false);
+        update_option('tmwseo_used_video_seo_title_hashes', [], false);
+        update_option('tmwseo_used_video_focus_keyword_hashes', [], false);
+        update_option('tmwseo_used_video_title_focus_hashes', [], false);
+
+        wp_safe_redirect(add_query_arg('reset', '1', $redirect));
+        exit;
+    }
+
+    protected static function prepare_used_set($raw): array {
+        $set = [];
+        if (is_array($raw)) {
+            foreach ($raw as $k => $v) {
+                if (is_string($v) && is_int($k)) {
+                    $set[$v] = true;
+                } else {
+                    $set[(string)$k] = (bool)$v;
+                }
+            }
+        }
+        return $set;
+    }
+
+    public static function render_usage_dashboard() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $csv_path = Core::csv_path('video_seo_titles.csv');
+        $rows     = Core::read_csv_assoc($csv_path);
+
+        $valid_rows      = 0;
+        $unique_titles   = [];
+        $unique_focus    = [];
+        $unique_pairs    = [];
+
+        foreach ($rows as $row) {
+            $seo_title = trim((string)($row['seo_title'] ?? ''));
+            $focus     = trim((string)($row['focus_keyword'] ?? ''));
+
+            if ($seo_title === '' || $focus === '') {
+                continue;
+            }
+
+            $valid_rows++;
+
+            $normalized_title = self::normalize_for_hash_admin($seo_title);
+            $normalized_focus = self::normalize_for_hash_admin($focus);
+
+            $title_hash             = md5($normalized_title);
+            $focus_hash             = md5($normalized_focus);
+            $pair_hash              = md5($normalized_title . '|' . $normalized_focus);
+            $unique_titles[$title_hash] = true;
+            $unique_focus[$focus_hash]  = true;
+            $unique_pairs[$pair_hash]   = true;
+        }
+
+        $used_keys_set        = self::prepare_used_set(get_option('tmwseo_used_video_title_keys', []));
+        $used_title_hashes    = self::prepare_used_set(get_option('tmwseo_used_video_seo_title_hashes', []));
+        $used_focus_hashes    = self::prepare_used_set(get_option('tmwseo_used_video_focus_keyword_hashes', []));
+        $used_pair_hashes     = self::prepare_used_set(get_option('tmwseo_used_video_title_focus_hashes', []));
+
+        $unique_title_count = count($unique_titles);
+        $unique_focus_count = count($unique_focus);
+        $unique_pair_count  = count($unique_pairs);
+
+        $used_keys_count   = count($used_keys_set);
+        $used_title_count  = count($used_title_hashes);
+        $used_focus_count  = count($used_focus_hashes);
+        $used_pair_count   = count($used_pair_hashes);
+
+        $remaining_titles = max(0, $unique_title_count - $used_title_count);
+        $remaining_focus  = max(0, $unique_focus_count - $used_focus_count);
+        $remaining_pairs  = max(0, $unique_pair_count - $used_pair_count);
+
+        $reset_enabled = (defined('TMWSEO_ENABLE_USAGE_RESET') && TMWSEO_ENABLE_USAGE_RESET) || apply_filters('tmwseo_enable_usage_reset', false);
+
+        $reset_success = !empty($_GET['reset']);
+        $reset_error   = sanitize_text_field($_GET['reset_error'] ?? '');
+        ?>
+        <div class="wrap">
+            <h1>TMW SEO Usage</h1>
+
+            <p style="max-width:760px;">This dashboard tracks how many video SEO titles and focus keywords from <code>data/video_seo_titles.csv</code> have been used. "Used" values come from the duplicate checker options and do not modify existing posts. Resetting only clears these trackers; it will <strong>not</strong> change post meta values like <code>_tmwseo_csv_video_title</code>.</p>
+
+            <?php if ($reset_success) : ?>
+                <div class="notice notice-success"><p><?php echo esc_html__('Usage trackers cleared. Future posts may reuse CSV entries.', 'tmw-seo-autopilot'); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ($reset_error === 'confirm') : ?>
+                <div class="notice notice-error"><p><?php echo esc_html__('Reset aborted: confirmation text did not match.', 'tmw-seo-autopilot'); ?></p></div>
+            <?php elseif ($reset_error === 'disabled') : ?>
+                <div class="notice notice-error"><p><?php echo esc_html__('Reset is disabled. Enable it via the constant or filter to proceed.', 'tmw-seo-autopilot'); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ($remaining_pairs === 0 || $remaining_titles === 0 || $remaining_focus === 0) : ?>
+                <div class="notice notice-error"><p><?php echo esc_html__('Video title pool exhausted. New posts may fall back to templates until you add more CSV entries or reset usage (if enabled).', 'tmw-seo-autopilot'); ?></p></div>
+            <?php else : ?>
+                <div class="notice notice-success"><p><?php echo sprintf(esc_html__('Pool healthy: %d unique title+focus pairs remaining.', 'tmw-seo-autopilot'), (int) $remaining_pairs); ?></p></div>
+            <?php endif; ?>
+
+            <h2>CSV Stats</h2>
+            <table class="widefat striped" style="max-width:800px;">
+                <tbody>
+                    <tr>
+                        <th scope="row">CSV Path</th>
+                        <td><code><?php echo esc_html($csv_path); ?></code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Total valid rows</th>
+                        <td><?php echo (int) $valid_rows; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Unique SEO titles</th>
+                        <td><?php echo (int) $unique_title_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Unique focus keywords</th>
+                        <td><?php echo (int) $unique_focus_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Unique title+focus pairs</th>
+                        <td><?php echo (int) $unique_pair_count; ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 style="margin-top:25px;">Usage Stats</h2>
+            <table class="widefat striped" style="max-width:800px;">
+                <tbody>
+                    <tr>
+                        <th scope="row">Used row keys</th>
+                        <td><?php echo (int) $used_keys_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Used title hashes</th>
+                        <td><?php echo (int) $used_title_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Used focus hashes</th>
+                        <td><?php echo (int) $used_focus_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Used title+focus hashes</th>
+                        <td><?php echo (int) $used_pair_count; ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 style="margin-top:25px;">Remaining Pool</h2>
+            <table class="widefat striped" style="max-width:800px;">
+                <tbody>
+                    <tr>
+                        <th scope="row">Remaining unique titles</th>
+                        <td><?php echo (int) $remaining_titles; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Remaining unique focus keywords</th>
+                        <td><?php echo (int) $remaining_focus; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Remaining unique pairs</th>
+                        <td><?php echo (int) $remaining_pairs; ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 style="margin-top:25px;">Reset Usage Trackers</h2>
+            <?php if (!$reset_enabled) : ?>
+                <div class="notice notice-info"><p><?php echo esc_html("Reset is disabled by default. To enable, set define('TMWSEO_ENABLE_USAGE_RESET', true) or use the tmwseo_enable_usage_reset filter."); ?></p></div>
+            <?php else : ?>
+                <div class="notice notice-warning"><p><?php echo esc_html__('Resetting will only clear the usage tracker options. It will not change existing posts. Type RESET to confirm.', 'tmw-seo-autopilot'); ?></p></div>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:800px;">
+                    <?php wp_nonce_field('tmwseo_usage_reset'); ?>
+                    <input type="hidden" name="action" value="tmwseo_usage_reset">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><label for="tmwseo_reset_confirm">Confirmation</label></th>
+                            <td>
+                                <input type="text" name="tmwseo_reset_confirm" id="tmwseo_reset_confirm" value="" placeholder="Type RESET" class="regular-text" required>
+                                <p class="description">Type <code>RESET</code> to clear usage trackers.</p>
+                            </td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary" onclick="return confirm('This will clear usage trackers. Continue?');">Reset usage trackers</button>
+                    </p>
+                </form>
+            <?php endif; ?>
+        </div>
+        <?php
     }
 
     public static function render_keyword_packs() {
