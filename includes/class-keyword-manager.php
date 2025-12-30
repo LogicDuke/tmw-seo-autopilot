@@ -47,54 +47,6 @@ class Keyword_Manager {
             $pair[1] ?? '',
         ]));
 
-        $content_lower = strtolower(wp_strip_all_tags($content));
-        $ranges        = self::platform_counts($type);
-        $additions     = [];
-
-        $competitor_total = 0;
-        foreach ($pair as $competitor) {
-            $competitor_total += substr_count($content_lower, strtolower($competitor));
-        }
-
-        if ($competitor_total < ($ranges['competitor'][0] ?? 0)) {
-            $competitor_pool = [
-                'Some viewers compare LiveJasmin with %s, but the tone here is more curated and private.',
-                'Fans who hop between LiveJasmin and %s like how custom requests stay focused on the performer here.',
-                'Chatters mention %s sometimes, yet moderation on LiveJasmin keeps the vibe calm and personal.',
-            ];
-            $missing = min(2, ($ranges['competitor'][0] ?? 0) - $competitor_total);
-            for ($i = 0; $i < $missing; $i++) {
-                $competitor = $pair[$i % max(1, count($pair))] ?? '';
-                if ($competitor === '') {
-                    continue;
-                }
-                $template   = $competitor_pool[$i % count($competitor_pool)];
-                $additions[] = sprintf($template, $competitor);
-            }
-        }
-
-        $onlyfans_count = substr_count($content_lower, 'onlyfans');
-        if ($onlyfans_count < ($ranges['onlyfans'][0] ?? 0)) {
-            $onlyfans_pool = [
-                'People arriving from OnlyFans searches often prefer live interaction once they try it.',
-                'Some fans keep an OnlyFans subscription but jump into live chat when they want answers immediately.',
-                'OnlyFans posts stay on-demand, while LiveJasmin lets viewers guide the pace in real time.',
-            ];
-            $missing = min(2, ($ranges['onlyfans'][0] ?? 0) - $onlyfans_count);
-            for ($i = 0; $i < $missing; $i++) {
-                $additions[] = $onlyfans_pool[$i % count($onlyfans_pool)];
-            }
-        }
-
-        $lj_count = substr_count($content_lower, 'livejasmin');
-        if ($lj_count < ($ranges['livejasmin'][0] ?? 0)) {
-            $additions[] = 'LiveJasmin keeps lighting and audio consistent so conversations stay relaxed.';
-        }
-
-        if (!empty($additions)) {
-            $content .= "\n\n<p>" . implode('</p>\n\n<p>', array_values(array_unique($additions))) . '</p>';
-        }
-
         $content = self::reduce_focus_density($content, $name, $type);
 
         return [

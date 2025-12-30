@@ -1236,8 +1236,12 @@ class Core {
             $tag_keywords = self::safe_model_tag_keywords( $looks );
             $generic      = self::sanitize_sfw_keywords( self::model_random_extras( 4 ) );
 
-            $all_extras = array_values( array_unique( array_merge( $tag_keywords, $generic ) ) );
-            $extras     = array_slice( $all_extras, 0, 4 );
+            $categories = Keyword_Library::categories_from_safe_tags( $tag_keywords );
+            $seed       = (string) ( $post->ID ?: crc32( $name ) );
+            $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed );
+
+            $all_extras = array_values( array_unique( array_merge( $library_extras, $tag_keywords, $generic ) ) );
+            $extras     = array_slice( $all_extras, 0, 10 );
         }
 
         if (class_exists(__NAMESPACE__ . '\\RankMath') && method_exists(RankMath::class, 'generate_model_snippet_title')) {
@@ -1267,10 +1271,17 @@ class Core {
         $safe_title = self::sanitize_sfw_text((string) ($rm['title'] ?? ''), 'Live Cam Model — Live Cam Highlights');
         $safe_desc  = self::sanitize_sfw_text((string) ($rm['desc'] ?? ''), 'Live cam highlights.');
 
+        $extras = is_array( $rm['extras'] ?? null ) ? $rm['extras'] : [];
+        $extras = self::sanitize_sfw_keywords( $extras, [] );
+
         $post = get_post($post_id);
-        if ($post instanceof \WP_Post && self::is_video_post_type($post->post_type)) {
-            $extras = is_array( $rm['extras'] ?? null ) ? $rm['extras'] : [];
-            $extras = self::sanitize_sfw_keywords( $extras, [] );
+        if ($post instanceof \WP_Post && $post->post_type === Core::MODEL_PT) {
+            $focus_to_use = $preserve_focus && $existing_focus !== '' ? $existing_focus : (string) ( $rm['focus'] ?? '' );
+            $focus_to_use = self::sanitize_sfw_text( $focus_to_use, (string) ( $rm['focus'] ?? '' ) );
+
+            update_post_meta($post_id, 'rank_math_focus_keyword', $focus_to_use);
+            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', $extras));
+        } elseif ($post instanceof \WP_Post && self::is_video_post_type($post->post_type)) {
             if ($preserve_focus && $existing_focus !== '') {
                 $kw = array_merge( [ sanitize_text_field( $existing_focus ) ], $extras );
                 $kw = array_values(array_filter($kw, 'strlen'));
@@ -1286,6 +1297,7 @@ class Core {
                     update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
                 }
             }
+            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', $extras));
         } elseif ( $preserve_focus && $existing_focus !== '' ) {
             $kw = array_filter(array_map('trim', explode(',', (string) $existing_focus)));
             $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
@@ -1294,6 +1306,7 @@ class Core {
             $kw = array_filter(array_map('trim', array_merge([$rm['focus']], $rm['extras'] ?? [])));
             $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
             update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
+            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', $extras));
         }
 
         $existing_title = get_post_meta($post_id, 'rank_math_title', true);
