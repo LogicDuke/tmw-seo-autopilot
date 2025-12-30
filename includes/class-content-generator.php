@@ -20,14 +20,15 @@ class Content_Generator {
         $bio        = Template_Engine::render(Template_Engine::pick('model-bios', $seed, 1), $base);
         $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), $base);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 5);
-        $faqs_html  = self::render_faqs($faqs_tpl, $base);
+        $faqs_html  = self::render_faqs($faqs_tpl, $base, $base['longtail_keywords']);
+        $longtail_block = self::render_longtail_section($base['longtail_keywords'], $name);
 
         $related = self::render_related($context, $name);
 
         $sections = [
-            0 => [$intro, $bio, $comparison, $faqs_html, $related],
-            1 => [$intro, $comparison, $bio, $faqs_html, $related],
-            2 => [$intro, $bio, $faqs_html, $comparison, $related],
+            0 => [$intro, $bio, $longtail_block, $comparison, $faqs_html, $related],
+            1 => [$intro, $comparison, $longtail_block, $bio, $faqs_html, $related],
+            2 => [$intro, $bio, $faqs_html, $longtail_block, $comparison, $related],
         ];
 
         $content = implode("\n\n", $sections[$layout]);
@@ -65,7 +66,7 @@ class Content_Generator {
         $details    = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 1), $base);
         $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), $base);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 4);
-        $faqs_html  = self::render_faqs($faqs_tpl, $base);
+        $faqs_html  = self::render_faqs($faqs_tpl, $base, $base['longtail_keywords']);
 
         $content = implode("\n\n", [$intro, $details, $comparison, $faqs_html]);
         $word_count = str_word_count(strip_tags($content));
@@ -91,20 +92,42 @@ class Content_Generator {
 
     protected static function base_context(string $name, array $pair, array $tags, array $context): array {
         $safe_tags = Core::get_safe_model_tag_keywords($tags);
+        $categories = Keyword_Library::categories_from_safe_tags($safe_tags);
+        $seed = (string) ($context['model_id'] ?? $context['video_id'] ?? $name);
+        $extra = Keyword_Library::pick_multi($categories, 'extra', 10, $seed);
+        $longtail = Keyword_Library::pick_multi($categories, 'longtail', 6, $seed);
+
         $tag_slice = array_slice($safe_tags, 0, max(4, min(6, count($safe_tags))));
         $tag_text  = !empty($tag_slice) ? implode(', ', $tag_slice) : 'live webcam shows';
         return [
-            'name'         => $name,
-            'platform_a'   => $pair[0] ?? 'Chaturbate',
-            'platform_b'   => $pair[1] ?? 'Stripchat',
-            'live_brand'   => 'LiveJasmin',
-            'site'         => $context['site'] ?? get_bloginfo('name'),
-            'tags'         => $tag_text,
-            'cta_url'      => $context['brand_url'] ?? '',
+            'name'                 => $name,
+            'platform_a'           => $pair[0] ?? 'Chaturbate',
+            'platform_b'           => $pair[1] ?? 'Stripchat',
+            'live_brand'           => 'LiveJasmin',
+            'site'                 => $context['site'] ?? get_bloginfo('name'),
+            'tags'                 => $tag_text,
+            'safe_tags'            => $safe_tags,
+            'categories'           => $categories,
+            'extra_keywords'       => $extra,
+            'extra_keywords_text'  => implode(', ', $extra),
+            'longtail_keywords'    => $longtail,
+            'cta_url'              => $context['brand_url'] ?? '',
         ];
     }
 
-    protected static function render_faqs(array $faqs, array $base): string {
+    protected static function render_faqs(array $faqs, array $base, array $longtail_keywords = []): string {
+        $longtail_append = [];
+        if (!empty($longtail_keywords)) {
+            $lt = array_slice($longtail_keywords, 0, 1);
+            foreach ($lt as $kw) {
+                $longtail_append[] = [
+                    'q' => sprintf('Does {name} include %s in live chat?', $kw),
+                    'a' => sprintf('When viewers politely ask for %s, {name} blends it into the flow without derailing the vibe.', $kw),
+                ];
+            }
+        }
+
+        $faqs = array_merge($faqs, $longtail_append);
         $html = '<h2>FAQ</h2>';
         $used_questions = [];
         foreach ($faqs as $faq) {
@@ -180,6 +203,22 @@ class Content_Generator {
             }
             $out .= '</ul>';
         }
+
+        return $out;
+    }
+
+    protected static function render_longtail_section(array $longtail_keywords, string $name): string {
+        $items = array_slice(array_values(array_unique(array_filter($longtail_keywords))), 0, 3);
+        if (empty($items)) {
+            return '';
+        }
+
+        $out  = '<h3>Conversation cues inspired by fans</h3>';
+        $out .= '<ul>';
+        foreach ($items as $kw) {
+            $out .= '<li>' . esc_html($kw) . '</li>';
+        }
+        $out .= '</ul>';
 
         return $out;
     }
