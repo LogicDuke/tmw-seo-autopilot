@@ -1238,7 +1238,7 @@ class Core {
 
             $categories = Keyword_Library::categories_from_safe_tags( $tag_keywords );
             $seed       = (string) ( $post->ID ?: crc32( $name ) );
-            $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed );
+            $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed, $tag_keywords, 30, $post->ID, $post->post_type );
 
             $all_extras = array_values( array_unique( array_merge( $library_extras, $tag_keywords, $generic ) ) );
             $extras     = array_slice( $all_extras, 0, 10 );

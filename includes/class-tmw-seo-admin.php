@@ -219,6 +219,7 @@ class Admin {
     public static function tools_page() {
         add_submenu_page('tools.php', 'TMW SEO Autopilot', 'TMW SEO Autopilot', 'manage_options', 'tmw-seo-autopilot', [__CLASS__, 'render_tools']);
         add_submenu_page('tools.php', 'TMW SEO Keyword Packs', 'TMW SEO Keyword Packs', 'manage_options', 'tmw-seo-keyword-packs', [__CLASS__, 'render_keyword_packs']);
+        add_submenu_page('tools.php', 'TMW SEO Keyword Usage', 'TMW SEO Keyword Usage', 'manage_options', 'tmw-seo-keyword-usage', [__CLASS__, 'render_keyword_usage']);
     }
 
     public static function render_keyword_packs() {
@@ -227,7 +228,7 @@ class Admin {
         }
 
         $notices = [];
-        $categories = ['general', 'roleplay', 'chat', 'cosplay', 'couples'];
+        $categories = Keyword_Library::categories();
         $types      = ['extra', 'longtail', 'competitor'];
 
         if (!empty($_POST['tmwseo_keyword_action'])) {
@@ -242,6 +243,11 @@ class Admin {
                 Keyword_Library::ensure_dirs_and_placeholders();
                 Keyword_Library::flush_cache();
                 $notices[] = ['type' => 'updated', 'text' => 'Folders and placeholder CSV files initialized.'];
+            }
+
+            if ($action === 'flush_cache') {
+                Keyword_Library::flush_cache();
+                $notices[] = ['type' => 'updated', 'text' => 'Keyword cache cleared.'];
             }
 
             if ($action === 'upload' && !empty($_FILES['tmwseo_csv']['tmp_name'])) {
@@ -368,6 +374,143 @@ class Admin {
                 <input type="hidden" name="tmwseo_keyword_action" value="init_placeholders">
                 <p class="submit"><button type="submit" class="button">Create folders / placeholders</button></p>
             </form>
+            <form method="post" style="margin-top:10px;">
+                <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
+                <input type="hidden" name="tmwseo_keyword_action" value="flush_cache">
+                <p class="submit"><button type="submit" class="button">Flush keyword cache</button></p>
+            </form>
+        </div>
+        <?php
+    }
+
+    public static function render_keyword_usage() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        global $wpdb;
+        $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
+        $log_table   = $wpdb->prefix . 'tmwseo_keyword_usage_log';
+
+        $categories = array_merge(['all'], Keyword_Library::categories());
+        $types      = ['all', 'extra', 'longtail', 'competitor'];
+
+        $selected_category = sanitize_key($_GET['category'] ?? 'all');
+        $selected_type     = sanitize_key($_GET['type'] ?? 'all');
+        $limit             = max(10, min(500, intval($_GET['limit'] ?? 100)));
+
+        $where = [];
+        $params = [];
+        if ($selected_category !== 'all') {
+            $where[] = 'category = %s';
+            $params[] = $selected_category;
+        }
+        if ($selected_type !== 'all') {
+            $where[] = 'type = %s';
+            $params[] = $selected_type;
+        }
+        $where_sql = !empty($where) ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+        if (!empty($_GET['tmwseo_export_usage']) && check_admin_referer('tmwseo_usage_export', 'tmwseo_usage_nonce')) {
+            $sql = "SELECT keyword_text, type, category, post_id, post_type, used_at FROM {$log_table} {$where_sql} ORDER BY used_at DESC";
+            $rows = $params ? $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A) : $wpdb->get_results($sql, ARRAY_A);
+
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="tmwseo-keyword-usage.csv"');
+            $output = fopen('php://output', 'w');
+            fputcsv($output, ['keyword_text', 'type', 'category', 'post_id', 'post_type', 'used_at']);
+            foreach ((array) $rows as $row) {
+                fputcsv($output, [
+                    $row['keyword_text'] ?? '',
+                    $row['type'] ?? '',
+                    $row['category'] ?? '',
+                    $row['post_id'] ?? '',
+                    $row['post_type'] ?? '',
+                    $row['used_at'] ?? '',
+                ]);
+            }
+            fclose($output);
+            exit;
+        }
+
+        $sql = "SELECT keyword_text, category, type, used_count, last_used_at FROM {$usage_table} {$where_sql} ORDER BY used_count DESC, last_used_at DESC LIMIT %d";
+        $params_with_limit = $params;
+        $params_with_limit[] = $limit;
+        $rows = $params_with_limit ? $wpdb->get_results($wpdb->prepare($sql, $params_with_limit), ARRAY_A) : $wpdb->get_results($wpdb->prepare($sql, $limit), ARRAY_A);
+
+        $export_url = add_query_arg([
+            'page' => 'tmw-seo-keyword-usage',
+            'category' => $selected_category,
+            'type' => $selected_type,
+            'tmwseo_export_usage' => 1,
+        ], admin_url('tools.php'));
+
+        ?>
+        <div class="wrap">
+            <h1>TMW SEO Keyword Usage</h1>
+            <form method="get" style="margin-bottom:15px;">
+                <input type="hidden" name="page" value="tmw-seo-keyword-usage">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_usage_category">Category</label></th>
+                        <td>
+                            <select name="category" id="tmwseo_usage_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>" <?php selected($selected_category, $cat); ?>><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_usage_type">Type</label></th>
+                        <td>
+                            <select name="type" id="tmwseo_usage_type">
+                                <?php foreach ($types as $t) : ?>
+                                    <option value="<?php echo esc_attr($t); ?>" <?php selected($selected_type, $t); ?>><?php echo esc_html($t); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_usage_limit">Limit</label></th>
+                        <td>
+                            <input type="number" name="limit" id="tmwseo_usage_limit" value="<?php echo (int) $limit; ?>" min="10" max="500">
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="submit" class="button button-primary">Filter</button>
+                    <?php wp_nonce_field('tmwseo_usage_export', 'tmwseo_usage_nonce'); ?>
+                    <a class="button" href="<?php echo esc_url(wp_nonce_url($export_url, 'tmwseo_usage_export', 'tmwseo_usage_nonce')); ?>">Export CSV</a>
+                </p>
+            </form>
+
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Used Count</th>
+                        <th>Last Used</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($rows)) : ?>
+                        <tr><td colspan="5">No keyword usage found.</td></tr>
+                    <?php else : ?>
+                        <?php foreach ($rows as $row) : ?>
+                            <tr>
+                                <td><?php echo esc_html($row['keyword_text'] ?? ''); ?></td>
+                                <td><?php echo esc_html($row['category'] ?? ''); ?></td>
+                                <td><?php echo esc_html($row['type'] ?? ''); ?></td>
+                                <td><?php echo (int) ($row['used_count'] ?? 0); ?></td>
+                                <td><?php echo esc_html($row['last_used_at'] ?? '—'); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
         </div>
         <?php
     }

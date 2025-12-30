@@ -30,7 +30,7 @@ if (defined('WP_CLI') && WP_CLI) {
         }
 
         public static function keyword_packs_status($args, $assoc) {
-            $categories = ['general', 'roleplay', 'chat', 'cosplay', 'couples'];
+            $categories = Keyword_Library::categories();
             $types      = ['extra', 'longtail', 'competitor'];
             $uploads    = Keyword_Library::uploads_base_dir();
             $plugin     = Keyword_Library::plugin_base_dir();

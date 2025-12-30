@@ -21,6 +21,7 @@ require_once TMW_SEO_PATH . 'includes/class-tmw-seo-automations.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-image-meta.php';
 require_once TMW_SEO_PATH . 'includes/class-template-engine.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-library.php';
+require_once TMW_SEO_PATH . 'includes/class-keyword-usage.php';
 require_once TMW_SEO_PATH . 'includes/class-content-generator.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-manager.php';
 require_once TMW_SEO_PATH . 'includes/class-uniqueness-checker.php';
@@ -30,6 +31,7 @@ require_once TMW_SEO_PATH . 'includes/providers/class-provider-template.php';
 require_once TMW_SEO_PATH . 'includes/providers/class-provider-openai.php';
 
 add_action('plugins_loaded', function () {
+    \TMW_SEO\Keyword_Usage::maybe_upgrade();
     \TMW_SEO\Admin::boot();
     \TMW_SEO\RankMath::boot();
     \TMW_SEO\VideoSEO::boot();
@@ -41,4 +43,5 @@ add_action('plugins_loaded', function () {
 register_activation_hook(__FILE__, function () {
     \TMW_SEO\Core::debug_log(TMW_SEO_TAG . ' activated v1.0.0');
     \TMW_SEO\Keyword_Library::ensure_dirs_and_placeholders();
+    \TMW_SEO\Keyword_Usage::install();
 });
