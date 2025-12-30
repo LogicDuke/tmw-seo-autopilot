@@ -593,6 +593,12 @@ class Core {
         );
     }
 
+    protected static function normalize_for_hash( string $value ): string {
+        $value = trim( $value );
+        $value = preg_replace( '/\s+/', ' ', $value );
+        return strtolower( (string) $value );
+    }
+
     public static function select_video_title_focus_csv( \WP_Post $post, array $looks, string $lj_title ): array {
         $existing_key = (string) get_post_meta( $post->ID, '_tmwseo_csv_video_title_key', true );
         $rows         = self::read_csv_assoc( self::csv_path( 'video_seo_titles.csv' ) );
@@ -632,8 +638,14 @@ class Core {
             return [];
         }
 
-        $used_raw = get_option( 'tmwseo_used_video_title_keys', [] );
-        $used     = [];
+        $used_raw               = get_option( 'tmwseo_used_video_title_keys', [] );
+        $used                   = [];
+        $used_title_hashes_raw  = get_option( 'tmwseo_used_video_seo_title_hashes', [] );
+        $used_focus_hashes_raw  = get_option( 'tmwseo_used_video_focus_keyword_hashes', [] );
+        $used_pair_hashes_raw   = get_option( 'tmwseo_used_video_title_focus_hashes', [] );
+        $used_title_hashes      = [];
+        $used_focus_hashes      = [];
+        $used_pair_hashes       = [];
         if ( is_array( $used_raw ) ) {
             foreach ( $used_raw as $k => $v ) {
                 if ( is_string( $v ) && is_int( $k ) ) {
@@ -643,8 +655,48 @@ class Core {
                 }
             }
         }
+        if ( is_array( $used_title_hashes_raw ) ) {
+            foreach ( $used_title_hashes_raw as $k => $v ) {
+                $used_title_hashes[ (string) $k ] = (bool) $v;
+            }
+        }
+        if ( is_array( $used_focus_hashes_raw ) ) {
+            foreach ( $used_focus_hashes_raw as $k => $v ) {
+                $used_focus_hashes[ (string) $k ] = (bool) $v;
+            }
+        }
+        if ( is_array( $used_pair_hashes_raw ) ) {
+            foreach ( $used_pair_hashes_raw as $k => $v ) {
+                $used_pair_hashes[ (string) $k ] = (bool) $v;
+            }
+        }
 
         try {
+            if ( empty( $used_title_hashes ) && empty( $used_focus_hashes ) && empty( $used_pair_hashes ) && ! empty( $used ) ) {
+                foreach ( $rows as $row ) {
+                    $key = self::video_title_row_key( $row );
+                    if ( $key === '' || ! isset( $used[ $key ] ) ) {
+                        continue;
+                    }
+
+                    $seed_title = (string) ( $row['seo_title'] ?? '' );
+                    $seed_focus = (string) ( $row['focus_keyword'] ?? '' );
+
+                    $normalized_title = self::normalize_for_hash( $seed_title );
+                    $normalized_focus = self::normalize_for_hash( $seed_focus );
+
+                    $title_hash                       = md5( $normalized_title );
+                    $focus_hash                       = md5( $normalized_focus );
+                    $pair_hash                        = md5( $normalized_title . '|' . $normalized_focus );
+                    $used_title_hashes[ $title_hash ] = true;
+                    $used_focus_hashes[ $focus_hash ] = true;
+                    $used_pair_hashes[ $pair_hash ]   = true;
+                }
+                update_option( 'tmwseo_used_video_seo_title_hashes', $used_title_hashes, false );
+                update_option( 'tmwseo_used_video_focus_keyword_hashes', $used_focus_hashes, false );
+                update_option( 'tmwseo_used_video_title_focus_hashes', $used_pair_hashes, false );
+            }
+
             $needle_tokens = self::normalize_tokens( $lj_title . ' ' . implode( ' ', $looks ) );
             $best_row      = null;
             $best_key      = '';
@@ -655,6 +707,25 @@ class Core {
                 if ( $key === '' || isset( $used[ $key ] ) ) {
                     continue;
                 }
+
+                $seo_title     = trim( (string) ( $row['seo_title'] ?? '' ) );
+                $focus_keyword = trim( (string) ( $row['focus_keyword'] ?? '' ) );
+
+                if ( $seo_title === '' || $focus_keyword === '' ) {
+                    continue;
+                }
+
+                $normalized_title = self::normalize_for_hash( $seo_title );
+                $normalized_focus = self::normalize_for_hash( $focus_keyword );
+
+                $title_hash = md5( $normalized_title );
+                $focus_hash = md5( $normalized_focus );
+                $pair_hash  = md5( $normalized_title . '|' . $normalized_focus );
+
+                if ( isset( $used_title_hashes[ $title_hash ] ) || isset( $used_focus_hashes[ $focus_hash ] ) || isset( $used_pair_hashes[ $pair_hash ] ) ) {
+                    continue;
+                }
+
                 $score = self::score_video_row( $row, $needle_tokens );
                 if ( $score > $best_score ) {
                     $best_score = $score;
@@ -672,6 +743,18 @@ class Core {
             update_post_meta( $post->ID, '_tmwseo_csv_video_focus', $best_row['focus_keyword'] ?? '' );
             $used[ $best_key ] = true; // associative set for O(1) lookups
             update_option( 'tmwseo_used_video_title_keys', $used, false );
+
+            $best_title_hash = md5( self::normalize_for_hash( (string) ( $best_row['seo_title'] ?? '' ) ) );
+            $best_focus_hash = md5( self::normalize_for_hash( (string) ( $best_row['focus_keyword'] ?? '' ) ) );
+            $best_pair_hash  = md5( self::normalize_for_hash( (string) ( $best_row['seo_title'] ?? '' ) ) . '|' . self::normalize_for_hash( (string) ( $best_row['focus_keyword'] ?? '' ) ) );
+
+            $used_title_hashes[ $best_title_hash ] = true;
+            $used_focus_hashes[ $best_focus_hash ] = true;
+            $used_pair_hashes[ $best_pair_hash ]   = true;
+
+            update_option( 'tmwseo_used_video_seo_title_hashes', $used_title_hashes, false );
+            update_option( 'tmwseo_used_video_focus_keyword_hashes', $used_focus_hashes, false );
+            update_option( 'tmwseo_used_video_title_focus_hashes', $used_pair_hashes, false );
         } finally {
             delete_option( 'tmwseo_lock_video_title_keys' );
         }
