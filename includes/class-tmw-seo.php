@@ -252,17 +252,13 @@ class Core {
         $video_extras = get_post_meta( $post->ID, '_tmwseo_video_extras_list', true );
         $video_extras = is_array( $video_extras ) ? array_values( array_filter( array_map( 'trim', $video_extras ) ) ) : [];
         if ( empty( $video_extras ) ) {
-            $pool_slugs = array_map( 'sanitize_title', Core::get_safe_model_tag_keywords( $looks ) );
-            foreach ( self::normalize_tokens( $lj_title ) as $token ) {
-                $pool_slugs[] = sanitize_title( $token );
-            }
-            $pool_slugs   = array_values( array_filter( array_unique( $pool_slugs ) ) );
-            $pool_extras  = Keyword_Pool::pick_keywords( $pool_slugs, 4, 'video', $post->ID, get_permalink( $post->ID ) );
-            if ( ! empty( $pool_extras ) ) {
-                $video_extras = $pool_extras;
-                update_post_meta( $post->ID, '_tmwseo_video_extras_list', $pool_extras );
-            } else {
+            $categories = Keyword_Library::categories_from_looks( $looks );
+            $video_extras = Keyword_Library::pick_multi( $categories, 'extra', 6, (string) $post->ID, [], 30, $post->ID, $post->post_type );
+            if ( empty( $video_extras ) ) {
                 $video_extras = self::select_video_extras_csv( $post, $looks, $lj_title );
+            }
+            if ( ! empty( $video_extras ) ) {
+                update_post_meta( $post->ID, '_tmwseo_video_extras_list', $video_extras );
             }
         }
 
@@ -908,6 +904,9 @@ class Core {
 
     protected static function build_ctx_model(int $model_id, string $name, array $args): array {
         $looks = self::first_looks($model_id);
+        if ( empty( $looks ) && ! empty( $args['looks'] ) && is_array( $args['looks'] ) ) {
+            $looks = array_values( array_unique( array_filter( (array) $args['looks'] ) ) );
+        }
         $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $slug = basename(get_permalink($model_id));
         $focus = $name;
@@ -1308,9 +1307,12 @@ class Core {
         // 3) Build keywords.
         $tag_keywords = self::safe_model_tag_keywords( $looks );
         $generic      = self::sanitize_sfw_keywords( self::model_random_extras( 4 ) );
+        $categories   = Keyword_Library::categories_from_looks( $looks );
+        $seed         = (string) ( $post->ID ?: crc32( $ctx['name'] ?? '' ) );
+        $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed, [], 30, $post->ID, $post->post_type );
 
-        $all_extras = array_values( array_unique( array_merge( $tag_keywords, $generic ) ) );
-        $extras     = array_slice( $all_extras, 0, 4 );
+        $all_extras = array_values( array_unique( array_merge( $library_extras, $tag_keywords, $generic ) ) );
+        $extras     = array_slice( $all_extras, 0, 10 );
 
         return $extras;
     }
@@ -1342,25 +1344,28 @@ class Core {
             $tag_keywords = self::safe_model_tag_keywords( $looks );
             $generic      = self::sanitize_sfw_keywords( self::model_random_extras( 4 ) );
 
-            $category_slugs = array_map( 'sanitize_title', $tag_keywords );
-            $category_slugs = array_values( array_filter( array_unique( $category_slugs ) ) );
-            $pool_extras    = Keyword_Pool::pick_keywords( $category_slugs, 4, 'model', $post->ID, get_permalink( $post->ID ) );
+            $categories = Keyword_Library::categories_from_looks( $looks );
+            $seed       = (string) ( $post->ID ?: crc32( $name ) );
+            $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed, $tag_keywords, 30, $post->ID, $post->post_type );
 
-            if ( ! empty( $pool_extras ) ) {
-                $extras = $pool_extras;
-            } else {
-                $categories = Keyword_Library::categories_from_safe_tags( $tag_keywords );
-                $seed       = (string) ( $post->ID ?: crc32( $name ) );
-                $library_extras = Keyword_Library::pick_multi( $categories, 'extra', 10, $seed, $tag_keywords, 30, $post->ID, $post->post_type );
-
-                $all_extras = array_values( array_unique( array_merge( $library_extras, $tag_keywords, $generic ) ) );
-                $extras     = array_slice( $all_extras, 0, 10 );
-            }
+            $all_extras = array_values( array_unique( array_merge( $library_extras, $tag_keywords, $generic ) ) );
+            $extras     = array_slice( $all_extras, 0, 10 );
 
             if ( ! empty( $extras ) ) {
                 update_post_meta( $post->ID, '_tmwseo_extras_list', $extras );
                 update_post_meta( $post->ID, '_tmwseo_extras_locked', 1 );
             }
+        }
+
+        $extra_focus_1 = trim( (string) get_post_meta( $post->ID, '_tmwseo_extra_focus_1', true ) );
+        $extra_focus_2 = trim( (string) get_post_meta( $post->ID, '_tmwseo_extra_focus_2', true ) );
+        if ( $extra_focus_1 === '' ) {
+            $extra_focus_1 = $extras[0] ?? 'live cam model';
+            update_post_meta( $post->ID, '_tmwseo_extra_focus_1', $extra_focus_1 );
+        }
+        if ( $extra_focus_2 === '' ) {
+            $extra_focus_2 = $extras[1] ?? 'webcam model profile';
+            update_post_meta( $post->ID, '_tmwseo_extra_focus_2', $extra_focus_2 );
         }
 
         if (class_exists(__NAMESPACE__ . '\\RankMath') && method_exists(RankMath::class, 'generate_model_snippet_title')) {
@@ -1380,6 +1385,8 @@ class Core {
         return [
             'focus' => $focus,
             'extras' => $extras,
+            'extra_focus_1' => $extra_focus_1,
+            'extra_focus_2' => $extra_focus_2,
             'title' => $title,
             'desc'  => $desc,
         ];
@@ -1395,11 +1402,27 @@ class Core {
 
         $post = get_post($post_id);
         if ($post instanceof \WP_Post && $post->post_type === Core::MODEL_PT) {
-            $focus_to_use = (!$preserve_focus || $existing_focus === '') ? (string) ( $rm['focus'] ?? '' ) : $existing_focus;
-            $focus_to_use = self::sanitize_sfw_text( $focus_to_use, (string) ( $rm['focus'] ?? '' ) );
+            $extra_focus_1 = trim( (string) ( $rm['extra_focus_1'] ?? get_post_meta( $post_id, '_tmwseo_extra_focus_1', true ) ) );
+            $extra_focus_2 = trim( (string) ( $rm['extra_focus_2'] ?? get_post_meta( $post_id, '_tmwseo_extra_focus_2', true ) ) );
 
-            update_post_meta($post_id, 'rank_math_focus_keyword', $focus_to_use);
-            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', $extras));
+            $focus_to_use = self::sanitize_sfw_text( (string) ( $rm['focus'] ?? '' ), (string) ( $rm['focus'] ?? '' ) );
+
+            $focus_keywords = array_values( array_filter( [ $focus_to_use, $extra_focus_1, $extra_focus_2 ], 'strlen' ) );
+
+            $additional_keywords = [];
+            if ( ! empty( $extras ) ) {
+                $additional_keywords = array_values( array_filter( $extras, function ( $kw ) use ( $extra_focus_1, $extra_focus_2 ) {
+                    $kw = strtolower( trim( (string) $kw ) );
+                    if ( $kw === '' ) {
+                        return false;
+                    }
+                    return $kw !== strtolower( $extra_focus_1 ) && $kw !== strtolower( $extra_focus_2 );
+                } ) );
+                $additional_keywords = array_slice( $additional_keywords, 0, 6 );
+            }
+
+            update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $focus_keywords));
+            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', $additional_keywords));
         } elseif ($post instanceof \WP_Post && self::is_video_post_type($post->post_type)) {
             if ($preserve_focus && $existing_focus !== '') {
                 $kw = array_merge( [ sanitize_text_field( $existing_focus ) ], $extras );
@@ -1450,9 +1473,16 @@ class Core {
                 Core::debug_log( '[TMW-SEO-RM] pillar cleared for video #' . $post_id );
             }
         } elseif ( $post_type === Core::MODEL_PT ) {
-            if ( $existing_pillar !== 'on' ) {
-                update_post_meta( $post_id, 'rank_math_pillar_content', 'on' );
-                Core::debug_log( '[TMW-SEO-RM] pillar enabled for model #' . $post_id );
+            $enable_pillar = (bool) get_option( 'tmwseo_enable_model_pillar', false );
+            $content_words = str_word_count( wp_strip_all_tags( (string) ( get_post_field( 'post_content', $post_id ) ?? '' ) ) );
+            if ( $enable_pillar || $content_words > 1200 ) {
+                if ( $existing_pillar !== 'on' ) {
+                    update_post_meta( $post_id, 'rank_math_pillar_content', 'on' );
+                    Core::debug_log( '[TMW-SEO-RM] pillar enabled for model #' . $post_id );
+                }
+            } elseif ( $existing_pillar !== '' ) {
+                delete_post_meta( $post_id, 'rank_math_pillar_content' );
+                Core::debug_log( '[TMW-SEO-RM] pillar cleared for model #' . $post_id );
             }
         }
         $focus_for_log = $preserve_focus && $existing_focus !== '' ? $existing_focus : ( $rm['focus_raw'] ?? ( $rm['focus'] ?? '' ) );

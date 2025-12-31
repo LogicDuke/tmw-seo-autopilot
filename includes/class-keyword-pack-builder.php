@@ -15,6 +15,17 @@ class Keyword_Pack_Builder {
             'rapidgator',
             'pornhub download',
             'teen',
+            'insecam',
+            'cctv',
+            'video conferencing',
+            'streaming 4k',
+            'best webcam for',
+            'home cameras',
+            'pornhub',
+            'indexxx',
+            'login',
+            'help center',
+            'reddit',
         ];
 
         return apply_filters('tmwseo_keyword_builder_blacklist', $list);
@@ -45,6 +56,14 @@ class Keyword_Pack_Builder {
             if ($term !== '' && strpos($normalized, $term) !== false) {
                 return false;
             }
+        }
+
+        if (preg_match('#https?://#', $normalized) || preg_match('#\.[a-z]{2,}#', $normalized)) {
+            return false;
+        }
+
+        if (strpos($s, '|') !== false || strpos($s, ' - ') !== false) {
+            return false;
         }
 
         return true;

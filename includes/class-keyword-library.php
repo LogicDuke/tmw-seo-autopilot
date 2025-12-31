@@ -82,6 +82,77 @@ class Keyword_Library {
         ];
     }
 
+    /**
+     * Map raw looks/tags to canonical category slugs that match keyword folders.
+     */
+    public static function categories_from_looks(array $looks): array {
+        $looks = array_map('strtolower', array_map('trim', $looks));
+        $looks = array_values(array_filter($looks, 'strlen'));
+
+        $explicit_blocklist = ['pussy', 'asshole', 'anal', 'cum', 'dick', 'cock'];
+        foreach ($looks as $look) {
+            foreach ($explicit_blocklist as $blocked) {
+                if (strpos($look, $blocked) !== false) {
+                    return ['general'];
+                }
+            }
+        }
+
+        $map = [
+            'uniform'       => 'uniforms',
+            'uniforms'      => 'uniforms',
+            'cosplay'       => 'cosplay',
+            'roleplay'      => 'roleplay',
+            'chatty'        => 'chatty',
+            'glamour'       => 'glamour',
+            'dance'         => 'dance',
+            'outdoor'       => 'outdoor',
+            'public'        => 'outdoor',
+            'fitness'       => 'fitness',
+            'gym'           => 'fitness',
+            'athletic'      => 'athletic',
+            'big tits'      => 'big-boobs',
+            'big boobs'     => 'big-boobs',
+            'big breasts'   => 'big-boobs',
+            'big ass'       => 'big-butt',
+            'big butt'      => 'big-butt',
+            'big booty'     => 'big-butt',
+            'tattoo'        => 'tattoo-piercing',
+            'tattooed'      => 'tattoo-piercing',
+            'piercing'      => 'tattoo-piercing',
+            'piercings'     => 'tattoo-piercing',
+            'asian'         => 'asian',
+            'ebony'         => 'ebony',
+            'latina'        => 'latina',
+            'latin'         => 'latina',
+            'petite'        => 'petite',
+            'curvy'         => 'curvy',
+            'bbw'           => 'curvy',
+            'couples'       => 'couples',
+            'couple'        => 'couples',
+            'dominant'      => 'dominant',
+            'romantic'      => 'romantic',
+            'redhead'       => 'redhead',
+            'blonde'        => 'blonde',
+            'brunette'      => 'brunette',
+            'brown hair'    => 'brunette',
+        ];
+
+        $categories = [];
+        foreach ($looks as $look) {
+            if (isset($map[$look])) {
+                $categories[] = $map[$look];
+            }
+        }
+
+        $categories = array_values(array_unique(array_filter($categories)));
+        if (!in_array('general', $categories, true)) {
+            $categories[] = 'general';
+        }
+
+        return $categories;
+    }
+
     public static function categories_from_safe_tags(array $safe_tags): array {
         $safe_tags = array_map('strtolower', array_map('trim', $safe_tags));
         foreach ($safe_tags as $tag) {
@@ -90,61 +161,7 @@ class Keyword_Library {
             }
         }
 
-        $category_map = [
-            'roleplay'         => ['roleplay', 'princess', 'romantic', 'sensual', 'curious'],
-            'cosplay'          => ['cosplay', 'costume', 'cheerleader'],
-            'chatty'           => ['flirting', 'teasing', 'eye contact', 'chatty', 'talkative'],
-            'dance'            => ['dance', 'dancing', 'twerk'],
-            'glamour'          => ['glamour', 'lingerie', 'high heels', 'fishnet', 'boots', 'sexy'],
-            'romantic'         => ['romantic', 'sensual', 'soft'],
-            'dominant'         => ['dominant', 'domme', 'mistress', 'control'],
-            'fitness'          => ['gym', 'athletic', 'muscular', 'fit'],
-            'outdoor'          => ['outdoor', 'pool', 'public'],
-            'uniforms'         => ['nurse', 'teacher', 'doctor', 'maid', 'secretary', 'office', 'cop', 'schoolgirl', 'uniform'],
-            'couples'          => ['couple'],
-            'fetish-lite'      => ['fetish', 'kinky', 'bdsm', 'light fetish'],
-            'petite'           => ['petite'],
-            'curvy'            => ['curvy', 'thick'],
-            'athletic'         => ['athletic', 'muscular'],
-            'big-boobs'        => ['big-boobs', 'boobs', 'busty', 'big chest'],
-            'big-butt'         => ['big-butt', 'booty', 'ass', 'big butt'],
-            'asian'            => ['asian'],
-            'latina'           => ['latina'],
-            'ebony'            => ['ebony', 'black'],
-            'interracial'      => ['interracial'],
-            'white'            => ['white'],
-            'blonde'           => ['blonde'],
-            'brunette'         => ['brunette', 'brown hair'],
-            'redhead'          => ['redhead', 'ginger'],
-            'tattoo-piercing'  => ['tattoo', 'piercing', 'ink'],
-            'livejasmin'       => ['livejasmin', 'jasmin'],
-            'compare-platforms'=> ['compare', 'versus', 'vs'],
-        ];
-
-        $matches = [];
-        foreach ($safe_tags as $tag) {
-            if ($tag === '') {
-                continue;
-            }
-            foreach ($category_map as $category => $needles) {
-                foreach ($needles as $needle) {
-                    if ($needle !== '' && strpos($tag, $needle) !== false) {
-                        if (!in_array($category, $matches, true)) {
-                            $matches[] = $category;
-                        }
-                        break 2;
-                    }
-                }
-            }
-            if (count($matches) >= 2) {
-                break;
-            }
-        }
-
-        $matches = array_values(array_unique(array_intersect($matches, self::categories())));
-        if (!in_array('general', $matches, true)) {
-            $matches[] = 'general';
-        }
+        $matches = self::categories_from_looks($safe_tags);
 
         return array_slice($matches, 0, 3);
     }
