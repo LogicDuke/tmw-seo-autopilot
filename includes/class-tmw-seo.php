@@ -10,6 +10,91 @@ class Core {
     const MODEL_PT = 'model';
     const VIDEO_PT = 'video';
 
+    public static function csv_dir(): string {
+        $uploads = wp_upload_dir();
+        $dir     = trailingslashit( $uploads['basedir'] ) . 'tmwseo-csv/';
+        if ( ! is_dir( $dir ) ) {
+            wp_mkdir_p( $dir );
+        }
+        return $dir;
+    }
+
+    public static function csv_path( string $file ): string {
+        return trailingslashit( self::csv_dir() ) . ltrim( $file, '/\\' );
+    }
+
+    public static function read_csv_assoc( string $path ): array {
+        if ( ! is_readable( $path ) ) {
+            return [];
+        }
+
+        $handle = fopen( $path, 'r' );
+        if ( ! $handle ) {
+            return [];
+        }
+
+        $rows    = [];
+        $headers = fgetcsv( $handle );
+        if ( ! $headers || ! is_array( $headers ) ) {
+            fclose( $handle );
+            return [];
+        }
+
+        $headers[0] = preg_replace( '/^\xEF\xBB\xBF/', '', (string) $headers[0] );
+        $headers    = array_map( 'trim', $headers );
+
+        while ( ( $data = fgetcsv( $handle ) ) !== false ) {
+            if ( ! is_array( $data ) ) {
+                continue;
+            }
+            $row = [];
+            foreach ( $headers as $i => $header ) {
+                $row[ $header ] = isset( $data[ $i ] ) ? trim( (string) $data[ $i ] ) : '';
+            }
+            $rows[] = $row;
+        }
+
+        fclose( $handle );
+        return $rows;
+    }
+
+    public static function normalize_tokens( string $text ): array {
+        $text   = strtolower( $text );
+        $text   = preg_replace( '/[^a-z0-9]+/i', ' ', $text );
+        $parts  = preg_split( '/\s+/', (string) $text );
+        $tokens = [];
+        $stop   = [
+            'a', 'the', 'and', 'of', 'to', 'in', 'for', 'with', 'on', 'at', 'by', 'from',
+            'is', 'it', 'this', 'that', 'these', 'those', 'an', 'or', 'as', 'be', 'are',
+            'was', 'were', 'but', 'if', 'then', 'so', 'we', 'you', 'your', 'our',
+        ];
+        foreach ( $parts as $part ) {
+            $part = trim( $part );
+            if ( $part === '' || in_array( $part, $stop, true ) ) {
+                continue;
+            }
+            $tokens[] = $part;
+        }
+        return array_values( array_unique( $tokens ) );
+    }
+
+    public static function score_video_row( array $row, array $needle_tokens ): int {
+        $focus = $row['focus_keyword'] ?? '';
+        $title = $row['seo_title'] ?? '';
+        $hay   = $focus . ' ' . $title . ' ' . ( $row['source_longtail'] ?? '' ) . ' ' . ( $row['category'] ?? '' ) . ' ' . ( $row['tone'] ?? '' );
+        $hay_tokens = self::normalize_tokens( $hay );
+        $score      = 0;
+        foreach ( $needle_tokens as $token ) {
+            if ( in_array( $token, $hay_tokens, true ) ) {
+                $score += 2;
+            }
+            if ( stripos( $focus, $token ) !== false || stripos( $title, $token ) !== false ) {
+                $score += 1;
+            }
+        }
+        return $score;
+    }
+
     public static function video_post_types(): array {
         $opt = get_option('tmwseo_video_pts');
         if (is_array($opt) && !empty($opt)) {
@@ -39,6 +124,11 @@ class Core {
         return array_values(array_unique(array_filter($candidates)));
     }
 
+    public static function is_video_post_type(string $post_type): bool {
+        $types = array_merge(self::video_post_types(), ['video', 'videos']);
+        return in_array($post_type, array_unique($types), true);
+    }
+
     /** Defaults via constants (wp-config) or sane fallbacks */
     public static function brand_order(): array {
         $order = defined('TMW_SEO_BRAND_ORDER') ? TMW_SEO_BRAND_ORDER : 'jasmin,myc,lpr,joy,lsa';
@@ -58,16 +148,25 @@ class Core {
         $args = wp_parse_args($args, [
             'strategy' => 'template',
             'force'    => false,
+            'respect_manual' => true,
+            'preserve_title' => true,
+            'preserve_focus' => true,
+            'update_slug_from_manual_title' => true,
         ]);
         $force = ! empty( $args['force'] );
+        $respect_manual = ! empty( $args['respect_manual'] );
+        $preserve_title = ! empty( $args['preserve_title'] );
+        $preserve_focus = ! empty( $args['preserve_focus'] );
+        $update_slug_from_manual_title = ! empty( $args['update_slug_from_manual_title'] );
         $post = get_post($video_id);
-        if (!$post || !in_array($post->post_type, self::video_post_types(), true)) {
+        if (!$post || !self::is_video_post_type($post->post_type)) {
             return ['ok' => false, 'message' => 'Not a video'];
         }
 
         $existing_focus = trim((string) get_post_meta($post->ID, 'rank_math_focus_keyword', true));
-        if ( ! $force && $existing_focus !== '' ) {
-            return ['ok' => false, 'message' => 'Skipped: focus keyword already set.'];
+        $already_done = get_post_meta($post->ID, '_tmwseo_video_seo_done', true);
+        if (! $force && !empty($already_done)) {
+            return ['ok' => false, 'message' => 'Skipped: SEO already generated.'];
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
@@ -77,7 +176,7 @@ class Core {
                     self::TAG,
                     $video_id,
                     wp_json_encode( $args ),
-                    $existing_focus !== '' ? 'yes' : 'no'
+                    get_post_meta($post->ID, 'rank_math_focus_keyword', true) !== '' ? 'yes' : 'no'
                 )
             );
         }
@@ -91,6 +190,30 @@ class Core {
         $model_id = self::ensure_model_exists($name);
         $ctx_video = self::build_ctx_video($video_id, $model_id, $name, $args);
         $ctx_model = self::build_ctx_model($model_id, $name, array_merge($args, ['video_id' => $video_id]));
+        if ($existing_focus !== '') {
+            $ctx_video['manual_focus_keyword'] = $existing_focus;
+            $ctx_video['focus'] = $existing_focus;
+        }
+
+        $looks    = self::first_looks( $video_id );
+        $lj_title = get_the_title( $video_id );
+
+        $manual = self::resolve_video_manual_inputs($post, $name);
+        $manual_focus = $manual['manual_focus'];
+
+        $csv_title_focus = self::select_video_title_focus_csv( $post, $looks, $lj_title );
+        $csv_focus       = $csv_title_focus['focus_keyword'] ?? '';
+        $csv_title       = $csv_title_focus['seo_title'] ?? '';
+
+        $focus_for_video = $csv_focus !== '' ? $csv_focus : ( ( $preserve_focus && $manual_focus !== '' ) ? $manual_focus : $manual['focus'] );
+        if ($existing_focus !== '' && $csv_focus === '') {
+            $focus_for_video = $existing_focus;
+        }
+        if ($focus_for_video !== '') {
+            update_post_meta($post->ID, 'rank_math_focus_keyword', $focus_for_video);
+        }
+
+        $video_extras = self::select_video_extras_csv( $post, $looks, $lj_title );
 
         $highlights_count = $ctx_video['highlights_count'] ?? 7;
 
@@ -102,21 +225,56 @@ class Core {
                 'brand_url'        => $ctx_video['brand_url'] ?? '',
                 'model_url'        => $ctx_video['model_url'] ?? '',
                 'highlights_count' => $highlights_count,
+                'focus'            => $focus_for_video,
+                'manual_title'     => $csv_title !== '' ? $csv_title : $manual['manual_title'],
+                'csv_title'        => $csv_title,
+                'csv_focus'        => $csv_focus,
+                'csv_extras'       => $video_extras,
             ]
         );
 
-        $focus_for_video = $existing_focus !== '' ? $existing_focus : $rm_video['focus'];
+        if ( $csv_title !== '' && ! get_post_meta( $post->ID, '_tmwseo_video_title_locked', true ) ) {
+            update_post_meta( $post->ID, '_tmwseo_video_title_locked', 1 );
+            wp_update_post(
+                [
+                    'ID'         => $post->ID,
+                    'post_title' => $csv_title,
+                    'post_name'  => $post->post_name,
+                ]
+            );
+            delete_post_meta( $post->ID, '_tmwseo_video_title_locked' );
+        }
 
-        self::maybe_update_video_title( $post, $focus_for_video, $name );
+        if ( $csv_title === '' && !($respect_manual && $preserve_title && $manual['manual_title_raw'] !== '')) {
+            self::maybe_update_video_title( $post, $focus_for_video, $name );
+        }
 
-        $ctx_video['focus'] = $rm_video['focus'];
+        $ctx_video['focus'] = $focus_for_video;
+        if ( $csv_title !== '' ) {
+            $ctx_video['title'] = $csv_title;
+        }
         if (!empty($rm_video['extras'])) {
             $ctx_video['extras'] = $rm_video['extras'];
+        } elseif ( ! empty( $video_extras ) ) {
+            $ctx_video['extras'] = $video_extras;
         }
 
         $provider = self::provider($args['strategy']);
         $payload_video = $provider->generate_video($ctx_video);
         $payload_model = $provider->generate_model($ctx_model);
+        if ( $csv_focus !== '' ) {
+            $payload_video['keywords'] = [$csv_focus];
+        } elseif ($existing_focus !== '') {
+            $payload_video['keywords'] = [$existing_focus];
+        }
+        if ( $csv_title !== '' ) {
+            $payload_video['title'] = $csv_title;
+        } else {
+            $manual_title = get_post_field('post_title', $post->ID);
+            if (is_string($manual_title) && trim($manual_title) !== '') {
+            $payload_video['title'] = $manual_title;
+        }
+        }
 
         $rm_model = self::compose_rankmath_for_model(get_post($model_id), [
             'name' => $name,
@@ -126,9 +284,12 @@ class Core {
         self::write_all($video_id, $payload_video, 'VIDEO', true, $ctx_video);
         self::write_all($model_id, $payload_model, 'MODEL', true, $ctx_model);
 
-        self::maybe_update_video_slug($post, $focus_for_video);
+        $preserve_focus_flag = ( $existing_focus !== '' && $csv_focus === '' );
+        self::update_rankmath_meta($post->ID, $rm_video, true, $preserve_focus_flag);
 
-        self::update_rankmath_meta($post->ID, $rm_video, true, $existing_focus !== '' && $force);
+        if ($update_slug_from_manual_title) {
+            self::update_video_slug_from_manual_inputs($post, $focus_for_video, $manual['manual_title']);
+        }
 
         $looks         = self::first_looks( $video_id );
         $tag_keywords  = self::safe_model_tag_keywords( $looks );
@@ -164,8 +325,45 @@ class Core {
             );
         }
 
+        update_post_meta($post->ID, '_tmwseo_video_seo_done', gmdate('c'));
         error_log(self::TAG . " generated video#$video_id & model#$model_id for {$name}");
         return ['ok' => true, 'video' => $payload_video, 'model' => $payload_model, 'model_id' => $model_id];
+    }
+
+    public static function resolve_video_manual_inputs(\WP_Post $post, string $model_name): array {
+        $manual_title_raw = trim((string) $post->post_title);
+        $fallback_title = sprintf(
+            '%s Webcam Highlights',
+            self::sanitize_sfw_text($model_name, 'Live Cam Model')
+        );
+        $manual_title = self::sanitize_sfw_text(
+            $manual_title_raw,
+            $fallback_title
+        );
+        $manual_title = self::normalize_sfw_phrase($manual_title);
+
+        $manual_focus = self::normalize_manual_focus_keyword(
+            (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
+        );
+
+        $focus = $manual_focus;
+        if ($focus === '') {
+            $focus = self::fallback_video_focus_keyword($post->ID, $manual_title);
+        }
+
+        return [
+            'manual_title_raw' => $manual_title_raw,
+            'manual_title' => $manual_title,
+            'manual_focus' => $manual_focus,
+            'focus' => $focus,
+        ];
+    }
+
+    protected static function fallback_video_focus_keyword(int $post_id, string $seed): string {
+        $pool = ['webcam', 'cam', 'webcams', 'models', 'highlights'];
+        $seed_value = $seed !== '' ? crc32($seed) : $post_id;
+        $index = absint($seed_value) % count($pool);
+        return $pool[$index];
     }
 
     /** Manual model generation for admin / CLI compatibility */
@@ -195,6 +393,12 @@ class Core {
         }
         self::write_all($post_id, $payload, 'MODEL', !empty($args['insert_content']), $ctx);
         self::update_rankmath_meta($post_id, $rm_model);
+        $strategy_used     = sanitize_text_field((string) ($args['strategy'] ?? 'template'));
+        $onlyfans_mentions = substr_count(strtolower(wp_strip_all_tags((string) ($payload['content'] ?? ''))), 'onlyfans');
+
+        update_post_meta($post_id, '_tmwseo_strategy', $strategy_used);
+        update_post_meta($post_id, '_tmwseo_onlyfans_count', $onlyfans_mentions);
+        update_post_meta($post_id, '_tmwseo_generated_date', current_time('mysql'));
         return ['ok' => true, 'payload' => $payload];
     }
 
@@ -244,38 +448,31 @@ class Core {
 
     /** Detect model name from meta/tax/title */
     public static function detect_model_name_from_video(\WP_Post $post): string {
-        // explicit overrides / common meta
-        foreach (['tmwseo_model_name', 'awe_model_name', 'model_name', 'performer_name'] as $k) {
-            $v = trim((string) get_post_meta($post->ID, $k, true));
-            if ($v !== '') return $v;
+        return self::get_video_model_name($post);
+    }
+
+    public static function get_video_model_name(\WP_Post $post): string {
+        $raw_name = self::get_video_model_name_raw($post);
+        $safe_name = self::sanitize_sfw_text($raw_name, 'Live Cam Model');
+
+        if (defined('TMW_DEBUG') && TMW_DEBUG && $raw_name === '') {
+            error_log(self::TAG . " [MODEL] fallback name used for video#{$post->ID}");
         }
-        // taxonomies
-        foreach (['models', 'model', 'video_actors', 'actor', 'performer'] as $tax) {
-            if (taxonomy_exists($tax)) {
-                $names = wp_get_post_terms($post->ID, $tax, ['fields' => 'names']);
-                if (!is_wp_error($names) && !empty($names)) {
-                    $name = trim((string) $names[0]);
-                    if ($name !== '') return $name;
-                }
+
+        return $safe_name;
+    }
+
+    public static function get_video_model_name_raw(\WP_Post $post): string {
+        $raw_name = trim((string) get_post_meta($post->ID, 'tmwseo_model_name', true));
+
+        if ($raw_name === '' && taxonomy_exists('models')) {
+            $model_terms = wp_get_post_terms($post->ID, 'models', ['fields' => 'names']);
+            if (!is_wp_error($model_terms) && !empty($model_terms)) {
+                $raw_name = trim((string) $model_terms[0]);
             }
         }
-        // title patterns
-        $t = wp_strip_all_tags($post->post_title);
-        if (preg_match('/\bwith\s+([A-Z][\p{L}\']+(?:\s+[A-Z][\p{L}\']+){0,3})\b/u', $t, $m)) {
-            return trim($m[1]);
-        }
-        $parts = preg_split('/\s*[—–\-:\|]\s*/u', $t, 2);
-        if (!empty($parts[0])) {
-            $first = trim($parts[0]);
-            $first = preg_replace('/^\s*(?:intimate|private|live)?\s*(?:chat|video|clip|session)?\s*with\s+/i', '', $first);
-            $first = trim($first);
-            if ($first !== '') return $first;
-        }
-        if (preg_match('/\b([A-Z][\p{L}\']+\s+[A-Z][\p{L}\']+)\b/u', $t, $m2)) {
-            return trim($m2[1]);
-        }
-        error_log(self::TAG . " abort: no model name for video#{$post->ID} title='{$t}'");
-        return '';
+
+        return $raw_name;
     }
 
     /** Build CTA (LiveJasmin first, with fallbacks) */
@@ -321,14 +518,14 @@ class Core {
         $slug = basename(get_permalink($video_id));
         $site = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $brand = ucfirst(self::brand_order()[0] ?? $site);
-        // Use a distinct, non-duplicate focus for video pages so RankMath
-        // doesn't complain about matching the model page focus keyword.
-        $focus = self::video_focus($name);
+        $focus = self::normalize_manual_focus_keyword(
+            (string) get_post_meta($video_id, 'rank_math_focus_keyword', true)
+        );
         $extras = [
-            $name . ' live cam',
-            $name . ' cam model',
-            $name . ' video highlights',
-            $name . ' webcam profile',
+            'highlight reel',
+            'stream recap',
+            'fan favorites',
+            'cozy watch party',
         ];
         return [
             'video_id' => $video_id,
@@ -351,8 +548,207 @@ class Core {
         ];
     }
 
+    protected static function video_title_row_key( array $row ): string {
+        return md5(
+            trim( (string) ( $row['focus_keyword'] ?? '' ) ) . '|' .
+            trim( (string) ( $row['seo_title'] ?? '' ) ) . '|' .
+            trim( (string) ( $row['keyword_slot'] ?? '' ) ) . '|' .
+            trim( (string) ( $row['video_id'] ?? '' ) )
+        );
+    }
+
+    public static function select_video_title_focus_csv( \WP_Post $post, array $looks, string $lj_title ): array {
+        $existing_key = (string) get_post_meta( $post->ID, '_tmwseo_csv_video_title_key', true );
+        $rows         = self::read_csv_assoc( self::csv_path( 'video_seo_titles.csv' ) );
+
+        if ( $existing_key !== '' && ! empty( $rows ) ) {
+            foreach ( $rows as $row ) {
+                if ( self::video_title_row_key( $row ) === $existing_key ) {
+                    return [
+                        'seo_title'      => trim( (string) ( $row['seo_title'] ?? '' ) ),
+                        'focus_keyword'  => trim( (string) ( $row['focus_keyword'] ?? '' ) ),
+                        'key'            => $existing_key,
+                    ];
+                }
+            }
+            delete_post_meta( $post->ID, '_tmwseo_csv_video_title_key' );
+        }
+
+        if ( empty( $rows ) ) {
+            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+                error_log( self::TAG . ' video_seo_titles.csv not found, using template defaults' );
+            }
+            return [];
+        }
+
+        $used = get_option( 'tmwseo_used_video_title_keys', [] );
+        if ( ! is_array( $used ) ) {
+            $used = [];
+        }
+
+        $needle_tokens = self::normalize_tokens( $lj_title . ' ' . implode( ' ', $looks ) );
+        $best_row      = null;
+        $best_key      = '';
+        $best_score    = -1;
+
+        foreach ( $rows as $row ) {
+            $key = self::video_title_row_key( $row );
+            if ( $key === '' || in_array( $key, $used, true ) ) {
+                continue;
+            }
+            $score = self::score_video_row( $row, $needle_tokens );
+            if ( $score > $best_score ) {
+                $best_score = $score;
+                $best_row   = $row;
+                $best_key   = $key;
+            }
+        }
+
+        if ( ! $best_row ) {
+            return [];
+        }
+
+        update_post_meta( $post->ID, '_tmwseo_csv_video_title_key', $best_key );
+        update_post_meta( $post->ID, '_tmwseo_csv_video_title', $best_row['seo_title'] ?? '' );
+        update_post_meta( $post->ID, '_tmwseo_csv_video_focus', $best_row['focus_keyword'] ?? '' );
+        $used[] = $best_key;
+        $used   = array_values( array_unique( $used ) );
+        update_option( 'tmwseo_used_video_title_keys', $used, false );
+
+        return [
+            'seo_title'     => trim( (string) ( $best_row['seo_title'] ?? '' ) ),
+            'focus_keyword' => trim( (string) ( $best_row['focus_keyword'] ?? '' ) ),
+            'key'           => $best_key,
+        ];
+    }
+
+    public static function select_video_extras_csv( \WP_Post $post, array $looks, string $lj_title ): array {
+        $existing_key = (string) get_post_meta( $post->ID, '_tmwseo_csv_video_extras_key', true );
+        $rows         = self::read_csv_assoc( self::csv_path( 'video_extra_keywords.csv' ) );
+
+        if ( $existing_key !== '' && ! empty( $rows ) ) {
+            foreach ( $rows as $row ) {
+                $key = md5(
+                    ( $row['h2_1'] ?? '' ) . '|' .
+                    ( $row['h2_2'] ?? '' ) . '|' .
+                    ( $row['h2_3'] ?? '' ) . '|' .
+                    ( $row['h2_4'] ?? '' )
+                );
+                if ( $key === $existing_key ) {
+                    return [
+                        trim( (string) ( $row['h2_1'] ?? '' ) ),
+                        trim( (string) ( $row['h2_2'] ?? '' ) ),
+                        trim( (string) ( $row['h2_3'] ?? '' ) ),
+                        trim( (string) ( $row['h2_4'] ?? '' ) ),
+                    ];
+                }
+            }
+            delete_post_meta( $post->ID, '_tmwseo_csv_video_extras_key' );
+        }
+
+        if ( empty( $rows ) ) {
+            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+                error_log( self::TAG . ' video_extra_keywords.csv not found, using template defaults' );
+            }
+            return [];
+        }
+
+        $needle_tokens = self::normalize_tokens( $lj_title . ' ' . implode( ' ', $looks ) );
+        $best_row      = null;
+        $best_key      = '';
+        $best_score    = -1;
+
+        foreach ( $rows as $row ) {
+            $key   = md5(
+                ( $row['h2_1'] ?? '' ) . '|' .
+                ( $row['h2_2'] ?? '' ) . '|' .
+                ( $row['h2_3'] ?? '' ) . '|' .
+                ( $row['h2_4'] ?? '' )
+            );
+            $hay   = implode( ' ', [ $row['h2_1'] ?? '', $row['h2_2'] ?? '', $row['h2_3'] ?? '', $row['h2_4'] ?? '' ] );
+            $score = 0;
+            foreach ( $needle_tokens as $token ) {
+                if ( stripos( $hay, $token ) !== false ) {
+                    $score++;
+                }
+            }
+            if ( $score > $best_score ) {
+                $best_score = $score;
+                $best_row   = $row;
+                $best_key   = $key;
+            }
+        }
+
+        if ( ! $best_row ) {
+            return [];
+        }
+
+        update_post_meta( $post->ID, '_tmwseo_csv_video_extras_key', $best_key );
+
+        return [
+            trim( (string) ( $best_row['h2_1'] ?? '' ) ),
+            trim( (string) ( $best_row['h2_2'] ?? '' ) ),
+            trim( (string) ( $best_row['h2_3'] ?? '' ) ),
+            trim( (string) ( $best_row['h2_4'] ?? '' ) ),
+        ];
+    }
+
+    public static function select_model_extras_csv( \WP_Post $post ): array {
+        $existing_key = (string) get_post_meta( $post->ID, '_tmwseo_csv_model_extras_key', true );
+        $rows         = self::read_csv_assoc( self::csv_path( 'model_extra_keywords.csv' ) );
+
+        if ( $existing_key !== '' && ! empty( $rows ) ) {
+            foreach ( $rows as $row ) {
+                $key = md5(
+                    ( $row['h2_1'] ?? '' ) . '|' .
+                    ( $row['h2_2'] ?? '' ) . '|' .
+                    ( $row['h2_3'] ?? '' ) . '|' .
+                    ( $row['h2_4'] ?? '' )
+                );
+                if ( $key === $existing_key ) {
+                    return [
+                        trim( (string) ( $row['h2_1'] ?? '' ) ),
+                        trim( (string) ( $row['h2_2'] ?? '' ) ),
+                        trim( (string) ( $row['h2_3'] ?? '' ) ),
+                        trim( (string) ( $row['h2_4'] ?? '' ) ),
+                    ];
+                }
+            }
+            delete_post_meta( $post->ID, '_tmwseo_csv_model_extras_key' );
+        }
+
+        if ( empty( $rows ) ) {
+            if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+                error_log( self::TAG . ' model_extra_keywords.csv not found, using template defaults' );
+            }
+            return [];
+        }
+
+        $row = $rows[ array_rand( $rows ) ] ?? [];
+        if ( empty( $row ) ) {
+            return [];
+        }
+
+        $key = md5(
+            ( $row['h2_1'] ?? '' ) . '|' .
+            ( $row['h2_2'] ?? '' ) . '|' .
+            ( $row['h2_3'] ?? '' ) . '|' .
+            ( $row['h2_4'] ?? '' )
+        );
+
+        update_post_meta( $post->ID, '_tmwseo_csv_model_extras_key', $key );
+
+        return [
+            trim( (string) ( $row['h2_1'] ?? '' ) ),
+            trim( (string) ( $row['h2_2'] ?? '' ) ),
+            trim( (string) ( $row['h2_3'] ?? '' ) ),
+            trim( (string) ( $row['h2_4'] ?? '' ) ),
+        ];
+    }
+
     public static function video_focus(string $name): string {
-        return sprintf('Cam Model %s', $name);
+        $safe_name = self::sanitize_sfw_text($name, 'Live Cam Model');
+        return self::sanitize_sfw_text(sprintf('%s live cam highlights', $safe_name), 'Live Cam Model live cam highlights');
     }
 
     protected static function build_ctx_model(int $model_id, string $name, array $args): array {
@@ -362,9 +758,15 @@ class Core {
         $focus = $name;
         // Use the same extras as RankMath for the model context, when possible.
         $model_post = get_post( $model_id );
-        $extras     = $model_post instanceof \WP_Post
-            ? self::compute_model_extras( $model_post, [ 'name' => $name ] )
-            : self::pick_extras($name, $looks, ['live chat', 'profile', 'schedule']);
+        $extras     = [];
+        if ( $model_post instanceof \WP_Post ) {
+            $extras = self::select_model_extras_csv( $model_post );
+            if ( empty( $extras ) ) {
+                $extras = self::compute_model_extras( $model_post, [ 'name' => $name ] );
+            }
+        } else {
+            $extras = self::pick_extras($name, $looks, ['live chat', 'profile', 'schedule']);
+        }
         $video_id = (int) ($args['video_id'] ?? 0);
         return [
             'model_id' => $model_id,
@@ -431,17 +833,23 @@ class Core {
         ];
         update_post_meta($post_id, "_tmwseo_prev_{$type}", $prev);
 
+        $manual_focus = isset($ctx['manual_focus_keyword']) ? trim((string) $ctx['manual_focus_keyword']) : '';
         $keywords = $payload['keywords'] ?? ($payload['focus'] ?? []);
         $keywords = array_map('sanitize_text_field', (array) $keywords);
+        if ($manual_focus !== '') {
+            $keywords = [sanitize_text_field($manual_focus)];
+        }
+        $safe_title = self::sanitize_sfw_text((string) $payload['title'], 'Live Cam Model — Live Cam Highlights');
+        $safe_desc  = self::sanitize_sfw_text((string) ($payload['meta'] ?? ''), 'Live cam highlights.');
 
-        update_post_meta($post_id, 'rank_math_title', sanitize_text_field($payload['title']));
-        update_post_meta($post_id, 'rank_math_description', sanitize_text_field($payload['meta'] ?? ''));
+        update_post_meta($post_id, 'rank_math_title', $safe_title);
+        update_post_meta($post_id, 'rank_math_description', $safe_desc);
         update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $keywords));
 
-        update_post_meta($post_id, 'rank_math_facebook_title', sanitize_text_field($payload['title']));
-        update_post_meta($post_id, 'rank_math_facebook_description', sanitize_text_field($payload['meta'] ?? ''));
-        update_post_meta($post_id, 'rank_math_twitter_title', sanitize_text_field($payload['title']));
-        update_post_meta($post_id, 'rank_math_twitter_description', sanitize_text_field($payload['meta'] ?? ''));
+        update_post_meta($post_id, 'rank_math_facebook_title', $safe_title);
+        update_post_meta($post_id, 'rank_math_facebook_description', $safe_desc);
+        update_post_meta($post_id, 'rank_math_twitter_title', $safe_title);
+        update_post_meta($post_id, 'rank_math_twitter_description', $safe_desc);
         if (self::default_og()) {
             update_post_meta($post_id, 'rank_math_facebook_image', esc_url_raw(self::default_og()));
             update_post_meta($post_id, 'rank_math_twitter_image', esc_url_raw(self::default_og()));
@@ -449,6 +857,15 @@ class Core {
 
         if ($update_content && !empty($payload['content'])) {
             $block = wp_kses_post($payload['content']);
+	        // Ensure RankMath "extra" keywords appear in content + subheadings so they can turn green.
+	        // We keep this controlled and SFW: extras are filtered and only injected for MODEL pages.
+	        if ($type === 'MODEL') {
+	            $block = self::inject_rankmath_extras_into_model_content(
+	                $block,
+	                (string) ($ctx['name'] ?? ''),
+	                (array) ($payload['keywords'] ?? [])
+	            );
+	        }
             $block .= self::internal_links_block($ctx, $type);
             $block .= self::cta_block($ctx, $post_id);
 
@@ -531,76 +948,79 @@ class Core {
     }
 
     public static function compose_rankmath_for_video(\WP_Post $post, array $ctx): array {
-        $name  = $ctx['name'];
-        $focus = self::video_focus($name);
+        $manual_title_raw = trim((string) ($ctx['manual_title'] ?? $post->post_title));
+        $csv_title        = trim( (string) ( $ctx['csv_title'] ?? '' ) );
+        $csv_focus_raw    = trim( (string) ( $ctx['csv_focus'] ?? '' ) );
+        $csv_extras       = is_array( $ctx['csv_extras'] ?? null ) ? array_values( $ctx['csv_extras'] ) : [];
 
-        $site  = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
-        $brand = ucfirst(self::brand_order()[0] ?? $site);
-
-        $looks          = self::first_looks($post->ID);
-        $tag_keywords   = self::safe_model_tag_keywords($looks);
-        $generic        = self::model_random_extras(4);
-        $all_extras     = array_values(array_unique(array_merge($tag_keywords, $generic)));
-        $extras         = array_slice($all_extras, 0, 4);
-        $tag_descriptor = $tag_keywords[0] ?? ($generic[0] ?? 'webcam model');
-
-        $title_seed  = absint($post->ID ?: crc32($name));
-        $numbers     = [3, 4, 5, 6, 7, 8, 9];
-        $power_words = ['Must-See', 'Exclusive', 'Top', 'Prime'];
-        $number      = $numbers[$title_seed % count($numbers)];
-        $power       = $power_words[$title_seed % count($power_words)];
-
-        $title = sprintf('Cam Model %s — %d %s Live Highlights', $name, $number, $power);
-        $desc  = sprintf(
-            '%s in %d %s live highlights on %s. %s vibes with quick links to live chat and profile.',
-            $name,
-            $number,
-            strtolower($power),
-            $brand,
-            $tag_descriptor
+        $manual_title = self::sanitize_sfw_text(
+            $csv_title !== '' ? $csv_title : $manual_title_raw,
+            $manual_title_raw !== '' ? $manual_title_raw : 'Live Cam Highlights'
         );
+        $manual_title = self::normalize_sfw_phrase($manual_title);
+
+        if ( $csv_focus_raw !== '' ) {
+            $focus = self::sanitize_sfw_text( $csv_focus_raw, $csv_focus_raw );
+        } else {
+            $focus = isset($ctx['focus'])
+                ? self::normalize_manual_focus_keyword((string) $ctx['focus'])
+                : self::normalize_manual_focus_keyword(
+                    (string) get_post_meta($post->ID, 'rank_math_focus_keyword', true)
+                );
+        }
+
+        $title = $csv_title !== '' ? self::sanitize_sfw_text( $csv_title, $manual_title ) : self::build_video_rankmath_title($focus, $manual_title);
+        $desc  = self::build_video_rankmath_description($focus, $manual_title);
+
+        if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
+            error_log(
+                sprintf(
+                    '%s [RM-VIDEO-SAFE] post#%d focus="%s" title="%s"',
+                    self::TAG,
+                    $post->ID,
+                    $focus,
+                    $title
+                )
+            );
+        }
 
         return [
             'focus'  => $focus,
-            'extras' => $extras,
+            'focus_raw' => $csv_focus_raw !== '' ? $csv_focus_raw : $focus,
+            'extras' => self::sanitize_sfw_keywords( array_filter( array_map( 'trim', array_slice( $csv_extras, 0, 4 ) ) ) ),
             'title'  => $title,
             'desc'   => $desc,
         ];
     }
 
     protected static function model_extra_keyword_pool(): array {
-    return [
-        'adult webcams',
-        'adult web cams',
-        'adult webcam',
-        'adult webcam chat',
-        'adult cam',
-        'adult cam chat',
-        'adult live cams',
-        'adult live webcam',
-        'adult cam site',
-        'adult cam website',
-        'adult cam streaming',
-        'live cam model',
-        'live cam models',
-        'live webcam models',
-        'live webcam chat',
-        'live webcam streaming',
-        'live webcam girls',
-        'live cam girls',
-        'live cam girl',
-        'cam girl live',
-        'cam girls online',
-        'webcam girls live',
-        'webcam chat live',
-        'live cam show',
-        'live cam shows',
-        'live cam performers',
-        'live cam broadcast',
-        'live cam profiles',
-        'webcam model profile',
-        'cam model online',
-    ];
+        return [
+            'live cam',
+            'live cam model',
+            'live cam models',
+            'live webcam model',
+            'webcam model',
+            'webcam models',
+            'webcam model profile',
+            'live cam highlights',
+            'cam highlights',
+            'cam show recap',
+            'model profile',
+            'cam stream clips',
+            'live cam clips',
+            'webcam stream highlights',
+            'live webcam chat',
+            'live webcam streaming',
+            'webcam chat live',
+            'live cam show',
+            'live cam shows',
+            'live cam performers',
+            'live cam broadcast',
+            'live cam profiles',
+            'cam model online',
+            'webcam model showcase',
+            'cam highlights reel',
+        ];
 }
 
     public static function get_model_extra_keyword_pool(): array {
@@ -715,7 +1135,7 @@ class Core {
             }
         }
 
-        return array_values(array_unique($keywords));
+        return self::sanitize_sfw_keywords(array_values(array_unique($keywords)));
     }
 
     public static function get_safe_model_tag_keywords(array $looks): array {
@@ -741,7 +1161,7 @@ class Core {
 
         // 3) Build keywords.
         $tag_keywords = self::safe_model_tag_keywords( $looks );
-        $generic      = self::model_random_extras( 4 );
+        $generic      = self::sanitize_sfw_keywords( self::model_random_extras( 4 ) );
 
         $all_extras = array_values( array_unique( array_merge( $tag_keywords, $generic ) ) );
         $extras     = array_slice( $all_extras, 0, 4 );
@@ -750,9 +1170,10 @@ class Core {
     }
 
     public static function compose_rankmath_for_model( \WP_Post $post, array $ctx ): array {
-        $name  = $ctx['name'];
+        $name  = self::sanitize_sfw_text( $ctx['name'], 'Live Cam Model' );
         $focus = $name; // focus keyword is ONLY the name
 
+        // Build "looks" from model + latest linked video (if any). These are used to derive safe-tag extras.
         $looks = self::first_looks( $post->ID );
         $video_id = (int) get_post_meta( $post->ID, '_tmwseo_latest_video_id', true );
         if ( $video_id > 0 ) {
@@ -760,16 +1181,25 @@ class Core {
         }
         $looks = array_values( array_unique( $looks ) );
 
-        $tag_keywords = self::safe_model_tag_keywords( $looks );
-        $generic      = self::model_random_extras( 4 );
+        // Prefer CSV extras (Serper packs), but filter them aggressively.
+        $csv_extras = self::select_model_extras_csv( $post );
+        $candidates = ! empty( $csv_extras )
+            ? $csv_extras
+            : array_merge(
+                $looks,
+                [ 'uniforms', 'cosplay', 'lingerie', 'stockings', 'high heels', 'live chat', 'schedule', 'profile', 'highlights' ]
+            );
 
-        $all_extras = array_values( array_unique( array_merge( $tag_keywords, $generic ) ) );
-        $extras     = array_slice( $all_extras, 0, 4 );
+        $extras = self::filter_safe_model_extras( $candidates, 4 );
+        if ( empty( $extras ) ) {
+            // Hard fallback to safe, non-junky terms.
+            $extras = self::filter_safe_model_extras( [ 'live chat', 'schedule', 'profile', 'highlights' ], 4 );
+        }
 
-        if (class_exists(__NAMESPACE__ . '\\RankMath') && method_exists(RankMath::class, 'generate_model_snippet_title')) {
-            $title = RankMath::generate_model_snippet_title($post);
+        if ( class_exists( __NAMESPACE__ . '\\RankMath' ) && method_exists( RankMath::class, 'generate_model_snippet_title' ) ) {
+            $title = RankMath::generate_model_snippet_title( $post );
         } else {
-            $title = sprintf('%s — Live Cam Model Profile & Schedule', $name);
+            $title = sprintf( '%s — Live Cam Model Profile & Schedule', $name );
         }
         $desc  = sprintf(
             '%s on Top Models Webcam. Profile, photos, schedule tips, and live chat links. Follow %s for highlights and updates.',
@@ -777,24 +1207,48 @@ class Core {
             $name
         );
 
-        error_log(self::TAG . " [MODEL-EXTRAS] post#{$post->ID} looks=" . json_encode($looks) . " tag_kw=" . json_encode($tag_keywords) . " generic=" . json_encode($generic) . " extras=" . json_encode($extras));
-        error_log(self::TAG . " [RM-MODEL] focus='{$focus}' extras=" . json_encode($extras) . " for post#{$post->ID}");
+        error_log( self::TAG . ' [MODEL-EXTRAS] post#' . $post->ID . ' looks=' . wp_json_encode( $looks ) . ' csv=' . wp_json_encode( $csv_extras ) . ' extras=' . wp_json_encode( $extras ) );
+        error_log( self::TAG . " [RM-MODEL] focus='{$focus}' extras=" . wp_json_encode( $extras ) . ' for post#' . $post->ID );
 
         return [
-            'focus' => $focus,
+            'focus'  => $focus,
             'extras' => $extras,
-            'title' => $title,
-            'desc'  => $desc,
+            'title'  => $title,
+            'desc'   => $desc,
         ];
     }
 
     public static function update_rankmath_meta(int $post_id, array $rm, bool $protect_manual = false, bool $preserve_focus = false): void {
         $existing_focus = trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true));
+        $safe_title = self::sanitize_sfw_text((string) ($rm['title'] ?? ''), 'Live Cam Model — Live Cam Highlights');
+        $safe_desc  = self::sanitize_sfw_text((string) ($rm['desc'] ?? ''), 'Live cam highlights.');
 
-        if ( $preserve_focus && $existing_focus !== '' ) {
+        $post = get_post($post_id);
+        if ($post instanceof \WP_Post && self::is_video_post_type($post->post_type)) {
+            $extras = is_array( $rm['extras'] ?? null ) ? $rm['extras'] : [];
+            $extras = self::sanitize_sfw_keywords( $extras, [] );
+            if ($preserve_focus && $existing_focus !== '') {
+                $kw = array_merge( [ sanitize_text_field( $existing_focus ) ], $extras );
+                $kw = array_values(array_filter($kw, 'strlen'));
+                if (!empty($kw)) {
+                    update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
+                }
+            } else {
+                $focus_to_use = isset( $rm['focus_raw'] ) && trim( (string) $rm['focus_raw'] ) !== '' ? trim( (string) $rm['focus_raw'] ) : (string) ( $rm['focus'] ?? '' );
+                $focus_to_use = self::sanitize_sfw_text( $focus_to_use, (string) ( $rm['focus'] ?? '' ) );
+                $kw = array_filter( array_map( 'trim', array_merge( [ $focus_to_use ], $extras ) ) );
+                if (!empty($kw)) {
+                    $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
+                    update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
+                }
+            }
+        } elseif ( $preserve_focus && $existing_focus !== '' ) {
             $kw = array_filter(array_map('trim', explode(',', (string) $existing_focus)));
+            $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
+            update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
         } else {
             $kw = array_filter(array_map('trim', array_merge([$rm['focus']], $rm['extras'] ?? [])));
+            $kw = self::sanitize_sfw_keywords($kw, ['Live Cam Model']);
             update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $kw));
         }
 
@@ -805,16 +1259,73 @@ class Core {
         $should_update_desc  = !$protect_manual || $existing_desc === '' || self::is_old_video_description($existing_desc, $rm['focus']);
 
         if ($should_update_title) {
-            update_post_meta($post_id, 'rank_math_title', $rm['title']);
+            update_post_meta($post_id, 'rank_math_title', $safe_title);
         }
 
         if ($should_update_desc) {
-            update_post_meta($post_id, 'rank_math_description', $rm['desc']);
+            update_post_meta($post_id, 'rank_math_description', $safe_desc);
         }
 
-        update_post_meta($post_id, 'rank_math_pillar_content', 'on');
-        $focus_for_log = $preserve_focus && $existing_focus !== '' ? $existing_focus : $rm['focus'];
+        $post_type = get_post_type($post_id);
+        $existing_pillar = get_post_meta($post_id, 'rank_math_pillar_content', true);
+        if ($post_type === 'video') {
+            if ($existing_pillar !== '') {
+                delete_post_meta($post_id, 'rank_math_pillar_content');
+                error_log('[TMW-SEO-RM] pillar cleared for video #' . $post_id);
+            }
+        } elseif ($post_type === 'model') {
+            if ($existing_pillar !== 'on') {
+                update_post_meta($post_id, 'rank_math_pillar_content', 'on');
+                error_log('[TMW-SEO-RM] pillar enabled for model #' . $post_id);
+            }
+        }
+        $focus_for_log = $preserve_focus && $existing_focus !== '' ? $existing_focus : ( $rm['focus_raw'] ?? ( $rm['focus'] ?? '' ) );
         error_log(self::TAG . " [RM] set focus='" . $focus_for_log . "' extras=" . json_encode($rm['extras']) . " for post#$post_id");
+    }
+
+    public static function normalize_manual_focus_keyword(string $focus): string {
+        $focus = trim($focus);
+        if ($focus === '') {
+            return '';
+        }
+        $parts = preg_split('/\s+/', $focus);
+        $first = $parts[0] ?? '';
+        $first = self::sanitize_sfw_text($first, '');
+        return trim($first);
+    }
+
+    protected static function build_video_rankmath_title(string $focus, string $manual_title): string {
+        if ($focus === '') {
+            return self::truncate_seo_text($manual_title, 60);
+        }
+
+        if (stripos($manual_title, $focus) === 0) {
+            return self::truncate_seo_text($manual_title, 60);
+        }
+
+        return self::truncate_seo_text(sprintf('%s %s', $focus, $manual_title), 60);
+    }
+
+    protected static function build_video_rankmath_description(string $focus, string $manual_title): string {
+        $desc = sprintf(
+            'Watch %s webcam highlights. %s — full recap and moments.',
+            $focus,
+            $manual_title
+        );
+        return self::truncate_seo_text($desc, 180);
+    }
+
+    protected static function truncate_seo_text(string $text, int $max): string {
+        $text = trim($text);
+        if (mb_strlen($text) <= $max) {
+            return $text;
+        }
+        $trimmed = mb_substr($text, 0, $max);
+        $last_space = mb_strrpos($trimmed, ' ');
+        if ($last_space !== false && $last_space > 20) {
+            $trimmed = mb_substr($trimmed, 0, $last_space);
+        }
+        return rtrim($trimmed, " \t\n\r\0\x0B-—–,:;");
     }
 
     protected static function is_old_video_title(string $title, string $focus): bool {
@@ -866,67 +1377,13 @@ class Core {
             return;
         }
 
-        $focus      = trim( (string) $focus );
-        $model_name = trim( (string) $model_name );
-        if ( $focus === '' || $model_name === '' ) {
+        $rewrite = self::rewrite_sfw_video_title( $post );
+        $focus   = self::sanitize_sfw_text( (string) $focus, 'Live Cam Model live cam highlights' );
+        if ( $focus === '' || $rewrite['title'] === '' ) {
             return;
         }
 
-        // Deterministic variety: generate titles with many patterns so large batches don't look repetitive.
-        $seed = absint( $post_id ?: crc32( $model_name ) );
-
-        $numbers = [ 3, 4, 5, 6, 7, 8, 9 ];
-        $number  = $numbers[ $seed % count( $numbers ) ];
-
-        $powers = [ 'Must-See', 'Exclusive', 'Top', 'Prime', 'Hot', 'Best' ];
-        $power  = $powers[ $seed % count( $powers ) ];
-
-        // Rotate nouns so we don't repeat "Highlights" on every post.
-        $nouns = [
-            'Live Highlights',
-            'Best Moments',
-            'Stream Clips',
-            'Top Moments',
-            'Show Recap',
-            'Key Moments',
-            'Live Clips',
-        ];
-        $noun = $nouns[ ( $seed >> 2 ) % count( $nouns ) ];
-
-        // Light-touch descriptor from focus keyword (keeps intent without forcing the same phrase everywhere).
-        $focus_short = trim( preg_replace( '/\s+/', ' ', (string) $focus ) );
-        // Remove obvious repeated boilerplate.
-        $focus_short = preg_replace( '/\b(cam\s*model|highlights?)\b/i', '', $focus_short );
-        $focus_short = trim( preg_replace( '/\s+/', ' ', $focus_short ) );
-
-        $templates = [
-            '{model} — {number} {power} {noun}',
-            '{power} {noun}: {model}',
-            '{model} {power} {noun}',
-            '{number} {noun} with {model}',
-            '{model} — {noun}',
-        ];
-        $tpl = $templates[ ( $seed >> 4 ) % count( $templates ) ];
-
-        $new_title = strtr(
-            $tpl,
-            [
-                '{model}'  => $model_name,
-                '{number}' => (string) $number,
-                '{power}'  => $power,
-                '{noun}'   => $noun,
-            ]
-        );
-
-        // Optionally append a short focus fragment if it increases uniqueness and fits length.
-        if ( $focus_short !== '' ) {
-            $candidate = $new_title . ' — ' . $focus_short;
-            if ( mb_strlen( $candidate ) <= 110 ) {
-                $new_title = $candidate;
-            }
-        }
-
-        $new_title = trim( (string) $new_title );
+        $new_title = self::sanitize_sfw_text( (string) $rewrite['title'], 'Live Cam Model — Live Cam Highlights' );
 
         // Keep titles reasonable for SERPs.
         if ( mb_strlen( $new_title ) > 110 ) {
@@ -937,15 +1394,16 @@ class Core {
         update_post_meta( $post_id, '_tmwseo_video_title_locked', 1 );
 
         if ( $new_title !== '' && $new_title !== $post->post_title ) {
-            // Prevent save_post recursion when updating the title.
-            remove_action( 'save_post', [ 'TMW_SEO\\VideoSEO', 'on_save' ], 35 );
+            // Prevent transition recursion when updating the title.
+            remove_action( 'transition_post_status', [ 'TMW_SEO\\VideoSEO', 'on_transition' ], 35 );
             wp_update_post(
                 [
                     'ID'         => $post_id,
                     'post_title' => $new_title,
+                    'post_name'  => $post->post_name,
                 ]
             );
-            add_action( 'save_post', [ 'TMW_SEO\\VideoSEO', 'on_save' ], 35, 3 );
+            add_action( 'transition_post_status', [ 'TMW_SEO\\VideoSEO', 'on_transition' ], 35, 3 );
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
@@ -964,6 +1422,11 @@ class Core {
     }
 
     public static function maybe_update_video_slug( \WP_Post $post, string $focus ): void {
+        if (defined('TMW_DEBUG') && TMW_DEBUG) {
+            error_log(self::TAG . " [VIDEO-SLUG] Skipping slug update for post#{$post->ID}");
+        }
+        return;
+
         if ( ! in_array( $post->post_type, self::video_post_types(), true ) ) {
             return;
         }
@@ -992,6 +1455,360 @@ class Core {
             ]
         );
         update_post_meta( $post->ID, '_tmwseo_slug_locked', 1 );
+    }
+
+    public static function update_video_slug_from_manual_inputs(\WP_Post $post, string $focus, string $manual_title): void {
+        if (!in_array($post->post_type, self::video_post_types(), true)) {
+            return;
+        }
+
+        $slug = self::build_video_slug($focus, $manual_title);
+        if ($slug === '' || $slug === $post->post_name) {
+            return;
+        }
+
+        wp_update_post(
+            [
+                'ID'        => $post->ID,
+                'post_name' => $slug,
+            ]
+        );
+    }
+
+    protected static function build_video_slug(string $focus, string $manual_title): string {
+        $slug = sanitize_title(trim(sprintf('%s %s', $focus, $manual_title)));
+        if ($slug === '') {
+            return '';
+        }
+
+        if (mb_strlen($slug) <= 60) {
+            return $slug;
+        }
+
+        $trimmed = mb_substr($slug, 0, 60);
+        $last_dash = mb_strrpos($trimmed, '-');
+        if ($last_dash !== false && $last_dash > 20) {
+            $trimmed = mb_substr($trimmed, 0, $last_dash);
+        }
+
+        return trim($trimmed, '-');
+    }
+
+	    /**
+	     * Keyword filtering for Serper packs.
+	     *
+	     * Serper can return mixed-intent keywords (hardware/CCTV/reddit/tube/etc.).
+	     * We aggressively normalize + blacklist + whitelist here so junk never reaches:
+	     * - RankMath extra keywords
+	     * - content injections that make keywords green
+	     */
+	    protected static function normalize_keyword_phrase(string $s): string {
+	        $s = html_entity_decode(wp_strip_all_tags((string) $s), ENT_QUOTES);
+	        $s = strtolower(trim($s));
+	        $s = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $s);
+	        $s = preg_replace('/\s+/', ' ', $s);
+	        return trim($s);
+	    }
+
+	    protected static function is_junk_intent_keyword(string $kw): bool {
+	        $n = self::normalize_keyword_phrase($kw);
+	        if ($n === '' || mb_strlen($n) < 3) {
+	            return true;
+	        }
+
+	        // Obvious non-profile intent: hardware/streaming setup, surveillance, forums, tubes, explicit.
+	        $black_substrings = [
+	            // hardware / conferencing
+	            'logitech', 'brio', 'c920', 'c922', 'streamcam', 'razer', 'elgato', 'aver', 'obs', 'streamlabs',
+	            'microsoft', 'teams', 'zoom', 'skype', 'discord',
+	            // surveillance / CCTV
+	            'cctv', 'security camera', 'ip camera', 'dash cam', 'baby monitor',
+	            // forums / piracy
+	            'reddit', 'subreddit', 'forum', 'torrent', 'download', 'apk',
+	            // tube / explicit / leaks
+	            'pornhub', 'xvideos', 'xnxx', 'redtube', 'youporn', 'tube', 'porn dude', 'onlyfans leaks', 'leaked', 'leaks',
+	            // map cams / non-adult cams
+	            'google earth', 'earth cam', 'traffic cam', 'weather cam', 'live cam map',
+	        ];
+	        foreach ($black_substrings as $bad) {
+	            if ($bad !== '' && strpos($n, $bad) !== false) {
+	                return true;
+	            }
+	        }
+
+	        if (preg_match('/\b(porn|porno|xxx|sex|sexual|nude|naked|dating)\b/i', $n)) {
+	            return true;
+	        }
+
+	        return false;
+	    }
+
+	    protected static function safe_extra_canonical_map(): array {
+	        // Canonical tag -> synonyms (normalized). Keep it broad but SFW.
+	        return [
+	            'uniforms'    => ['uniform', 'uniforms', 'nurse', 'maid', 'schoolgirl', 'police costume', 'costume uniform'],
+	            'cosplay'     => ['cosplay', 'costume', 'character outfit', 'anime cosplay'],
+	            'lingerie'    => ['lingerie', 'lace', 'intimates', 'underwear'],
+	            'stockings'   => ['stockings', 'thigh highs', 'nylons'],
+	            'high heels'  => ['heels', 'high heels', 'stilettos'],
+	            'glasses'     => ['glasses', 'spectacles'],
+	            'dance'       => ['dance', 'dancing'],
+	            'roleplay'    => ['roleplay', 'role play'],
+	            'asmr'        => ['asmr', 'whisper'],
+	            'couples'     => ['couple', 'couples'],
+	        ];
+	    }
+
+	    protected static function canonicalize_safe_extra(string $kw): string {
+	        $n = self::normalize_keyword_phrase($kw);
+	        if ($n === '' || self::is_junk_intent_keyword($n)) {
+	            return '';
+	        }
+
+	        // Whitelist by safe tag categories.
+	        foreach (self::safe_extra_canonical_map() as $canon => $syns) {
+	            foreach ($syns as $syn) {
+	                if ($syn !== '' && strpos($n, $syn) !== false) {
+	                    return $canon;
+	                }
+	            }
+	        }
+
+	        // Allow a small set of generic, safe profile-intent terms.
+	        $generic = ['live chat', 'schedule', 'profile', 'highlights', 'replays'];
+	        foreach ($generic as $g) {
+	            if ($n === $g || strpos($n, $g) !== false) {
+	                return $g;
+	            }
+	        }
+
+	        return '';
+	    }
+
+	    protected static function filter_safe_model_extras(array $candidates, int $limit = 4): array {
+	        $out = [];
+	        foreach ($candidates as $c) {
+	            $canon = self::canonicalize_safe_extra((string) $c);
+	            if ($canon !== '') {
+	                $out[] = $canon;
+	            }
+	        }
+	        $out = array_values(array_unique($out));
+	        return array_slice($out, 0, max(0, $limit));
+	    }
+
+	    /**
+	     * Inject safe extra keywords into MODEL content in a controlled way:
+	     * - first paragraph
+	     * - 1–2 H2 sections
+	     * - FAQ entries (H3 + P)
+	     */
+	    protected static function inject_rankmath_extras_into_model_content(string $html, string $name, array $keywords): string {
+	        $name = self::sanitize_sfw_text($name, '');
+	        if ($name === '') {
+	            return $html;
+	        }
+
+	        // Keywords are stored as: [focus=name, extra1, extra2, ...]
+	        $extras_raw = array_slice(array_values(array_filter(array_map('trim', (array) $keywords))), 1);
+	        $extras = self::filter_safe_model_extras($extras_raw, 4);
+	        if (empty($extras)) {
+	            return $html;
+	        }
+
+	        $extras_for_sentence = array_slice($extras, 0, 2);
+	        $sentence = '';
+	        if (!empty($extras_for_sentence)) {
+	            $sentence = ' Popular themes include ' . esc_html(implode(' and ', $extras_for_sentence)) . '.';
+	        }
+
+	        // 1) Add a short sentence into the first paragraph.
+	        $out = $html;
+	        if ($sentence !== '' && preg_match('/<p\b[^>]*>.*?<\/p>/is', $out, $m, PREG_OFFSET_CAPTURE)) {
+	            $p   = $m[0][0];
+	            $pos = (int) $m[0][1];
+	            $p2  = preg_replace('/<\/p>\s*$/i', $sentence . '</p>', $p);
+	            if (is_string($p2) && $p2 !== '') {
+	                $out = substr_replace($out, $p2, $pos, strlen($p));
+	            }
+	        }
+
+	        // 2) Insert 1–2 H2 sections near the top so RankMath can see them as subheadings.
+	        $sections = '';
+	        foreach (array_slice($extras, 0, 2) as $ex) {
+	            $sections .= '<h2>Why watch ' . esc_html($name) . ' if you like ' . esc_html($ex) . '</h2>';
+	            $sections .= '<p>Viewers who enjoy ' . esc_html($ex) . ' vibes appreciate the calm pacing, direct chat, and consistent stream quality.</p>';
+	        }
+	        if ($sections !== '' && preg_match('/(<p\b[^>]*>.*?<\/p>)/is', $out, $m2, PREG_OFFSET_CAPTURE)) {
+	            $first_p = $m2[1][0];
+	            $pos2    = (int) $m2[1][1] + strlen($first_p);
+	            $out     = substr_replace($out, $sections, $pos2, 0);
+	        } elseif ($sections !== '') {
+	            $out .= $sections;
+	        }
+
+	        // 3) Add FAQ questions that include the extra keywords verbatim.
+	        $faq_insert = '';
+	        foreach (array_slice($extras, 0, 2) as $ex) {
+	            $faq_insert .= '<h3>Does ' . esc_html($name) . ' do ' . esc_html($ex) . ' themed sessions?</h3>';
+	            $faq_insert .= '<p>When the room asks politely, ' . esc_html($name) . ' may weave ' . esc_html($ex) . ' ideas into the show while keeping things friendly and non-explicit.</p>';
+	        }
+	        if ($faq_insert !== '') {
+	            if (stripos($out, '<h2>FAQ</h2>') !== false) {
+	                $out = preg_replace('/<h2>\s*FAQ\s*<\/h2>/i', '<h2>FAQ</h2>' . $faq_insert, $out, 1);
+	            } else {
+	                $out .= '<h2>FAQ</h2>' . $faq_insert;
+	            }
+	        }
+
+	        return $out;
+	    }
+
+    public static function sanitize_sfw_text(string $text, string $fallback = 'Live Cam Model'): string {
+        $clean = wp_strip_all_tags($text);
+        $clean = trim($clean);
+        if ($clean === '') {
+            return $fallback;
+        }
+
+        $blacklist = [
+            'adult',
+            'anal',
+            'ass',
+            'bdsm',
+            'blowjob',
+            'boobs',
+            'boob',
+            'bj',
+            'bukkake',
+            'butt',
+            'cameltoe',
+            'cock',
+            'cum',
+            'cumming',
+            'cunt',
+            'dick',
+            'deepthroat',
+            'erotic',
+            'explicit',
+            'fetish',
+            'fuck',
+            'fucking',
+            'handjob',
+            'hardcore',
+            'horny',
+            'hot',
+            'milf',
+            'naked',
+            'nude',
+            'orgasm',
+            'orgy',
+            'penis',
+            'porn',
+            'porno',
+            'pussy',
+            'sex',
+            'sexual',
+            'sexy',
+            'strip',
+            'striptease',
+            'threesome',
+            'tits',
+            'xxx',
+            'nsfw',
+        ];
+
+        $pattern = '/\b(' . implode('|', array_map('preg_quote', $blacklist)) . ')\b/i';
+        $clean = preg_replace($pattern, '', $clean);
+        $clean = preg_replace('/\s+/', ' ', $clean);
+        $clean = trim($clean, " \t\n\r\0\x0B-—–,:;|");
+
+        if ($clean === '' || mb_strlen($clean) < 3) {
+            return $fallback;
+        }
+
+        return $clean;
+    }
+
+    protected static function normalize_sfw_phrase(string $text): string {
+        $text = preg_replace('/\s*[-–—]+\s*/', ' ', $text);
+        $text = preg_replace('/\s*[:;|]+\s*/', ' ', $text);
+        $text = preg_replace('/\s+/', ' ', $text);
+        return trim($text, " \t\n\r\0\x0B-—–,:;|");
+    }
+
+    protected static function video_category_fallback(int $post_id): string {
+        if (!taxonomy_exists('video_category')) {
+            return 'Live Cam';
+        }
+        $terms = wp_get_post_terms($post_id, 'video_category', ['fields' => 'names']);
+        if (is_wp_error($terms) || empty($terms)) {
+            return 'Live Cam';
+        }
+        return (string) $terms[0];
+    }
+
+    public static function rewrite_sfw_video_title(\WP_Post $post): array {
+        $raw_title  = (string) $post->post_title;
+        $sfw_phrase = self::sanitize_sfw_text($raw_title, '');
+        $sfw_phrase = self::normalize_sfw_phrase($sfw_phrase);
+
+        if ($sfw_phrase === '' || mb_strlen($sfw_phrase) < 8) {
+            $fallback  = self::video_category_fallback((int) $post->ID);
+            $sfw_phrase = self::sanitize_sfw_text($fallback, 'Live Cam');
+            $sfw_phrase = self::normalize_sfw_phrase($sfw_phrase);
+        }
+
+        if ($sfw_phrase === '' || mb_strlen($sfw_phrase) < 8) {
+            $sfw_phrase = 'Live Cam';
+        }
+
+        $suffixes = [
+            'Live Cam Highlights',
+            'Webcam Highlights',
+            'Live Cam Moments',
+            'Stream Highlights',
+            'Cam Session Highlights',
+        ];
+        $seed  = absint($post->ID ?: crc32($raw_title));
+        $suffix = $suffixes[$seed % count($suffixes)];
+
+        $final_title = sprintf('%s — %s', $sfw_phrase, $suffix);
+
+        $final_focus = strtolower($sfw_phrase . ' live cam highlights');
+        $final_focus = self::sanitize_sfw_text($final_focus, 'Live Cam live cam highlights');
+        $final_focus = strtolower($final_focus);
+
+        return [
+            'raw'   => $raw_title,
+            'phrase' => $sfw_phrase,
+            'title' => $final_title,
+            'focus' => $final_focus,
+        ];
+    }
+
+    protected static function sanitize_sfw_keywords(array $keywords, array $fallbacks = []): array {
+        $out = [];
+        foreach ($keywords as $keyword) {
+            $clean = self::sanitize_sfw_text((string) $keyword, '');
+            if ($clean !== '') {
+                $out[] = $clean;
+            }
+        }
+
+        $out = array_values(array_unique($out));
+
+        if (empty($out) && !empty($fallbacks)) {
+            foreach ($fallbacks as $fallback) {
+                $clean = self::sanitize_sfw_text((string) $fallback, '');
+                if ($clean !== '') {
+                    $out[] = $clean;
+                }
+            }
+            $out = array_values(array_unique($out));
+        }
+
+        return $out;
     }
 
     /** Cross-links */
