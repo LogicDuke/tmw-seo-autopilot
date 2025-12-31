@@ -18,7 +18,10 @@ class Admin {
         add_action('save_post', [__CLASS__, 'save_video_metabox'], 10, 2);
         add_action('admin_post_tmwseo_generate_now', [__CLASS__, 'handle_generate_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'handle_save_settings']);
+        add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
+        add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
+        add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
     }
 
     public static function assets($hook) {
@@ -130,6 +133,14 @@ class Admin {
         $check_uniqueness = !empty($_POST['check_uniqueness']);
         $generate_schema  = !empty($_POST['generate_schema']);
 
+        $allowed_strategies = ['template'];
+        if ( \TMW_SEO\Providers\OpenAI::is_enabled() ) {
+            $allowed_strategies[] = 'openai';
+        }
+        if ( ! in_array( $strategy, $allowed_strategies, true ) ) {
+            $strategy = 'template';
+        }
+
         $results = [
             'success'  => 0,
             'failed'   => 0,
@@ -151,18 +162,10 @@ class Admin {
                 continue;
             }
 
-            if ($strategy === 'hijacking') {
-                $actual_strategy = ($post_id <= 1950) ? 'hijacking' : 'template';
-            } elseif ($strategy === 'semrush') {
-                $actual_strategy = ($post_id > 1950) ? 'semrush' : 'template';
-            } else {
-                $actual_strategy = 'template';
-            }
-
             $result = Core::generate_and_write(
                 $post_id,
                 [
-                    'strategy'       => $actual_strategy,
+                    'strategy'       => $strategy,
                     'insert_content' => true,
                     'check_unique'   => $check_uniqueness,
                     'schema'         => $generate_schema,
@@ -201,6 +204,118 @@ class Admin {
         $res['ok'] ? wp_send_json_success() : wp_send_json_error();
     }
 
+    public static function ajax_serper_test() {
+        check_ajax_referer('tmwseo_serper_test', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+
+        $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+        if ($api_key === '') {
+            wp_send_json_error(['message' => 'API key missing']);
+        }
+
+        $gl = sanitize_text_field((string) get_option('tmwseo_serper_gl', 'us'));
+        $hl = sanitize_text_field((string) get_option('tmwseo_serper_hl', 'en'));
+
+        $result = Serper_Client::search($api_key, 'tmw seo autopilot keyword test', $gl, $hl, 5);
+        if (!empty($result['error'])) {
+            wp_send_json_error(['message' => $result['error']]);
+        }
+
+        $keywords = Serper_Client::extract_keywords($result['data'] ?? []);
+        wp_send_json_success([
+            'message'  => 'Success',
+            'keywords' => array_slice($keywords, 0, 5),
+        ]);
+    }
+
+    public static function ajax_build_keyword_pack() {
+        check_ajax_referer('tmwseo_build_keyword_pack', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+
+        $lock_key = 'tmwseo_serper_build_lock';
+        if (get_transient($lock_key)) {
+            wp_send_json_error(['message' => 'Build already running']);
+        }
+
+        set_transient($lock_key, 1, 30);
+
+        $fail = function ($message) use ($lock_key) {
+            delete_transient($lock_key);
+            wp_send_json_error(['message' => $message]);
+        };
+
+        $categories = Keyword_Library::categories();
+        $category   = sanitize_key($_POST['category'] ?? '');
+        if (!in_array($category, $categories, true)) {
+            $fail('Invalid category');
+        }
+
+        $seeds_input = $_POST['seeds'] ?? [];
+        if (is_string($seeds_input)) {
+            $seeds_input = preg_split('/\r?\n/', $seeds_input);
+        }
+
+        $seeds = [];
+        foreach ((array) $seeds_input as $seed) {
+            $seed = trim(sanitize_text_field((string) $seed));
+            if ($seed !== '') {
+                $seeds[] = $seed;
+            }
+        }
+
+        if (empty($seeds)) {
+            $fail('Please provide at least one seed.');
+        }
+
+        $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+        if ($api_key === '') {
+            $fail('Serper API key missing.');
+        }
+
+        $gl             = sanitize_text_field($_POST['gl'] ?? (string) get_option('tmwseo_serper_gl', 'us'));
+        $hl             = sanitize_text_field($_POST['hl'] ?? (string) get_option('tmwseo_serper_hl', 'en'));
+        $per_seed       = max(1, min(50, (int) ($_POST['per_seed'] ?? 10)));
+        $include_comp   = !empty($_POST['competitor']);
+        $dry_run        = !empty($_POST['dry_run']);
+
+        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed);
+
+        $response = [
+            'message' => $dry_run ? 'Dry run completed.' : 'Keyword packs built.',
+            'preview' => $build,
+        ];
+
+        if (!$dry_run) {
+            $counts = [];
+            $counts['extra']    = Keyword_Pack_Builder::merge_write_csv($category, 'extra', $build['extra'] ?? []);
+            $counts['longtail'] = Keyword_Pack_Builder::merge_write_csv($category, 'longtail', $build['longtail'] ?? []);
+
+            if ($include_comp) {
+                $comp_seeds = apply_filters('tmwseo_competitor_seeds', ['livejasmin vs chaturbate', 'livejasmin vs stripchat']);
+                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed);
+                $comp_kw    = array_merge($comp_build['extra'] ?? [], $comp_build['longtail'] ?? []);
+                $counts['competitor'] = Keyword_Pack_Builder::merge_write_csv($category, 'competitor', $comp_kw);
+            }
+
+            Keyword_Library::flush_cache();
+
+            $uploads_base = Keyword_Library::uploads_base_dir();
+            $response['paths']  = [
+                'extra'      => trailingslashit($uploads_base) . "{$category}/extra.csv",
+                'longtail'   => trailingslashit($uploads_base) . "{$category}/longtail.csv",
+                'competitor' => trailingslashit($uploads_base) . "{$category}/competitor.csv",
+            ];
+            $response['counts'] = $counts;
+        }
+
+        delete_transient($lock_key);
+        wp_send_json_success($response);
+    }
+
     public static function bulk_action($actions) {
         $actions['tmw_seo_generate_bulk'] = 'Generate SEO (TMW)';
         return $actions;
@@ -218,6 +333,704 @@ class Admin {
 
     public static function tools_page() {
         add_submenu_page('tools.php', 'TMW SEO Autopilot', 'TMW SEO Autopilot', 'manage_options', 'tmw-seo-autopilot', [__CLASS__, 'render_tools']);
+        add_submenu_page('tools.php', 'TMW SEO Keyword Packs', 'TMW SEO Keyword Packs', 'manage_options', 'tmw-seo-keyword-packs', [__CLASS__, 'render_keyword_packs']);
+        add_submenu_page('tools.php', 'TMW SEO Keyword Usage', 'TMW SEO Keyword Usage', 'manage_options', 'tmw-seo-keyword-usage', [__CLASS__, 'render_keyword_usage']);
+        add_submenu_page('tools.php', 'TMW SEO Usage', 'TMW SEO Usage', 'manage_options', 'tmw-seo-usage', [__CLASS__, 'render_usage_dashboard']);
+    }
+
+    protected static function normalize_for_hash_admin(string $value): string {
+        $value = trim($value);
+        $value = preg_replace('/\s+/', ' ', $value);
+        return strtolower((string)$value);
+    }
+
+    public static function handle_usage_reset() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Access denied');
+        }
+
+        check_admin_referer('tmwseo_usage_reset');
+
+        $enabled = (defined('TMWSEO_ENABLE_USAGE_RESET') && TMWSEO_ENABLE_USAGE_RESET) || apply_filters('tmwseo_enable_usage_reset', false);
+        $redirect = add_query_arg('page', 'tmw-seo-usage', admin_url('tools.php'));
+
+        if (!$enabled) {
+            wp_safe_redirect(add_query_arg('reset_error', 'disabled', $redirect));
+            exit;
+        }
+
+        $confirmation = isset($_POST['tmwseo_reset_confirm']) ? trim((string)$_POST['tmwseo_reset_confirm']) : '';
+        if ($confirmation !== 'RESET') {
+            wp_safe_redirect(add_query_arg('reset_error', 'confirm', $redirect));
+            exit;
+        }
+
+        delete_option('tmwseo_used_video_title_keys');
+        delete_option('tmwseo_used_video_seo_title_hashes');
+        delete_option('tmwseo_used_video_focus_keyword_hashes');
+        delete_option('tmwseo_used_video_title_focus_hashes');
+        delete_option('tmwseo_lock_video_title_keys');
+
+        update_option('tmwseo_used_video_title_keys', [], false);
+        update_option('tmwseo_used_video_seo_title_hashes', [], false);
+        update_option('tmwseo_used_video_focus_keyword_hashes', [], false);
+        update_option('tmwseo_used_video_title_focus_hashes', [], false);
+
+        wp_safe_redirect(add_query_arg('reset', '1', $redirect));
+        exit;
+    }
+
+    protected static function prepare_used_set($raw): array {
+        $set = [];
+        if (is_array($raw)) {
+            foreach ($raw as $k => $v) {
+                if (is_string($v) && is_int($k)) {
+                    $set[$v] = true;
+                } else {
+                    $set[(string)$k] = (bool)$v;
+                }
+            }
+        }
+        return $set;
+    }
+
+    public static function render_usage_dashboard() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $csv_path = Core::csv_path('video_seo_titles.csv');
+        $rows     = Core::read_csv_assoc($csv_path);
+
+        $valid_rows      = 0;
+        $unique_titles   = [];
+        $unique_focus    = [];
+        $unique_pairs    = [];
+
+        foreach ($rows as $row) {
+            $seo_title = trim((string)($row['seo_title'] ?? ''));
+            $focus     = trim((string)($row['focus_keyword'] ?? ''));
+
+            if ($seo_title === '' || $focus === '') {
+                continue;
+            }
+
+            $valid_rows++;
+
+            $normalized_title = self::normalize_for_hash_admin($seo_title);
+            $normalized_focus = self::normalize_for_hash_admin($focus);
+
+            $title_hash             = md5($normalized_title);
+            $focus_hash             = md5($normalized_focus);
+            $pair_hash              = md5($normalized_title . '|' . $normalized_focus);
+            $unique_titles[$title_hash] = true;
+            $unique_focus[$focus_hash]  = true;
+            $unique_pairs[$pair_hash]   = true;
+        }
+
+        $used_keys_set        = self::prepare_used_set(get_option('tmwseo_used_video_title_keys', []));
+        $used_title_hashes    = self::prepare_used_set(get_option('tmwseo_used_video_seo_title_hashes', []));
+        $used_focus_hashes    = self::prepare_used_set(get_option('tmwseo_used_video_focus_keyword_hashes', []));
+        $used_pair_hashes     = self::prepare_used_set(get_option('tmwseo_used_video_title_focus_hashes', []));
+
+        $unique_title_count = count($unique_titles);
+        $unique_focus_count = count($unique_focus);
+        $unique_pair_count  = count($unique_pairs);
+
+        $used_keys_count   = count($used_keys_set);
+        $used_title_count  = count($used_title_hashes);
+        $used_focus_count  = count($used_focus_hashes);
+        $used_pair_count   = count($used_pair_hashes);
+
+        $remaining_titles = max(0, $unique_title_count - $used_title_count);
+        $remaining_focus  = max(0, $unique_focus_count - $used_focus_count);
+        $remaining_pairs  = max(0, $unique_pair_count - $used_pair_count);
+
+        $reset_enabled = (defined('TMWSEO_ENABLE_USAGE_RESET') && TMWSEO_ENABLE_USAGE_RESET) || apply_filters('tmwseo_enable_usage_reset', false);
+
+        $reset_success = !empty($_GET['reset']);
+        $reset_error   = sanitize_text_field($_GET['reset_error'] ?? '');
+        ?>
+        <div class="wrap">
+            <h1>TMW SEO Usage</h1>
+
+            <p style="max-width:760px;">This dashboard tracks how many video SEO titles and focus keywords from <code>data/video_seo_titles.csv</code> have been used. "Used" values come from the duplicate checker options and do not modify existing posts. Resetting only clears these trackers; it will <strong>not</strong> change post meta values like <code>_tmwseo_csv_video_title</code>.</p>
+
+            <?php if ($reset_success) : ?>
+                <div class="notice notice-success"><p><?php echo esc_html__('Usage trackers cleared. Future posts may reuse CSV entries.', 'tmw-seo-autopilot'); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ($reset_error === 'confirm') : ?>
+                <div class="notice notice-error"><p><?php echo esc_html__('Reset aborted: confirmation text did not match.', 'tmw-seo-autopilot'); ?></p></div>
+            <?php elseif ($reset_error === 'disabled') : ?>
+                <div class="notice notice-error"><p><?php echo esc_html__('Reset is disabled. Enable it via the constant or filter to proceed.', 'tmw-seo-autopilot'); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ($remaining_pairs === 0 || $remaining_titles === 0 || $remaining_focus === 0) : ?>
+                <div class="notice notice-error"><p><?php echo esc_html__('Video title pool exhausted. New posts may fall back to templates until you add more CSV entries or reset usage (if enabled).', 'tmw-seo-autopilot'); ?></p></div>
+            <?php else : ?>
+                <div class="notice notice-success"><p><?php echo sprintf(esc_html__('Pool healthy: %d unique title+focus pairs remaining.', 'tmw-seo-autopilot'), (int) $remaining_pairs); ?></p></div>
+            <?php endif; ?>
+
+            <h2>CSV Stats</h2>
+            <table class="widefat striped" style="max-width:800px;">
+                <tbody>
+                    <tr>
+                        <th scope="row">CSV Path</th>
+                        <td><code><?php echo esc_html($csv_path); ?></code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Total valid rows</th>
+                        <td><?php echo (int) $valid_rows; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Unique SEO titles</th>
+                        <td><?php echo (int) $unique_title_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Unique focus keywords</th>
+                        <td><?php echo (int) $unique_focus_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Unique title+focus pairs</th>
+                        <td><?php echo (int) $unique_pair_count; ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 style="margin-top:25px;">Usage Stats</h2>
+            <table class="widefat striped" style="max-width:800px;">
+                <tbody>
+                    <tr>
+                        <th scope="row">Used row keys</th>
+                        <td><?php echo (int) $used_keys_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Used title hashes</th>
+                        <td><?php echo (int) $used_title_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Used focus hashes</th>
+                        <td><?php echo (int) $used_focus_count; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Used title+focus hashes</th>
+                        <td><?php echo (int) $used_pair_count; ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 style="margin-top:25px;">Remaining Pool</h2>
+            <table class="widefat striped" style="max-width:800px;">
+                <tbody>
+                    <tr>
+                        <th scope="row">Remaining unique titles</th>
+                        <td><?php echo (int) $remaining_titles; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Remaining unique focus keywords</th>
+                        <td><?php echo (int) $remaining_focus; ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Remaining unique pairs</th>
+                        <td><?php echo (int) $remaining_pairs; ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 style="margin-top:25px;">Reset Usage Trackers</h2>
+            <?php if (!$reset_enabled) : ?>
+                <div class="notice notice-info"><p><?php echo esc_html("Reset is disabled by default. To enable, set define('TMWSEO_ENABLE_USAGE_RESET', true) or use the tmwseo_enable_usage_reset filter."); ?></p></div>
+            <?php else : ?>
+                <div class="notice notice-warning"><p><?php echo esc_html__('Resetting will only clear the usage tracker options. It will not change existing posts. Type RESET to confirm.', 'tmw-seo-autopilot'); ?></p></div>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:800px;">
+                    <?php wp_nonce_field('tmwseo_usage_reset'); ?>
+                    <input type="hidden" name="action" value="tmwseo_usage_reset">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><label for="tmwseo_reset_confirm">Confirmation</label></th>
+                            <td>
+                                <input type="text" name="tmwseo_reset_confirm" id="tmwseo_reset_confirm" value="" placeholder="Type RESET" class="regular-text" required>
+                                <p class="description">Type <code>RESET</code> to clear usage trackers.</p>
+                            </td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary" onclick="return confirm('This will clear usage trackers. Continue?');">Reset usage trackers</button>
+                    </p>
+                </form>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    public static function render_keyword_packs() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $notices = [];
+        $categories = Keyword_Library::categories();
+        $types      = ['extra', 'longtail', 'competitor'];
+
+        if (!empty($_POST['tmwseo_keyword_action'])) {
+            check_admin_referer('tmwseo_keyword_packs');
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+
+            $action = sanitize_text_field($_POST['tmwseo_keyword_action']);
+
+            if ($action === 'init_placeholders') {
+                Keyword_Library::ensure_dirs_and_placeholders();
+                Keyword_Library::flush_cache();
+                $notices[] = ['type' => 'updated', 'text' => 'Folders and placeholder CSV files initialized.'];
+            }
+
+            if ($action === 'flush_cache') {
+                Keyword_Library::flush_cache();
+                $notices[] = ['type' => 'updated', 'text' => 'Keyword cache cleared.'];
+            }
+
+            if ($action === 'upload' && !empty($_FILES['tmwseo_csv']['tmp_name'])) {
+                $category = sanitize_key($_POST['tmwseo_category'] ?? '');
+                $type     = sanitize_key($_POST['tmwseo_type'] ?? '');
+
+                if (!in_array($category, $categories, true)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Invalid category selected.'];
+                } elseif (!in_array($type, ['extra', 'longtail', 'competitor'], true)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Invalid keyword type selected.'];
+                } elseif (!is_uploaded_file($_FILES['tmwseo_csv']['tmp_name'])) {
+                    $notices[] = ['type' => 'error', 'text' => 'Upload failed.'];
+                } elseif (strtolower(pathinfo($_FILES['tmwseo_csv']['name'], PATHINFO_EXTENSION)) !== 'csv') {
+                    $notices[] = ['type' => 'error', 'text' => 'Please upload a CSV file.'];
+                } else {
+                    Keyword_Library::ensure_dirs_and_placeholders();
+                    $dest_dir  = trailingslashit(Keyword_Library::uploads_base_dir()) . $category;
+                    wp_mkdir_p($dest_dir);
+                    $dest_path = trailingslashit($dest_dir) . "{$type}.csv";
+
+                    if (move_uploaded_file($_FILES['tmwseo_csv']['tmp_name'], $dest_path)) {
+                        Keyword_Library::flush_cache();
+                        $count = count(Keyword_Library::load($category, $type));
+                        $notices[] = ['type' => 'updated', 'text' => sprintf('Uploaded %s keywords for %s (%d entries).', esc_html($type), esc_html($category), (int) $count)];
+                    } else {
+                        $notices[] = ['type' => 'error', 'text' => 'Could not move uploaded file.'];
+                    }
+                }
+            }
+        }
+
+        $uploads_base = Keyword_Library::uploads_base_dir();
+        $status_rows  = [];
+        foreach ($categories as $cat) {
+            foreach ($types as $type) {
+                $upload_path = trailingslashit($uploads_base) . "{$cat}/{$type}.csv";
+                $plugin_path = trailingslashit(Keyword_Library::plugin_base_dir()) . "{$cat}/{$type}.csv";
+                $path        = file_exists($upload_path) ? $upload_path : $plugin_path;
+                $exists      = file_exists($path);
+                $modified    = $exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($path)) : '—';
+                $count       = $exists ? count(Keyword_Library::load($cat, $type)) : 0;
+
+                $status_rows[] = [
+                    'category' => $cat,
+                    'type'     => $type,
+                    'path'     => $path,
+                    'exists'   => $exists,
+                    'modified' => $modified,
+                    'count'    => $count,
+                ];
+            }
+        }
+
+        $serper_api_key = (string) get_option('tmwseo_serper_api_key', '');
+        $serper_gl      = (string) get_option('tmwseo_serper_gl', 'us');
+        $serper_hl      = (string) get_option('tmwseo_serper_hl', 'en');
+        $serper_nonce   = wp_create_nonce('tmwseo_serper_test');
+        $build_nonce    = wp_create_nonce('tmwseo_build_keyword_pack');
+        $default_per    = 10;
+
+        ?>
+        <div class="wrap">
+            <h1>TMW SEO Keyword Packs</h1>
+            <?php foreach ($notices as $notice) : ?>
+                <div class="<?php echo esc_attr($notice['type']); ?> notice"><p><?php echo esc_html($notice['text']); ?></p></div>
+            <?php endforeach; ?>
+
+            <h2 class="title">Serper (optional)</h2>
+            <p>Store your Serper API key and locale defaults to generate keyword packs via CLI or the test button. Frontend rendering never calls Serper.</p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:640px;">
+                <?php wp_nonce_field('tmwseo_save_settings', 'tmwseo_settings_nonce'); ?>
+                <input type="hidden" name="action" value="tmwseo_save_settings">
+                <input type="hidden" name="redirect_to" value="<?php echo esc_attr(admin_url('tools.php?page=tmw-seo-keyword-packs')); ?>">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_serper_api_key">API Key</label></th>
+                        <td><input type="text" name="tmwseo_serper_api_key" id="tmwseo_serper_api_key" value="<?php echo esc_attr($serper_api_key); ?>" class="regular-text"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_serper_gl">gl (country)</label></th>
+                        <td><input type="text" name="tmwseo_serper_gl" id="tmwseo_serper_gl" value="<?php echo esc_attr($serper_gl); ?>" class="regular-text" placeholder="us"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_serper_hl">hl (language)</label></th>
+                        <td><input type="text" name="tmwseo_serper_hl" id="tmwseo_serper_hl" value="<?php echo esc_attr($serper_hl); ?>" class="regular-text" placeholder="en"></td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="submit" class="button button-primary">Save Serper Settings</button>
+                    <button type="button" class="button" id="tmwseo-serper-test" data-nonce="<?php echo esc_attr($serper_nonce); ?>">Test Serper</button>
+                    <span id="tmwseo-serper-result" style="margin-left:10px;"></span>
+                </p>
+            </form>
+
+            <h2 class="title" style="margin-top:30px;">Build Keyword Packs (Serper)</h2>
+            <p>Use Serper suggestions to auto-build <code>extra.csv</code> and <code>longtail.csv</code> files inside your uploads folder. Results are cleaned, deduped, and blacklisted phrases are skipped.</p>
+            <form id="tmwseo-build-form" style="max-width:760px;">
+                <input type="hidden" name="tmwseo_build_nonce" id="tmwseo_build_nonce" value="<?php echo esc_attr($build_nonce); ?>">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_category">Category</label></th>
+                        <td>
+                            <select id="tmwseo_build_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>"><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_seeds">Seeds (one per line)</label></th>
+                        <td>
+                            <textarea id="tmwseo_build_seeds" rows="5" class="large-text" placeholder="livejasmin tips&#10;best cam sites"></textarea>
+                            <p class="description">Each seed triggers a Serper search; suggestions are sanitized and deduped.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_gl">gl</label></th>
+                        <td><input type="text" id="tmwseo_build_gl" value="<?php echo esc_attr($serper_gl); ?>" class="regular-text" placeholder="us"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_hl">hl</label></th>
+                        <td><input type="text" id="tmwseo_build_hl" value="<?php echo esc_attr($serper_hl); ?>" class="regular-text" placeholder="en"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_per_seed">Suggestions per seed</label></th>
+                        <td><input type="number" id="tmwseo_build_per_seed" value="<?php echo (int) $default_per; ?>" min="1" max="50"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Optional</th>
+                        <td>
+                            <label><input type="checkbox" id="tmwseo_build_competitor" value="1"> Also write competitor.csv</label>
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="button" class="button button-primary" id="tmwseo-build-save">Generate &amp; Save</button>
+                    <button type="button" class="button" id="tmwseo-build-preview">Dry Run Preview</button>
+                    <span id="tmwseo-build-result" style="margin-left:10px;"></span>
+                </p>
+            </form>
+
+            <h2 class="title">Status</h2>
+            <p><strong>Uploads base:</strong> <?php echo esc_html($uploads_base); ?></p>
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Path</th>
+                        <th>Exists</th>
+                        <th>Last Modified</th>
+                        <th>Keywords</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($status_rows as $row) : ?>
+                        <tr>
+                            <td><?php echo esc_html(ucfirst($row['category'])); ?></td>
+                            <td><?php echo esc_html($row['type']); ?></td>
+                            <td><code><?php echo esc_html($row['path']); ?></code></td>
+                            <td><?php echo $row['exists'] ? 'Yes' : 'No'; ?></td>
+                            <td><?php echo esc_html($row['modified']); ?></td>
+                            <td><?php echo (int) $row['count']; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <h2 class="title" style="margin-top:30px;">Upload CSV</h2>
+            <form method="post" enctype="multipart/form-data">
+                <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
+                <input type="hidden" name="tmwseo_keyword_action" value="upload">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_category">Category</label></th>
+                        <td>
+                            <select name="tmwseo_category" id="tmwseo_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>"><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_type">Type</label></th>
+                        <td>
+                            <select name="tmwseo_type" id="tmwseo_type">
+                                <option value="extra">extra</option>
+                                <option value="longtail">longtail</option>
+                                <option value="competitor">competitor</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_csv">CSV File</label></th>
+                        <td><input type="file" name="tmwseo_csv" id="tmwseo_csv" accept=".csv" required></td>
+                    </tr>
+                </table>
+                <p class="submit"><button type="submit" class="button button-primary">Upload</button></p>
+            </form>
+
+            <h2 class="title" style="margin-top:30px;">Maintenance</h2>
+            <form method="post">
+                <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
+                <input type="hidden" name="tmwseo_keyword_action" value="init_placeholders">
+                <p class="submit"><button type="submit" class="button">Create folders / placeholders</button></p>
+            </form>
+            <form method="post" style="margin-top:10px;">
+                <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
+                <input type="hidden" name="tmwseo_keyword_action" value="flush_cache">
+                <p class="submit"><button type="submit" class="button">Flush keyword cache</button></p>
+            </form>
+            <script>
+            (function($){
+                $('#tmwseo-serper-test').on('click', function(){
+                    var $btn = $(this);
+                    var $out = $('#tmwseo-serper-result');
+                    $btn.prop('disabled', true);
+                    $out.text('Testing…');
+                    $.post(ajaxurl, {action: 'tmwseo_serper_test', nonce: $btn.data('nonce')}, function(resp){
+                        if (resp && resp.success) {
+                            var preview = resp.data && resp.data.keywords ? resp.data.keywords.join(', ') : 'Success';
+                            $out.text('Success: ' + preview);
+                        } else {
+                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
+                            $out.text('Error: ' + message);
+                        }
+                    }).fail(function(){
+                        $out.text('Error: request failed');
+                    }).always(function(){
+                        $btn.prop('disabled', false);
+                    });
+                });
+
+                function tmwseoRunBuild(dryRun){
+                    var seeds = ($('#tmwseo_build_seeds').val() || '').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(function(s){ return s.length; });
+                    var $out = $('#tmwseo-build-result');
+                    var $btns = $('#tmwseo-build-save, #tmwseo-build-preview');
+
+                    if (!seeds.length) {
+                        $out.text('Please enter at least one seed.');
+                        return;
+                    }
+
+                    $btns.prop('disabled', true);
+                    $out.text(dryRun ? 'Previewing…' : 'Building…');
+
+                    var data = {
+                        action: 'tmwseo_build_keyword_pack',
+                        nonce: $('#tmwseo_build_nonce').val(),
+                        category: $('#tmwseo_build_category').val(),
+                        seeds: seeds,
+                        gl: $('#tmwseo_build_gl').val(),
+                        hl: $('#tmwseo_build_hl').val(),
+                        per_seed: $('#tmwseo_build_per_seed').val(),
+                        competitor: $('#tmwseo_build_competitor').is(':checked') ? 1 : 0,
+                        dry_run: dryRun ? 1 : 0
+                    };
+
+                    $.post(ajaxurl, data, function(resp){
+                        if (resp && resp.success) {
+                            var msg = resp.data && resp.data.message ? resp.data.message : 'Success';
+
+                            if (resp.data) {
+                                if (resp.data.counts) {
+                                    msg += ' | extra: ' + (resp.data.counts.extra || 0) + ' | longtail: ' + (resp.data.counts.longtail || 0);
+                                    if (typeof resp.data.counts.competitor !== 'undefined') {
+                                        msg += ' | competitor: ' + resp.data.counts.competitor;
+                                    }
+                                } else if (resp.data.preview) {
+                                    var preview = resp.data.preview;
+                                    var extraCount = preview.extra ? preview.extra.length : 0;
+                                    var longCount = preview.longtail ? preview.longtail.length : 0;
+                                    msg += ' | preview extra: ' + extraCount + ' | preview longtail: ' + longCount;
+                                }
+                            }
+
+                            $out.text(msg);
+
+                            if (!dryRun) {
+                                setTimeout(function(){
+                                    location.reload();
+                                }, 800);
+                            }
+                        } else {
+                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
+                            $out.text('Error: ' + message);
+                        }
+                    }).fail(function(){
+                        $out.text('Error: request failed');
+                    }).always(function(){
+                        $btns.prop('disabled', false);
+                    });
+                }
+
+                $('#tmwseo-build-save').on('click', function(e){
+                    e.preventDefault();
+                    tmwseoRunBuild(false);
+                });
+
+                $('#tmwseo-build-preview').on('click', function(e){
+                    e.preventDefault();
+                    tmwseoRunBuild(true);
+                });
+            })(jQuery);
+            </script>
+        </div>
+        <?php
+    }
+
+    public static function render_keyword_usage() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        global $wpdb;
+        $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
+        $log_table   = $wpdb->prefix . 'tmwseo_keyword_usage_log';
+
+        $categories = array_merge(['all'], Keyword_Library::categories());
+        $types      = ['all', 'extra', 'longtail', 'competitor'];
+
+        $selected_category = sanitize_key($_GET['category'] ?? 'all');
+        $selected_type     = sanitize_key($_GET['type'] ?? 'all');
+        $limit             = max(10, min(500, intval($_GET['limit'] ?? 100)));
+
+        $where = [];
+        $params = [];
+        if ($selected_category !== 'all') {
+            $where[] = 'category = %s';
+            $params[] = $selected_category;
+        }
+        if ($selected_type !== 'all') {
+            $where[] = 'type = %s';
+            $params[] = $selected_type;
+        }
+        $where_sql = !empty($where) ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+        if (!empty($_GET['tmwseo_export_usage']) && check_admin_referer('tmwseo_usage_export', 'tmwseo_usage_nonce')) {
+            $sql = "SELECT keyword_text, type, category, post_id, post_type, used_at FROM {$log_table} {$where_sql} ORDER BY used_at DESC";
+            $rows = $params ? $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A) : $wpdb->get_results($sql, ARRAY_A);
+
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="tmwseo-keyword-usage.csv"');
+            $output = fopen('php://output', 'w');
+            fputcsv($output, ['keyword_text', 'type', 'category', 'post_id', 'post_type', 'used_at']);
+            foreach ((array) $rows as $row) {
+                fputcsv($output, [
+                    $row['keyword_text'] ?? '',
+                    $row['type'] ?? '',
+                    $row['category'] ?? '',
+                    $row['post_id'] ?? '',
+                    $row['post_type'] ?? '',
+                    $row['used_at'] ?? '',
+                ]);
+            }
+            fclose($output);
+            exit;
+        }
+
+        $sql = "SELECT keyword_text, category, type, used_count, last_used_at FROM {$usage_table} {$where_sql} ORDER BY used_count DESC, last_used_at DESC LIMIT %d";
+        $params_with_limit = $params;
+        $params_with_limit[] = $limit;
+        $rows = $params_with_limit ? $wpdb->get_results($wpdb->prepare($sql, $params_with_limit), ARRAY_A) : $wpdb->get_results($wpdb->prepare($sql, $limit), ARRAY_A);
+
+        $export_url = add_query_arg([
+            'page' => 'tmw-seo-keyword-usage',
+            'category' => $selected_category,
+            'type' => $selected_type,
+            'tmwseo_export_usage' => 1,
+        ], admin_url('tools.php'));
+
+        ?>
+        <div class="wrap">
+            <h1>TMW SEO Keyword Usage</h1>
+            <form method="get" style="margin-bottom:15px;">
+                <input type="hidden" name="page" value="tmw-seo-keyword-usage">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_usage_category">Category</label></th>
+                        <td>
+                            <select name="category" id="tmwseo_usage_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>" <?php selected($selected_category, $cat); ?>><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_usage_type">Type</label></th>
+                        <td>
+                            <select name="type" id="tmwseo_usage_type">
+                                <?php foreach ($types as $t) : ?>
+                                    <option value="<?php echo esc_attr($t); ?>" <?php selected($selected_type, $t); ?>><?php echo esc_html($t); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_usage_limit">Limit</label></th>
+                        <td>
+                            <input type="number" name="limit" id="tmwseo_usage_limit" value="<?php echo (int) $limit; ?>" min="10" max="500">
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="submit" class="button button-primary">Filter</button>
+                    <?php wp_nonce_field('tmwseo_usage_export', 'tmwseo_usage_nonce'); ?>
+                    <a class="button" href="<?php echo esc_url(wp_nonce_url($export_url, 'tmwseo_usage_export', 'tmwseo_usage_nonce')); ?>">Export CSV</a>
+                </p>
+            </form>
+
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Used Count</th>
+                        <th>Last Used</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($rows)) : ?>
+                        <tr><td colspan="5">No keyword usage found.</td></tr>
+                    <?php else : ?>
+                        <?php foreach ($rows as $row) : ?>
+                            <tr>
+                                <td><?php echo esc_html($row['keyword_text'] ?? ''); ?></td>
+                                <td><?php echo esc_html($row['category'] ?? ''); ?></td>
+                                <td><?php echo esc_html($row['type'] ?? ''); ?></td>
+                                <td><?php echo (int) ($row['used_count'] ?? 0); ?></td>
+                                <td><?php echo esc_html($row['last_used_at'] ?? '—'); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php
     }
 
     public static function render_tools() {
@@ -499,17 +1312,15 @@ class Admin {
                             <th>Strategy</th>
                             <td>
                                 <label>
-                                    <input type="radio" name="strategy" value="hijacking" checked>
-                                    OnlyFans Hijacking (mention OnlyFans 3-5x)
+                                    <input type="radio" name="strategy" value="template" checked>
+                                    Standard Template (safe defaults)
                                 </label><br>
-                                <label>
-                                    <input type="radio" name="strategy" value="semrush">
-                                    SEMrush Optimized (use search volume data)
-                                </label><br>
-                                <label>
-                                    <input type="radio" name="strategy" value="template">
-                                    Standard Template (no special focus)
-                                </label>
+                                <?php if (\TMW_SEO\Providers\OpenAI::is_enabled()) : ?>
+                                    <label>
+                                        <input type="radio" name="strategy" value="openai">
+                                        OpenAI (when available)
+                                    </label>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <tr>
@@ -747,7 +1558,7 @@ class Admin {
         }
 
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
-            error_log(
+            \TMW_SEO\Core::debug_log(
                 sprintf(
                     '[TMW-SEO-ADMIN] Manual video generate_now for post #%d',
                     $post_id
@@ -778,10 +1589,18 @@ class Admin {
     public static function handle_save_settings() {
         if (!current_user_can('manage_options')) wp_die('No permission');
         if (!isset($_POST['tmwseo_settings_nonce']) || !wp_verify_nonce($_POST['tmwseo_settings_nonce'], 'tmwseo_save_settings')) wp_die('Bad nonce');
+        $redirect = !empty($_POST['redirect_to']) ? esc_url_raw($_POST['redirect_to']) : admin_url('tools.php?page=tmw-seo-autopilot&saved=1');
         $pts = isset($_POST['tmwseo_video_pts']) ? (array) $_POST['tmwseo_video_pts'] : [];
         $pts = array_values(array_unique(array_map('sanitize_key', $pts)));
         update_option('tmwseo_video_pts', $pts, false);
-        wp_safe_redirect(admin_url('tools.php?page=tmw-seo-autopilot&saved=1'));
+        $serper_api = isset($_POST['tmwseo_serper_api_key']) ? sanitize_text_field((string) $_POST['tmwseo_serper_api_key']) : '';
+        $serper_gl  = isset($_POST['tmwseo_serper_gl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_gl']) : 'us';
+        $serper_hl  = isset($_POST['tmwseo_serper_hl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_hl']) : 'en';
+        update_option('tmwseo_serper_api_key', $serper_api, false);
+        update_option('tmwseo_serper_gl', $serper_gl, false);
+        update_option('tmwseo_serper_hl', $serper_hl, false);
+
+        wp_safe_redirect($redirect);
         exit;
     }
 

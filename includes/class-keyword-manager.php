@@ -35,41 +35,117 @@ class Keyword_Manager {
         ];
     }
 
-    public static function apply_density(string $content, string $name, array $pair, string $type = 'model'): array {
-        $targets = self::platform_counts($type);
-        $content_lower = strtolower($content);
-        $inserts = [];
-
-        $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, 'LiveJasmin', $targets['livejasmin']));
-        $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, 'OnlyFans', $targets['onlyfans']));
-
-        foreach ($pair as $competitor) {
-            $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, $competitor, $targets['competitor']));
+    /**
+     * Determine whether a keyword needs filling. Returns keywords to add.
+     */
+    public static function fill_keyword(string $content, string $keyword, int $min, int $max): array {
+        $keyword = trim($keyword);
+        if ($keyword === '') {
+            return [];
         }
 
-        $name_targets = $type === 'video' ? [6, 10] : [8, 12];
-        $inserts = array_merge($inserts, self::fill_keyword($content_lower, $content, $name, $name_targets));
+        $pattern = '/' . preg_quote($keyword, '/') . '/i';
+        $count   = preg_match_all($pattern, $content, $matches);
 
-        if (!empty($inserts)) {
-            $content .= "\n\n" . implode("\n\n", $inserts);
+        if ($count > $max) {
+            return [];
         }
 
-        return ['content' => $content, 'keywords' => array_merge(['LiveJasmin', 'OnlyFans'], $pair)];
+        if ($count >= $min) {
+            return [];
+        }
+
+        return [$keyword];
     }
 
-    protected static function fill_keyword(string $content_lower, string $content, string $needle, array $range): array {
-        $count = substr_count($content_lower, strtolower($needle));
-        $min   = $range[0];
-        $max   = $range[1];
-        $add   = [];
-        if ($count < $min) {
-            $needed = $min - $count;
-            for ($i = 0; $i < $needed; $i++) {
-                $add[] = sprintf('Looking for %s? %s is highlighted here for clarity.', $needle, $needle);
-            }
-        } elseif ($count > $max) {
-            $add[] = sprintf('Keyword density warning for %s: currently %d mentions (target %d-%d).', $needle, $count, $min, $max);
+    public static function apply_density(string $content, string $name, array $pair, string $type = 'model'): array {
+        $keywords = array_filter(array_unique([
+            $name,
+            'live cam',
+            'webcam highlights',
+            'live streaming show',
+            'LiveJasmin',
+            'OnlyFans',
+            $pair[0] ?? '',
+            $pair[1] ?? '',
+        ]));
+
+        $content = self::reduce_focus_density($content, $name, $type);
+
+        $pattern      = $name !== '' ? '/' . preg_quote($name, '/') . '/i' : '';
+        $current_hits = $pattern !== '' ? preg_match_all($pattern, $content, $matches) : 0;
+        $target_min   = $type === 'video' ? 2 : 3;
+
+        if ($pattern !== '' && $current_hits < $target_min) {
+            $filler = sprintf(
+                '\n\n<p>%s keeps conversations feeling live and personal.</p>',
+                esc_html($name)
+            );
+            $content .= $filler;
         }
-        return $add;
+
+        return [
+            'content'  => $content,
+            'keywords' => array_values($keywords),
+        ];
+    }
+
+    protected static function reduce_focus_density(string $content, string $name, string $type): string {
+        $pattern = '/' . preg_quote($name, '/') . '/i';
+        $total   = preg_match_all($pattern, $content, $matches);
+        $allowed = $type === 'video' ? 11 : 13;
+
+        if ($total <= $allowed || $name === '') {
+            return $content;
+        }
+
+        $heading_pattern = '~<h[12][^>]*>.*?' . preg_quote($name, '~') . '.*?</h[12]>~is';
+        $heading_hits    = 0;
+        if (preg_match_all($heading_pattern, $content, $heading_matches)) {
+            foreach ($heading_matches[0] as $heading) {
+                $heading_hits += preg_match_all($pattern, $heading, $tmp);
+            }
+        }
+
+        $segments   = preg_split('~(<h[12][^>]*>.*?</h[12]>)~is', $content, -1, PREG_SPLIT_DELIM_CAPTURE);
+        $replacement_terms = ['the performer', 'this performer', 'the model', 'they', 'the streamer'];
+        $replacement_index = 0;
+        $processed  = '';
+        $total_seen = $heading_hits;
+        $body_kept  = 0;
+        $allowed_body = max(0, $allowed - $heading_hits);
+
+        foreach ($segments as $segment) {
+            if ($segment === '') {
+                continue;
+            }
+
+            if (preg_match('~^<h[12][^>]*>~i', $segment)) {
+                $processed .= $segment;
+                continue;
+            }
+
+            $segment = preg_replace_callback($pattern, function ($match) use (&$total_seen, &$body_kept, $allowed_body, $allowed, $heading_hits, $replacement_terms, &$replacement_index) {
+                $total_seen++;
+
+                if ($total_seen === ($heading_hits + 1)) {
+                    $body_kept++;
+                    return $match[0];
+                }
+
+                if ($body_kept < $allowed_body && $total_seen <= $allowed) {
+                    $body_kept++;
+                    return $match[0];
+                }
+
+                $replacement = $replacement_terms[$replacement_index % count($replacement_terms)];
+                $replacement_index++;
+                return $replacement;
+            }, $segment);
+
+            $processed .= $segment;
+        }
+
+        return $processed;
     }
 }
