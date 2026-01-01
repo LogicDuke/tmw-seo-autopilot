@@ -3,6 +3,16 @@ namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
 class Keyword_Pack_Builder {
+    protected static $google_suggest_client;
+
+    protected static function google_suggest_client(): Google_Suggest_Client {
+        if (!self::$google_suggest_client) {
+            self::$google_suggest_client = new Google_Suggest_Client();
+        }
+
+        return self::$google_suggest_client;
+    }
+
     public static function blacklist(): array {
         $list = [
             'leak',
@@ -256,10 +266,19 @@ class Keyword_Pack_Builder {
         return array_slice($keywords, 0, 50);
     }
 
-    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, array &$run_state = null): array {
-        $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
-        if ($api_key === '') {
-            return ['extra' => [], 'longtail' => []];
+    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, string $provider = '', array &$run_state = null) {
+        $provider = sanitize_text_field($provider ?: (string) get_option('tmwseo_keyword_provider', 'serper'));
+        $allowed_providers = ['serper', 'google_suggest'];
+        if (!in_array($provider, $allowed_providers, true)) {
+            $provider = 'serper';
+        }
+
+        $api_key = '';
+        if ($provider === 'serper') {
+            $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+            if ($api_key === '') {
+                return new \WP_Error('tmwseo_serper_missing', 'Serper API key missing', ['provider' => $provider]);
+            }
         }
 
         if (!is_array($run_state)) {
@@ -279,11 +298,13 @@ class Keyword_Pack_Builder {
         $gl = sanitize_text_field($gl ?: 'us');
         $hl = sanitize_text_field($hl ?: 'en');
         $cam_required_regex = '/(stream|live|video|creator|platform|model)/i';
-        $debug_enabled = defined('TMWSEO_SERPER_DEBUG') && TMWSEO_SERPER_DEBUG;
+        $debug_enabled = (defined('TMWSEO_SERPER_DEBUG') && TMWSEO_SERPER_DEBUG)
+            || (defined('TMWSEO_KW_DEBUG') && TMWSEO_KW_DEBUG);
         $max_calls = (int) $run_state['max_calls'];
 
         $keywords = [];
         $seed_groups = self::make_indirect_seeds($category, $seeds);
+        $seed_target = max(1, $per_seed);
 
         foreach ($seed_groups as $group) {
             $seed = trim((string) ($group['seed'] ?? ''));
@@ -313,48 +334,87 @@ class Keyword_Pack_Builder {
                 $fetch_count = min(20, $per_query * 2);
 
                 foreach ($queries as $query) {
-                    if ($run_state['total_calls'] >= $max_calls) {
-                        $run_state['error'] = sprintf('Serper call cap reached (%d). Reduce seeds or suggestions per seed.', $max_calls);
-                        $seed_complete = true;
-                        break 2;
-                    }
-
-                    $run_state['total_calls']++;
                     $used_queries[] = $query;
-                    try {
-                        $result = Serper_Client::search($api_key, $query, $gl, $hl, $fetch_count);
-                    } catch (\Exception $e) {
-                        Core::debug_log('[TMW-SERPER-ERROR] ' . $e->getMessage());
-                        $errors = get_option('tmwseo_serper_error_log', []);
-                        $errors[] = [
-                            'time' => current_time('mysql'),
-                            'query' => $query,
-                            'error' => $e->getMessage(),
-                        ];
-                        update_option('tmwseo_serper_error_log', array_slice($errors, -20));
-                        return ['extra' => [], 'longtail' => []];
-                    }
-                    if (!empty($result['error'])) {
-                        $http_code = (int) ($result['http_code'] ?? 0);
-                        $error_message = (string) ($result['error_message'] ?? $result['error']);
-                        $run_state['error'] = sprintf(
-                            'Serper request failed for query "%s" (HTTP %s): %s',
-                            $query,
-                            $http_code !== 0 ? (string) $http_code : '0',
-                            $error_message
-                        );
-                        $run_state['errors'][] = [
-                            'query' => $query,
-                            'http_code' => $http_code,
-                            'error_message' => $error_message,
-                        ];
-                        $seed_complete = true;
-                        break 2;
+                    $suggestions = [];
+                    $used_external_call = false;
+                    if ($provider === 'google_suggest') {
+                        $cache_key = Google_Suggest_Client::cache_key($query, $hl, $gl);
+                        $cache_hit = get_transient($cache_key);
+                        if ($cache_hit === false && $run_state['total_calls'] >= $max_calls) {
+                            return new \WP_Error(
+                                'tmwseo_call_cap',
+                                'Too many external requests in one run. Reduce seeds or Suggestions-per-seed.',
+                                ['provider' => $provider, 'query' => $query]
+                            );
+                        }
+                        $client = self::google_suggest_client();
+                        $result = $client->fetch($query, $hl, $gl);
+                        if (is_wp_error($result)) {
+                            return new \WP_Error(
+                                'tmwseo_provider_failed',
+                                'Provider request failed',
+                                [
+                                    'provider' => $provider,
+                                    'query'    => $query,
+                                    'details'  => $result->get_error_message(),
+                                ]
+                            );
+                        }
+                        $suggestions = array_slice($result, 0, $fetch_count);
+                        $used_external_call = !$client->was_last_cached();
+                    } else {
+                        if ($run_state['total_calls'] >= $max_calls) {
+                            return new \WP_Error(
+                                'tmwseo_call_cap',
+                                'Too many external requests in one run. Reduce seeds or Suggestions-per-seed.',
+                                ['provider' => $provider, 'query' => $query]
+                            );
+                        }
+                        $used_external_call = true;
+                        try {
+                            $result = Serper_Client::search($api_key, $query, $gl, $hl, $fetch_count);
+                        } catch (\Exception $e) {
+                            Core::debug_log('[TMW-SERPER-ERROR] ' . $e->getMessage());
+                            $errors = get_option('tmwseo_serper_error_log', []);
+                            $errors[] = [
+                                'time' => current_time('mysql'),
+                                'query' => $query,
+                                'error' => $e->getMessage(),
+                            ];
+                            update_option('tmwseo_serper_error_log', array_slice($errors, -20));
+                            return new \WP_Error(
+                                'tmwseo_provider_failed',
+                                'Provider request failed',
+                                [
+                                    'provider' => $provider,
+                                    'query'    => $query,
+                                    'details'  => $e->getMessage(),
+                                ]
+                            );
+                        }
+                        if (!empty($result['error'])) {
+                            $http_code = (int) ($result['http_code'] ?? 0);
+                            $error_message = (string) ($result['error_message'] ?? $result['error']);
+                            return new \WP_Error(
+                                'tmwseo_provider_failed',
+                                'Provider request failed',
+                                [
+                                    'provider'   => $provider,
+                                    'query'      => $query,
+                                    'details'    => $error_message,
+                                    'http_code'  => $http_code,
+                                ]
+                            );
+                        }
+
+                        $data = $result['data'] ?? [];
+                        $suggestions = Serper_Client::extract_suggestions($data);
+                        $suggestions = array_slice($suggestions, 0, $fetch_count);
                     }
 
-                    $data = $result['data'] ?? [];
-                    $suggestions = Serper_Client::extract_suggestions($data);
-                    $suggestions = array_slice($suggestions, 0, $fetch_count);
+                    if ($used_external_call) {
+                        $run_state['total_calls']++;
+                    }
                     $seed_suggestions_count += count($suggestions);
 
                     foreach ($suggestions as $suggestion) {
@@ -414,6 +474,10 @@ class Keyword_Pack_Builder {
                         }
                     }
 
+                    if ($seed_accepted >= $seed_target) {
+                        $seed_complete = true;
+                    }
+
                     if ($seed_complete) {
                         break;
                     }
@@ -457,11 +521,11 @@ class Keyword_Pack_Builder {
             }
 
             if ($debug_enabled) {
-                error_log('[TMW-SERPER] Seed: ' . $seed);
-                error_log('[TMW-SERPER] Queries: ' . wp_json_encode($used_queries));
-                error_log('[TMW-SERPER] Raw suggestions: ' . $seed_suggestions_count);
-                error_log('[TMW-SERPER] Accepted: ' . $seed_accepted . ' Samples: ' . wp_json_encode($accepted_samples));
-                error_log('[TMW-SERPER] Rejected blacklist: ' . $rejected_blacklist . ' Rejected cam-rule: ' . $rejected_cam);
+                error_log('[TMW-KW] Provider: ' . $provider . ' Seed: ' . $seed);
+                error_log('[TMW-KW] Queries: ' . wp_json_encode($used_queries));
+                error_log('[TMW-KW] Raw suggestions: ' . $seed_suggestions_count);
+                error_log('[TMW-KW] Accepted: ' . $seed_accepted . ' Samples: ' . wp_json_encode($accepted_samples));
+                error_log('[TMW-KW] Rejected blacklist: ' . $rejected_blacklist . ' Rejected cam-rule: ' . $rejected_cam);
             }
         }
 

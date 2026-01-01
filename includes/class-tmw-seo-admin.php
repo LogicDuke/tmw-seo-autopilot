@@ -271,9 +271,17 @@ class Admin {
             $fail('Please provide at least one seed.');
         }
 
-        $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
-        if ($api_key === '') {
-            $fail('Serper API key missing.');
+        $provider = sanitize_text_field($_POST['provider'] ?? (string) get_option('tmwseo_keyword_provider', 'serper'));
+        $allowed_providers = ['serper', 'google_suggest'];
+        if (!in_array($provider, $allowed_providers, true)) {
+            $provider = 'serper';
+        }
+
+        if ($provider === 'serper') {
+            $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+            if ($api_key === '') {
+                $fail('Serper API key missing.');
+            }
         }
 
         $gl             = sanitize_text_field($_POST['gl'] ?? (string) get_option('tmwseo_serper_gl', 'us'));
@@ -285,11 +293,19 @@ class Admin {
         $run_state = [
             'max_calls' => 25,
         ];
-        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed, $run_state);
-        if (!empty($run_state['error'])) {
+        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed, $provider, $run_state);
+        if (is_wp_error($build)) {
             delete_transient($lock_key);
-            $error = new \WP_Error('tmwseo_serper_failed', $run_state['error'], ['details' => $run_state['errors'] ?? []]);
-            wp_send_json_error(['message' => $error->get_error_message(), 'data' => $error->get_error_data()]);
+            $data = (array) $build->get_error_data();
+            wp_send_json_error(
+                [
+                    'message'  => $build->get_error_message(),
+                    'provider' => $data['provider'] ?? $provider,
+                    'query'    => $data['query'] ?? '',
+                    'details'  => $data['details'] ?? '',
+                ],
+                500
+            );
         }
 
         $response = [
@@ -304,11 +320,19 @@ class Admin {
 
             if ($include_comp) {
                 $comp_seeds = apply_filters('tmwseo_competitor_seeds', ['livejasmin vs chaturbate', 'livejasmin vs stripchat']);
-                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed, $run_state);
-                if (!empty($run_state['error'])) {
+                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed, $provider, $run_state);
+                if (is_wp_error($comp_build)) {
                     delete_transient($lock_key);
-                    $error = new \WP_Error('tmwseo_serper_failed', $run_state['error'], ['details' => $run_state['errors'] ?? []]);
-                    wp_send_json_error(['message' => $error->get_error_message(), 'data' => $error->get_error_data()]);
+                    $data = (array) $comp_build->get_error_data();
+                    wp_send_json_error(
+                        [
+                            'message'  => $comp_build->get_error_message(),
+                            'provider' => $data['provider'] ?? $provider,
+                            'query'    => $data['query'] ?? '',
+                            'details'  => $data['details'] ?? '',
+                        ],
+                        500
+                    );
                 }
                 $comp_kw    = array_merge($comp_build['extra'] ?? [], $comp_build['longtail'] ?? []);
                 $counts['competitor'] = Keyword_Pack_Builder::merge_write_csv($category, 'competitor', $comp_kw);
@@ -659,6 +683,11 @@ class Admin {
         $serper_api_key = (string) get_option('tmwseo_serper_api_key', '');
         $serper_gl      = (string) get_option('tmwseo_serper_gl', 'us');
         $serper_hl      = (string) get_option('tmwseo_serper_hl', 'en');
+        $provider_value = (string) get_option('tmwseo_keyword_provider', 'serper');
+        $allowed_providers = ['serper', 'google_suggest'];
+        if (!in_array($provider_value, $allowed_providers, true)) {
+            $provider_value = 'serper';
+        }
         $serper_nonce   = wp_create_nonce('tmwseo_serper_test');
         $build_nonce    = wp_create_nonce('tmwseo_build_keyword_pack');
         $default_per    = 10;
@@ -670,13 +699,22 @@ class Admin {
                 <div class="<?php echo esc_attr($notice['type']); ?> notice"><p><?php echo esc_html($notice['text']); ?></p></div>
             <?php endforeach; ?>
 
-            <h2 class="title">Serper (optional)</h2>
-            <p>Store your Serper API key and locale defaults to generate keyword packs via CLI or the test button. Frontend rendering never calls Serper.</p>
+            <h2 class="title">Keyword Provider</h2>
+            <p>Select which provider to use for keyword pack generation. Frontend rendering never calls the provider.</p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:640px;">
                 <?php wp_nonce_field('tmwseo_save_settings', 'tmwseo_settings_nonce'); ?>
                 <input type="hidden" name="action" value="tmwseo_save_settings">
                 <input type="hidden" name="redirect_to" value="<?php echo esc_attr(admin_url('tools.php?page=tmw-seo-keyword-packs')); ?>">
                 <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_keyword_provider">Keyword Provider</label></th>
+                        <td>
+                            <select name="tmwseo_keyword_provider" id="tmwseo_keyword_provider">
+                                <option value="serper" <?php selected($provider_value, 'serper'); ?>>Serper</option>
+                                <option value="google_suggest" <?php selected($provider_value, 'google_suggest'); ?>>Google Suggest</option>
+                            </select>
+                        </td>
+                    </tr>
                     <tr>
                         <th scope="row"><label for="tmwseo_serper_api_key">API Key</label></th>
                         <td><input type="text" name="tmwseo_serper_api_key" id="tmwseo_serper_api_key" value="<?php echo esc_attr($serper_api_key); ?>" class="regular-text"></td>
@@ -697,11 +735,20 @@ class Admin {
                 </p>
             </form>
 
-            <h2 class="title" style="margin-top:30px;">Build Keyword Packs (Serper)</h2>
-            <p>Use Serper suggestions to auto-build <code>extra.csv</code> and <code>longtail.csv</code> files inside your uploads folder. Results are cleaned, deduped, and blacklisted phrases are skipped.</p>
+            <h2 class="title" style="margin-top:30px;">Build Keyword Packs</h2>
+            <p>Use the selected provider to auto-build <code>extra.csv</code> and <code>longtail.csv</code> files inside your uploads folder. Results are cleaned, deduped, and blacklisted phrases are skipped.</p>
             <form id="tmwseo-build-form" style="max-width:760px;">
                 <input type="hidden" name="tmwseo_build_nonce" id="tmwseo_build_nonce" value="<?php echo esc_attr($build_nonce); ?>">
                 <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_build_provider">Keyword Provider</label></th>
+                        <td>
+                            <select id="tmwseo_build_provider">
+                                <option value="serper" <?php selected($provider_value, 'serper'); ?>>Serper</option>
+                                <option value="google_suggest" <?php selected($provider_value, 'google_suggest'); ?>>Google Suggest</option>
+                            </select>
+                        </td>
+                    </tr>
                     <tr>
                         <th scope="row"><label for="tmwseo_build_category">Category</label></th>
                         <td>
@@ -856,6 +903,7 @@ class Admin {
                         nonce: $('#tmwseo_build_nonce').val(),
                         category: $('#tmwseo_build_category').val(),
                         seeds: seeds,
+                        provider: $('#tmwseo_build_provider').val(),
                         gl: $('#tmwseo_build_gl').val(),
                         hl: $('#tmwseo_build_hl').val(),
                         per_seed: $('#tmwseo_build_per_seed').val(),
@@ -890,7 +938,17 @@ class Admin {
                             }
                         } else {
                             var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
-                            $out.text('Error: ' + message);
+                            var detail = resp && resp.data && resp.data.details ? resp.data.details : '';
+                            var provider = resp && resp.data && resp.data.provider ? resp.data.provider : '';
+                            var query = resp && resp.data && resp.data.query ? resp.data.query : '';
+                            var extra = '';
+                            if (detail) {
+                                extra += ' (' + detail + ')';
+                            }
+                            if (provider || query) {
+                                extra += ' [' + [provider, query].filter(Boolean).join(' | ') + ']';
+                            }
+                            $out.text('Error: ' + message + extra);
                         }
                     }).fail(function(){
                         $out.text('Error: request failed');
@@ -1609,9 +1667,15 @@ class Admin {
         $serper_api = isset($_POST['tmwseo_serper_api_key']) ? sanitize_text_field((string) $_POST['tmwseo_serper_api_key']) : '';
         $serper_gl  = isset($_POST['tmwseo_serper_gl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_gl']) : 'us';
         $serper_hl  = isset($_POST['tmwseo_serper_hl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_hl']) : 'en';
+        $provider   = isset($_POST['tmwseo_keyword_provider']) ? sanitize_text_field((string) $_POST['tmwseo_keyword_provider']) : 'serper';
+        $allowed_providers = ['serper', 'google_suggest'];
+        if (!in_array($provider, $allowed_providers, true)) {
+            $provider = 'serper';
+        }
         update_option('tmwseo_serper_api_key', $serper_api, false);
         update_option('tmwseo_serper_gl', $serper_gl, false);
         update_option('tmwseo_serper_hl', $serper_hl, false);
+        update_option('tmwseo_keyword_provider', $provider, false);
 
         wp_safe_redirect($redirect);
         exit;
