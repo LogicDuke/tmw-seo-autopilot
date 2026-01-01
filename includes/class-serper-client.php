@@ -7,7 +7,7 @@ class Serper_Client {
         $api_key = trim($api_key);
         $query   = trim($query);
         if ($api_key === '' || $query === '') {
-            return ['error' => 'Missing API key or query'];
+            return ['error' => 'Missing API key or query', 'http_code' => 0, 'error_message' => 'Missing API key or query'];
         }
 
         $body = [
@@ -30,17 +30,18 @@ class Serper_Client {
         );
 
         if (is_wp_error($resp)) {
-            return ['error' => $resp->get_error_message()];
+            $message = $resp->get_error_message();
+            return ['error' => $message, 'http_code' => 0, 'error_message' => $message];
         }
 
         $code = (int) wp_remote_retrieve_response_code($resp);
         if ($code < 200 || $code >= 300) {
-            return ['error' => 'HTTP ' . $code];
+            return ['error' => 'HTTP ' . $code, 'http_code' => $code, 'error_message' => 'HTTP ' . $code];
         }
 
         $json = json_decode(wp_remote_retrieve_body($resp), true);
         if (!is_array($json)) {
-            return ['error' => 'Invalid response'];
+            return ['error' => 'Invalid response', 'http_code' => $code, 'error_message' => 'Invalid response'];
         }
 
         return ['data' => $json];

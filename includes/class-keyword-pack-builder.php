@@ -136,10 +136,23 @@ class Keyword_Pack_Builder {
         return $buckets;
     }
 
-    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10): array {
+    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, array &$run_state = null): array {
         $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
         if ($api_key === '') {
             return ['extra' => [], 'longtail' => []];
+        }
+
+        if (!is_array($run_state)) {
+            $run_state = [];
+        }
+        if (!isset($run_state['total_calls'])) {
+            $run_state['total_calls'] = 0;
+        }
+        if (!isset($run_state['max_calls'])) {
+            $run_state['max_calls'] = 25;
+        }
+        if (!isset($run_state['errors']) || !is_array($run_state['errors'])) {
+            $run_state['errors'] = [];
         }
 
         $per_seed = max(1, min(50, $per_seed));
@@ -148,6 +161,7 @@ class Keyword_Pack_Builder {
         $cam_seed_regex = '/\b(cam|cams|webcam|live cam|cam girl|cam model|cam site)\b/i';
         $cam_required_regex = '/(cam|cams|camming|webcam model|cam model|cam site|live cam|livejasmin|chaturbate|stripchat|myfreecams)/i';
         $debug_enabled = defined('TMWSEO_SERPER_DEBUG') && TMWSEO_SERPER_DEBUG;
+        $max_calls = (int) $run_state['max_calls'];
 
         $keywords = [];
         foreach ($seeds as $seed) {
@@ -169,12 +183,6 @@ class Keyword_Pack_Builder {
                     "{$seed} cam girls",
                     "{$seed} live cam",
                     "{$seed} live cam girls",
-                    "{$seed} webcam model",
-                    "{$seed} webcam models",
-                    "{$seed} cam model",
-                    "{$seed} cam models",
-                    "{$seed} cam site",
-                    "{$seed} cam sites",
                 ];
             }
 
@@ -186,63 +194,108 @@ class Keyword_Pack_Builder {
             $per_query = max(3, (int) ceil($per_seed / max(1, count($queries))));
             $fetch_count = min(20, $per_query * 2);
 
-            $seed_suggestions = [];
+            $seed_suggestions_count = 0;
+            $seed_accepted = 0;
+            $seed_accepted_extra = 0;
+            $seed_accepted_longtail = 0;
+            $rejected_blacklist = 0;
+            $rejected_cam = 0;
+            $accepted_samples = [];
+            $seed_seen = [];
+            $used_queries = [];
+            $seed_complete = false;
             foreach ($queries as $query) {
+                if ($run_state['total_calls'] >= $max_calls) {
+                    $run_state['error'] = sprintf('Serper call cap reached (%d). Reduce seeds or suggestions per seed.', $max_calls);
+                    break 2;
+                }
+
+                $run_state['total_calls']++;
+                $used_queries[] = $query;
                 $result = Serper_Client::search($api_key, $query, $gl, $hl, $fetch_count);
                 if (!empty($result['error'])) {
-                    continue;
+                    $http_code = (int) ($result['http_code'] ?? 0);
+                    $error_message = (string) ($result['error_message'] ?? $result['error']);
+                    $run_state['error'] = sprintf(
+                        'Serper request failed for query "%s" (HTTP %s): %s',
+                        $query,
+                        $http_code !== 0 ? (string) $http_code : '0',
+                        $error_message
+                    );
+                    $run_state['errors'][] = [
+                        'query' => $query,
+                        'http_code' => $http_code,
+                        'error_message' => $error_message,
+                    ];
+                    break 2;
                 }
 
                 $data = $result['data'] ?? [];
                 $suggestions = Serper_Client::extract_suggestions($data);
                 $suggestions = array_slice($suggestions, 0, $fetch_count);
-                $seed_suggestions = array_merge($seed_suggestions, $suggestions);
-            }
+                $seed_suggestions_count += count($suggestions);
 
-            $accepted = 0;
-            $rejected_blacklist = 0;
-            $rejected_cam = 0;
-            $accepted_samples = [];
-            foreach ($seed_suggestions as $suggestion) {
-                ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($suggestion);
-                if ($normalized === '') {
-                    continue;
-                }
+                foreach ($suggestions as $suggestion) {
+                    ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($suggestion);
+                    if ($normalized === '') {
+                        continue;
+                    }
 
-                $blacklisted = false;
-                foreach (self::blacklist() as $term) {
-                    $term = strtolower($term);
-                    if ($term !== '' && strpos($normalized, $term) !== false) {
-                        $blacklisted = true;
+                    $blacklisted = false;
+                    foreach (self::blacklist() as $term) {
+                        $term = strtolower($term);
+                        if ($term !== '' && strpos($normalized, $term) !== false) {
+                            $blacklisted = true;
+                            break;
+                        }
+                    }
+
+                    if ($blacklisted) {
+                        $rejected_blacklist++;
+                        continue;
+                    }
+
+                    if (!preg_match($cam_required_regex, $display)) {
+                        $rejected_cam++;
+                        continue;
+                    }
+
+                    if (!isset($seed_seen[$normalized])) {
+                        $seed_seen[$normalized] = true;
+                        $seed_accepted++;
+                        $words = preg_split('/\s+/', trim($display));
+                        $word_count = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
+                        if ($word_count >= 5) {
+                            $seed_accepted_longtail++;
+                        } elseif ($word_count >= 2) {
+                            $seed_accepted_extra++;
+                        }
+
+                        if (count($accepted_samples) < 5) {
+                            $accepted_samples[] = $display;
+                        }
+                    }
+
+                    if (!isset($keywords[$normalized])) {
+                        $keywords[$normalized] = $display;
+                    }
+
+                    if ($seed_accepted_extra >= $per_seed && $seed_accepted_longtail >= $per_seed) {
+                        $seed_complete = true;
                         break;
                     }
                 }
 
-                if ($blacklisted) {
-                    $rejected_blacklist++;
-                    continue;
-                }
-
-                if (!preg_match($cam_required_regex, $display)) {
-                    $rejected_cam++;
-                    continue;
-                }
-
-                if (!isset($keywords[$normalized])) {
-                    $keywords[$normalized] = $display;
-                }
-                $accepted++;
-                if (count($accepted_samples) < 5) {
-                    $accepted_samples[] = $display;
+                if ($seed_complete) {
+                    break;
                 }
             }
 
             if ($debug_enabled) {
-                $raw_samples = array_slice($seed_suggestions, 0, 5);
                 error_log('[TMW-SERPER] Seed: ' . $seed);
-                error_log('[TMW-SERPER] Queries: ' . wp_json_encode($queries));
-                error_log('[TMW-SERPER] Raw suggestions: ' . count($seed_suggestions) . ' Samples: ' . wp_json_encode($raw_samples));
-                error_log('[TMW-SERPER] Accepted: ' . $accepted . ' Samples: ' . wp_json_encode($accepted_samples));
+                error_log('[TMW-SERPER] Queries: ' . wp_json_encode($used_queries));
+                error_log('[TMW-SERPER] Raw suggestions: ' . $seed_suggestions_count);
+                error_log('[TMW-SERPER] Accepted: ' . $seed_accepted . ' Samples: ' . wp_json_encode($accepted_samples));
                 error_log('[TMW-SERPER] Rejected blacklist: ' . $rejected_blacklist . ' Rejected cam-rule: ' . $rejected_cam);
             }
         }
