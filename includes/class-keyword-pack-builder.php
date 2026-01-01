@@ -107,7 +107,7 @@ class Keyword_Pack_Builder {
             }
         }
 
-        if (!preg_match('/(cam|cams|camming|webcam model|cam model|cam site|live cam|livejasmin|chaturbate|stripchat|myfreecams)/i', $display)) {
+        if (!preg_match('/(stream|live|video|creator|platform|model)/i', $display)) {
             return false;
         }
 
@@ -136,6 +136,126 @@ class Keyword_Pack_Builder {
         return $buckets;
     }
 
+    protected static function make_indirect_seeds(string $category, array $seeds): array {
+        $groups = [];
+
+        foreach ($seeds as $seed) {
+            $seed = trim((string) $seed);
+            if ($seed === '') {
+                continue;
+            }
+
+            $region_seed = preg_replace('/\blatina\b/i', 'latin american', $seed);
+            $region_seed = preg_replace('/\bcolombian\b/i', 'colombia', (string) $region_seed);
+
+            $indirect = [
+                "{$region_seed} streaming creators",
+                "{$region_seed} digital content industry",
+            ];
+
+            $groups[] = [
+                'seed' => $seed,
+                'indirect' => array_values(array_unique(array_filter(array_map('trim', $indirect), 'strlen'))),
+            ];
+        }
+
+        $generic = [
+            'streaming platform features',
+            'live video creator tools',
+            'creator economy trends',
+            'digital content industry insights',
+            'online video engagement tips',
+        ];
+
+        if (!empty($generic)) {
+            $groups[] = [
+                'seed' => $category,
+                'indirect' => $generic,
+            ];
+        }
+
+        return $groups;
+    }
+
+    protected static function build_efficient_queries(string $seed): array {
+        $seed = trim($seed);
+        if ($seed === '') {
+            return [];
+        }
+
+        if (preg_match('/\b(cam|cams|webcam|live cam|cam girl|cam model|cam site)\b/i', $seed)) {
+            return [$seed];
+        }
+
+        return [
+            "{$seed} streaming platform",
+            "{$seed} creator tools",
+        ];
+    }
+
+    protected static function contextualize_keyword(string $seed, string $keyword): string {
+        $seed = trim($seed);
+        $keyword = trim($keyword);
+        if ($seed === '' || $keyword === '') {
+            return $keyword;
+        }
+
+        if (stripos($keyword, $seed) !== false) {
+            return $keyword;
+        }
+
+        return trim($seed . ' ' . $keyword);
+    }
+
+    protected static function generate_manual_keywords(string $seed): array {
+        $seed = trim($seed);
+        if ($seed === '') {
+            return [];
+        }
+
+        $templates = [
+            '%s live cam',
+            '%s webcam model',
+            '%s live video',
+            '%s streaming platform',
+            '%s streaming tips',
+            '%s live stream schedule',
+            '%s creator tools',
+            '%s webcam shows',
+            '%s live cam shows',
+            '%s cam model profile',
+            '%s online video creators',
+            '%s live chat room',
+            '%s cam show highlights',
+            '%s creator engagement',
+            '%s streaming equipment tips',
+            '%s live video creators',
+            '%s webcam industry trends',
+            '%s streaming growth trends',
+            '%s platform features',
+            '%s creator economy',
+        ];
+
+        $keywords = [];
+        foreach ($templates as $template) {
+            $keywords[] = sprintf($template, $seed);
+        }
+
+        $extensions = ['show', 'schedule', 'tips', 'guide', 'profile', 'highlights', 'fans', 'community', 'platform'];
+        foreach ($extensions as $extension) {
+            $keywords[] = sprintf('%s live cam %s', $seed, $extension);
+            $keywords[] = sprintf('%s webcam model %s', $seed, $extension);
+        }
+
+        $keywords = array_values(array_unique(array_filter(array_map('trim', $keywords), 'strlen')));
+
+        while (count($keywords) < 50) {
+            $keywords[] = sprintf('%s live cam %d', $seed, count($keywords) + 1);
+        }
+
+        return array_slice($keywords, 0, 50);
+    }
+
     public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, array &$run_state = null): array {
         $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
         if ($api_key === '') {
@@ -158,41 +278,19 @@ class Keyword_Pack_Builder {
         $per_seed = max(1, min(50, $per_seed));
         $gl = sanitize_text_field($gl ?: 'us');
         $hl = sanitize_text_field($hl ?: 'en');
-        $cam_seed_regex = '/\b(cam|cams|webcam|live cam|cam girl|cam model|cam site)\b/i';
-        $cam_required_regex = '/(cam|cams|camming|webcam model|cam model|cam site|live cam|livejasmin|chaturbate|stripchat|myfreecams)/i';
+        $cam_required_regex = '/(stream|live|video|creator|platform|model)/i';
         $debug_enabled = defined('TMWSEO_SERPER_DEBUG') && TMWSEO_SERPER_DEBUG;
         $max_calls = (int) $run_state['max_calls'];
 
         $keywords = [];
-        foreach ($seeds as $seed) {
-            $seed = trim((string) $seed);
-            if ($seed === '') {
+        $seed_groups = self::make_indirect_seeds($category, $seeds);
+
+        foreach ($seed_groups as $group) {
+            $seed = trim((string) ($group['seed'] ?? ''));
+            $indirect_seeds = (array) ($group['indirect'] ?? []);
+            if ($seed === '' || empty($indirect_seeds)) {
                 continue;
             }
-
-            if ($category === 'general' && stripos($seed, 'webcam') !== false) {
-                $seed = 'live cam sites ' . $seed;
-            }
-
-            if (preg_match($cam_seed_regex, $seed)) {
-                $queries = [$seed];
-            } else {
-                $queries = [
-                    "{$seed} cam",
-                    "{$seed} cam girl",
-                    "{$seed} cam girls",
-                    "{$seed} live cam",
-                    "{$seed} live cam girls",
-                ];
-            }
-
-            $queries = array_values(array_unique(array_filter(array_map('trim', $queries), 'strlen')));
-            if (empty($queries)) {
-                continue;
-            }
-
-            $per_query = max(3, (int) ceil($per_seed / max(1, count($queries))));
-            $fetch_count = min(20, $per_query * 2);
 
             $seed_suggestions_count = 0;
             $seed_accepted = 0;
@@ -204,39 +302,132 @@ class Keyword_Pack_Builder {
             $seed_seen = [];
             $used_queries = [];
             $seed_complete = false;
-            foreach ($queries as $query) {
-                if ($run_state['total_calls'] >= $max_calls) {
-                    $run_state['error'] = sprintf('Serper call cap reached (%d). Reduce seeds or suggestions per seed.', $max_calls);
-                    break 2;
+            foreach ($indirect_seeds as $indirect_seed) {
+                $queries = self::build_efficient_queries($indirect_seed);
+                $queries = array_values(array_unique(array_filter(array_map('trim', $queries), 'strlen')));
+                if (empty($queries)) {
+                    continue;
                 }
 
-                $run_state['total_calls']++;
-                $used_queries[] = $query;
-                $result = Serper_Client::search($api_key, $query, $gl, $hl, $fetch_count);
-                if (!empty($result['error'])) {
-                    $http_code = (int) ($result['http_code'] ?? 0);
-                    $error_message = (string) ($result['error_message'] ?? $result['error']);
-                    $run_state['error'] = sprintf(
-                        'Serper request failed for query "%s" (HTTP %s): %s',
-                        $query,
-                        $http_code !== 0 ? (string) $http_code : '0',
-                        $error_message
-                    );
-                    $run_state['errors'][] = [
-                        'query' => $query,
-                        'http_code' => $http_code,
-                        'error_message' => $error_message,
-                    ];
-                    break 2;
+                $per_query = max(3, (int) ceil($per_seed / max(1, count($queries))));
+                $fetch_count = min(20, $per_query * 2);
+
+                foreach ($queries as $query) {
+                    if ($run_state['total_calls'] >= $max_calls) {
+                        $run_state['error'] = sprintf('Serper call cap reached (%d). Reduce seeds or suggestions per seed.', $max_calls);
+                        $seed_complete = true;
+                        break 2;
+                    }
+
+                    $run_state['total_calls']++;
+                    $used_queries[] = $query;
+                    try {
+                        $result = Serper_Client::search($api_key, $query, $gl, $hl, $fetch_count);
+                    } catch (\Exception $e) {
+                        Core::debug_log('[TMW-SERPER-ERROR] ' . $e->getMessage());
+                        $errors = get_option('tmwseo_serper_error_log', []);
+                        $errors[] = [
+                            'time' => current_time('mysql'),
+                            'query' => $query,
+                            'error' => $e->getMessage(),
+                        ];
+                        update_option('tmwseo_serper_error_log', array_slice($errors, -20));
+                        return ['extra' => [], 'longtail' => []];
+                    }
+                    if (!empty($result['error'])) {
+                        $http_code = (int) ($result['http_code'] ?? 0);
+                        $error_message = (string) ($result['error_message'] ?? $result['error']);
+                        $run_state['error'] = sprintf(
+                            'Serper request failed for query "%s" (HTTP %s): %s',
+                            $query,
+                            $http_code !== 0 ? (string) $http_code : '0',
+                            $error_message
+                        );
+                        $run_state['errors'][] = [
+                            'query' => $query,
+                            'http_code' => $http_code,
+                            'error_message' => $error_message,
+                        ];
+                        $seed_complete = true;
+                        break 2;
+                    }
+
+                    $data = $result['data'] ?? [];
+                    $suggestions = Serper_Client::extract_suggestions($data);
+                    $suggestions = array_slice($suggestions, 0, $fetch_count);
+                    $seed_suggestions_count += count($suggestions);
+
+                    foreach ($suggestions as $suggestion) {
+                        ['display' => $display] = self::normalize_keyword($suggestion);
+                        if ($display === '') {
+                            continue;
+                        }
+
+                        $contextual = self::contextualize_keyword($seed, $display);
+                        ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($contextual);
+                        if ($normalized === '') {
+                            continue;
+                        }
+
+                        $blacklisted = false;
+                        foreach (self::blacklist() as $term) {
+                            $term = strtolower($term);
+                            if ($term !== '' && strpos($normalized, $term) !== false) {
+                                $blacklisted = true;
+                                break;
+                            }
+                        }
+
+                        if ($blacklisted) {
+                            $rejected_blacklist++;
+                            continue;
+                        }
+
+                        if (!preg_match($cam_required_regex, $display)) {
+                            $rejected_cam++;
+                            continue;
+                        }
+
+                        if (!isset($seed_seen[$normalized])) {
+                            $seed_seen[$normalized] = true;
+                            $seed_accepted++;
+                            $words = preg_split('/\s+/', trim($display));
+                            $word_count = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
+                            if ($word_count >= 5) {
+                                $seed_accepted_longtail++;
+                            } elseif ($word_count >= 2) {
+                                $seed_accepted_extra++;
+                            }
+
+                            if (count($accepted_samples) < 5) {
+                                $accepted_samples[] = $display;
+                            }
+                        }
+
+                        if (!isset($keywords[$normalized])) {
+                            $keywords[$normalized] = $display;
+                        }
+
+                        if ($seed_accepted_extra >= $per_seed && $seed_accepted_longtail >= $per_seed) {
+                            $seed_complete = true;
+                            break;
+                        }
+                    }
+
+                    if ($seed_complete) {
+                        break;
+                    }
                 }
 
-                $data = $result['data'] ?? [];
-                $suggestions = Serper_Client::extract_suggestions($data);
-                $suggestions = array_slice($suggestions, 0, $fetch_count);
-                $seed_suggestions_count += count($suggestions);
+                if ($seed_complete) {
+                    break;
+                }
+            }
 
-                foreach ($suggestions as $suggestion) {
-                    ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($suggestion);
+            if ($seed_accepted < 10) {
+                $manual_keywords = self::generate_manual_keywords($seed);
+                foreach ($manual_keywords as $manual_keyword) {
+                    ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($manual_keyword);
                     if ($normalized === '') {
                         continue;
                     }
@@ -250,44 +441,18 @@ class Keyword_Pack_Builder {
                         }
                     }
 
-                    if ($blacklisted) {
-                        $rejected_blacklist++;
-                        continue;
-                    }
-
-                    if (!preg_match($cam_required_regex, $display)) {
-                        $rejected_cam++;
+                    if ($blacklisted || !preg_match($cam_required_regex, $display)) {
                         continue;
                     }
 
                     if (!isset($seed_seen[$normalized])) {
                         $seed_seen[$normalized] = true;
                         $seed_accepted++;
-                        $words = preg_split('/\s+/', trim($display));
-                        $word_count = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
-                        if ($word_count >= 5) {
-                            $seed_accepted_longtail++;
-                        } elseif ($word_count >= 2) {
-                            $seed_accepted_extra++;
-                        }
-
-                        if (count($accepted_samples) < 5) {
-                            $accepted_samples[] = $display;
-                        }
                     }
 
                     if (!isset($keywords[$normalized])) {
                         $keywords[$normalized] = $display;
                     }
-
-                    if ($seed_accepted_extra >= $per_seed && $seed_accepted_longtail >= $per_seed) {
-                        $seed_complete = true;
-                        break;
-                    }
-                }
-
-                if ($seed_complete) {
-                    break;
                 }
             }
 

@@ -4,11 +4,52 @@ if (!defined('ABSPATH')) exit;
 
 use TMW_SEO\Media\Image_Meta_Generator;
 
+class CSV_Title_Selector {
+    const LOCK_TIMEOUT = 30;
+    const MAX_LOCK_ATTEMPTS = 5;
+    const RETRY_DELAY_MS = 200;
+
+    protected static function lock_key(): string {
+        return 'tmwseo_lock_video_title_keys';
+    }
+
+    public static function acquire_lock(): ?string {
+        for ( $i = 0; $i < self::MAX_LOCK_ATTEMPTS; $i++ ) {
+            $token = wp_generate_password( 32, false ) . '-' . microtime( true );
+            set_transient( self::lock_key(), $token, self::LOCK_TIMEOUT );
+            usleep( 10000 );
+            if ( get_transient( self::lock_key() ) === $token ) {
+                Core::debug_log( '[TMW-LOCK] video title lock acquired by token ' . $token );
+                return $token;
+            }
+            usleep( self::RETRY_DELAY_MS * 1000 );
+        }
+
+        Core::debug_log( '[TMW-LOCK] video title lock busy, skipping selection' );
+        return null;
+    }
+
+    public static function release_lock( ?string $token ): void {
+        if ( ! $token ) {
+            return;
+        }
+
+        if ( get_transient( self::lock_key() ) === $token ) {
+            delete_transient( self::lock_key() );
+            Core::debug_log( '[TMW-LOCK] video title lock released by token ' . $token );
+        }
+    }
+}
+
 class Core {
     const TAG = '[TMW-SEO-GEN]';
     const POST_TYPE = 'model';
     const MODEL_PT = 'model';
     const VIDEO_PT = 'video';
+    const MAX_CSV_CACHE_SIZE = 5;
+
+    protected static $csv_cache = [];
+    protected static $csv_access_order = [];
 
     /**
      * Debug log helper: only logs when TMW_DEBUG is truthy.
@@ -50,12 +91,16 @@ class Core {
     }
 
     public static function read_csv_assoc( string $path ): array {
-        static $cache = [];
-
         $resolved_path = is_readable( $path ) ? $path : self::csv_path( $path );
 
-        if ( isset( $cache[ $resolved_path ] ) ) {
-            return $cache[ $resolved_path ];
+        if ( isset( self::$csv_cache[ $resolved_path ] ) ) {
+            $index = array_search( $resolved_path, self::$csv_access_order, true );
+            if ( $index !== false ) {
+                unset( self::$csv_access_order[ $index ] );
+            }
+            self::$csv_access_order[] = $resolved_path;
+            self::$csv_access_order = array_values( self::$csv_access_order );
+            return self::$csv_cache[ $resolved_path ];
         }
 
         if ( ! is_readable( $resolved_path ) ) {
@@ -89,7 +134,17 @@ class Core {
         }
 
         fclose( $handle );
-        $cache[ $resolved_path ] = $rows;
+
+        if ( count( self::$csv_cache ) >= self::MAX_CSV_CACHE_SIZE ) {
+            $oldest_key = array_shift( self::$csv_access_order );
+            if ( $oldest_key ) {
+                unset( self::$csv_cache[ $oldest_key ] );
+            }
+        }
+
+        self::$csv_cache[ $resolved_path ] = $rows;
+        self::$csv_access_order[]          = $resolved_path;
+        self::$csv_access_order            = array_values( self::$csv_access_order );
 
         return $rows;
     }
@@ -632,20 +687,8 @@ class Core {
             return [];
         }
 
-        $lock_acquired = false;
-        for ( $i = 0; $i < 5; $i++ ) {
-            if ( add_option( 'tmwseo_lock_video_title_keys', time(), '', 'no' ) ) {
-                $lock_acquired = true;
-                break;
-            }
-            $lock_time = (int) get_option( 'tmwseo_lock_video_title_keys', 0 );
-            if ( ( time() - $lock_time ) > 30 ) {
-                delete_option( 'tmwseo_lock_video_title_keys' );
-            }
-            usleep( 200000 );
-        }
-        if ( ! $lock_acquired ) {
-            Core::debug_log( self::TAG . ' video title key lock busy, skipping selection' );
+        $lock = CSV_Title_Selector::acquire_lock();
+        if ( ! $lock ) {
             return [];
         }
 
@@ -767,7 +810,7 @@ class Core {
             update_option( 'tmwseo_used_video_focus_keyword_hashes', $used_focus_hashes, false );
             update_option( 'tmwseo_used_video_title_focus_hashes', $used_pair_hashes, false );
         } finally {
-            delete_option( 'tmwseo_lock_video_title_keys' );
+            CSV_Title_Selector::release_lock( $lock );
         }
 
         return [
