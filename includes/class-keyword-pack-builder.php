@@ -576,6 +576,76 @@ class Keyword_Pack_Builder {
             }
         }
 
+        public static function generate_from_autocomplete(string $category, array $user_seeds, int $limit = 50): array {
+    // Load seeds
+    $seeds_file = TMW_SEO_PATH . 'data/google-autocomplete-seeds.php';
+    $all_seeds = file_exists($seeds_file) ? require $seeds_file : [];
+    $category_seeds = $all_seeds[$category] ?? $all_seeds['general'] ?? [];
+    
+    // Merge with user seeds
+    $seeds = array_merge($category_seeds, $user_seeds);
+    $seeds = array_values(array_unique(array_filter($seeds)));
+    
+    if (empty($seeds)) {
+        Core::debug_log('[AUTOCOMPLETE] No seeds for category: ' . $category);
+        return ['extra' => [], 'longtail' => []];
+    }
+    
+    // Build queries for each seed
+    $all_queries = [];
+    foreach ($seeds as $seed) {
+        $queries = Google_Autocomplete_Query_Builder::build_queries($seed);
+        $all_queries = array_merge($all_queries, array_slice($queries, 0, 20)); // Max 20 per seed
+    }
+    
+    // Prioritize and batch
+    $batch_info = Google_Autocomplete_Query_Builder::batch_queries($all_queries, 10, 500);
+    
+    Core::debug_log('[AUTOCOMPLETE] Category: ' . $category);
+    Core::debug_log('[AUTOCOMPLETE] Seeds: ' . count($seeds));
+    Core::debug_log('[AUTOCOMPLETE] Queries: ' . $batch_info['total']);
+    Core::debug_log('[AUTOCOMPLETE] Estimated time: ' . $batch_info['estimated_time']);
+    
+    // Execute queries
+    $all_keywords = [];
+    foreach ($batch_info['batches'] as $batch_index => $batch) {
+        foreach ($batch as $query) {
+            $results = Google_Autocomplete_Client::query($query);
+            
+            if (!empty($results)) {
+                Core::debug_log('[AUTOCOMPLETE] Query "' . $query . '" returned ' . count($results) . ' keywords');
+                $all_keywords = array_merge($all_keywords, $results);
+            }
+            
+            // Small delay between queries in same batch
+            usleep(50000); // 50ms
+        }
+        
+        // Longer delay between batches
+        if ($batch_index < count($batch_info['batches']) - 1) {
+            usleep($batch_info['delay_ms'] * 1000);
+        }
+    }
+    
+    // Deduplicate and clean
+    $all_keywords = array_values(array_unique(array_filter($all_keywords)));
+    
+    // Filter with existing blacklist
+    $filtered = [];
+    foreach ($all_keywords as $keyword) {
+        ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($keyword);
+        
+        if ($normalized === '' || self::is_blacklisted($normalized)) {
+            continue;
+        }
+        
+        $filtered[] = $display;
+    }
+    
+    Core::debug_log('[AUTOCOMPLETE] ✅ Total keywords: ' . count($filtered));
+    
+    return self::split_types($filtered);
+}
         $final = array_values($existing);
         sort($final);
 
