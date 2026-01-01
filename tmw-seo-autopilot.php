@@ -30,6 +30,7 @@ require_once TMW_SEO_PATH . 'includes/class-keyword-usage.php';
 require_once TMW_SEO_PATH . 'includes/class-content-generator.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-manager.php';
 require_once TMW_SEO_PATH . 'includes/class-serper-client.php';
+require_once TMW_SEO_PATH . 'includes/class-google-suggest-client.php';
 require_once TMW_SEO_PATH . 'includes/class-uniqueness-checker.php';
 require_once TMW_SEO_PATH . 'includes/media/class-image-meta-generator.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-media.php';
