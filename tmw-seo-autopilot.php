@@ -11,6 +11,9 @@ if (!defined('ABSPATH')) exit;
 define('TMW_SEO_PATH', plugin_dir_path(__FILE__));
 define('TMW_SEO_URL', plugin_dir_url(__FILE__));
 define('TMW_SEO_TAG', '[TMW-SEO]');
+if (!defined('TMWSEO_SERPER_DEBUG')) {
+    define('TMWSEO_SERPER_DEBUG', true);
+}
 
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-admin.php';

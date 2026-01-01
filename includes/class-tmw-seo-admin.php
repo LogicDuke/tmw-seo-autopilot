@@ -282,7 +282,15 @@ class Admin {
         $include_comp   = !empty($_POST['competitor']);
         $dry_run        = !empty($_POST['dry_run']);
 
-        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed);
+        $run_state = [
+            'max_calls' => 25,
+        ];
+        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed, $run_state);
+        if (!empty($run_state['error'])) {
+            delete_transient($lock_key);
+            $error = new \WP_Error('tmwseo_serper_failed', $run_state['error'], ['details' => $run_state['errors'] ?? []]);
+            wp_send_json_error(['message' => $error->get_error_message(), 'data' => $error->get_error_data()]);
+        }
 
         $response = [
             'message' => $dry_run ? 'Dry run completed.' : 'Keyword packs built.',
@@ -296,7 +304,12 @@ class Admin {
 
             if ($include_comp) {
                 $comp_seeds = apply_filters('tmwseo_competitor_seeds', ['livejasmin vs chaturbate', 'livejasmin vs stripchat']);
-                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed);
+                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed, $run_state);
+                if (!empty($run_state['error'])) {
+                    delete_transient($lock_key);
+                    $error = new \WP_Error('tmwseo_serper_failed', $run_state['error'], ['details' => $run_state['errors'] ?? []]);
+                    wp_send_json_error(['message' => $error->get_error_message(), 'data' => $error->get_error_data()]);
+                }
                 $comp_kw    = array_merge($comp_build['extra'] ?? [], $comp_build['longtail'] ?? []);
                 $counts['competitor'] = Keyword_Pack_Builder::merge_write_csv($category, 'competitor', $comp_kw);
             }
