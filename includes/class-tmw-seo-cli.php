@@ -98,9 +98,15 @@ if (defined('WP_CLI') && WP_CLI) {
                 \WP_CLI::error('Unable to write CSV');
                 return;
             }
-            fputcsv($fh, ['keyword']);
+            fputcsv($fh, ['keyword', 'competition', 'cpc', 'tmw_kd']);
             foreach ($merged as $kw) {
-                fputcsv($fh, [$kw]);
+                $row = Keyword_Difficulty_Proxy::build_row($kw);
+                fputcsv($fh, [
+                    $row['keyword'],
+                    $row['competition'],
+                    number_format((float) $row['cpc'], 2, '.', ''),
+                    (int) $row['tmw_kd'],
+                ]);
             }
             fclose($fh);
 

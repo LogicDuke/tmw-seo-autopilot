@@ -544,59 +544,266 @@ class Keyword_Pack_Builder {
 
         $path = trailingslashit($dir) . "{$type}.csv";
 
-        $existing = [];
+        $existing        = [];
         $existing_before = [];
         if (file_exists($path)) {
             $fh = fopen($path, 'r');
             if ($fh) {
-                $first = true;
-                while (($row = fgetcsv($fh)) !== false) {
-                    $raw_value = isset($row[0]) ? $row[0] : '';
-                    ['normalized' => $value, 'display' => $display] = self::normalize_keyword($raw_value);
-                    if ($first && $value === 'keyword') {
-                        $first = false;
-                        continue;
+                $header_map = [];
+                $first_row  = fgetcsv($fh);
+                $data_rows  = [];
+
+                // Detect headers so we can preserve competition/CPC/KD metadata when merging.
+                if ($first_row !== false && is_array($first_row)) {
+                    $normalized_header = array_map(function ($col) {
+                        return strtolower(trim((string) $col));
+                    }, $first_row);
+                    $normalized_header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) ($normalized_header[0] ?? ''));
+
+                    foreach ($normalized_header as $index => $col) {
+                        if ($col === 'keyword' || $col === 'phrase') {
+                            $header_map['keyword'] = $index;
+                        }
+                        if ($col === 'competition') {
+                            $header_map['competition'] = $index;
+                        }
+                        if ($col === 'cpc') {
+                            $header_map['cpc'] = $index;
+                        }
+                        if ($col === 'tmw_kd' || $col === 'tmw_kd%') {
+                            $header_map['tmw_kd'] = $index;
+                        }
                     }
-                    $first = false;
-                    if ($value !== '') {
-                        $existing[$value] = $display;
-                        $existing_before[$value] = $display;
+
+                    if (empty($header_map)) {
+                        $data_rows = [$first_row];
                     }
                 }
+
+                while (($row = fgetcsv($fh)) !== false) {
+                    $data_rows[] = $row;
+                }
                 fclose($fh);
+
+                foreach ($data_rows as $row) {
+                    $keyword_index = $header_map['keyword'] ?? 0;
+                    $raw_value     = isset($row[$keyword_index]) ? (string) $row[$keyword_index] : '';
+                    ['normalized' => $value, 'display' => $display] = self::normalize_keyword($raw_value);
+                    if ($value === '') {
+                        continue;
+                    }
+
+                    $competition = isset($header_map['competition'], $row[$header_map['competition']])
+                        ? $row[$header_map['competition']]
+                        : Keyword_Difficulty_Proxy::DEFAULT_COMPETITION;
+                    $cpc = isset($header_map['cpc'], $row[$header_map['cpc']])
+                        ? $row[$header_map['cpc']]
+                        : Keyword_Difficulty_Proxy::DEFAULT_CPC;
+                    $tmw_kd_raw = isset($header_map['tmw_kd'], $row[$header_map['tmw_kd']])
+                        ? $row[$header_map['tmw_kd']]
+                        : '';
+
+                    $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
+                    $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
+                    $tmw_kd      = $tmw_kd_raw !== '' ? (int) round((float) $tmw_kd_raw) : Keyword_Difficulty_Proxy::score($display, $competition, $cpc);
+                    $tmw_kd      = max(0, min(100, $tmw_kd));
+
+                    $existing[$value] = [
+                        'keyword'     => $display,
+                        'competition' => $competition,
+                        'cpc'         => $cpc,
+                        'tmw_kd'      => $tmw_kd,
+                    ];
+                    $existing_before[$value] = $existing[$value];
+                }
             }
         }
 
+        // Merge new keywords with defaults for competition/CPC.
         foreach ($keywords as $kw) {
-            ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword((string) $kw);
+            $raw_keyword = '';
+            $competition = Keyword_Difficulty_Proxy::DEFAULT_COMPETITION;
+            $cpc         = Keyword_Difficulty_Proxy::DEFAULT_CPC;
+
+            if (is_array($kw)) {
+                $raw_keyword = (string) ($kw['keyword'] ?? $kw['phrase'] ?? '');
+                if (isset($kw['competition'])) {
+                    $competition = $kw['competition'];
+                }
+                if (isset($kw['cpc'])) {
+                    $cpc = $kw['cpc'];
+                }
+            } else {
+                $raw_keyword = (string) $kw;
+            }
+
+            ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($raw_keyword);
             if ($normalized !== '' && self::is_allowed($normalized, $display)) {
                 if (!isset($existing[$normalized])) {
-                    $existing[$normalized] = $display;
+                    $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
+                    $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
+                    $existing[$normalized] = [
+                        'keyword'     => $display,
+                        'competition' => $competition,
+                        'cpc'         => $cpc,
+                        'tmw_kd'      => Keyword_Difficulty_Proxy::score($display, $competition, $cpc),
+                    ];
                 }
             }
         }
 
         $final = array_values($existing);
-        sort($final);
+        usort($final, function ($a, $b) {
+            return strcasecmp($a['keyword'], $b['keyword']);
+        });
 
-        $new_only = array_values(array_diff($final, array_values($existing_before)));
+        $new_only = array_diff_key($existing, $existing_before);
 
         $fh = fopen($path, $append ? 'a' : 'w');
         if ($fh) {
             if (!$append) {
-                fputcsv($fh, ['keyword']);
-                foreach ($final as $kw) {
-                    fputcsv($fh, [$kw]);
+                fputcsv($fh, ['keyword', 'competition', 'cpc', 'tmw_kd']);
+                foreach ($final as $row) {
+                    fputcsv($fh, [
+                        $row['keyword'],
+                        $row['competition'],
+                        number_format((float) $row['cpc'], 2, '.', ''),
+                        (int) $row['tmw_kd'],
+                    ]);
                 }
             } else {
-                foreach ($new_only as $kw) {
-                    fputcsv($fh, [$kw]);
+                foreach ($new_only as $row) {
+                    fputcsv($fh, [
+                        $row['keyword'],
+                        $row['competition'],
+                        number_format((float) $row['cpc'], 2, '.', ''),
+                        (int) $row['tmw_kd'],
+                    ]);
                 }
             }
             fclose($fh);
         }
 
         return count($final);
+    }
+
+    public static function import_keyword_planner_csv(string $category, string $type, string $file_path): array {
+        $category = sanitize_key($category);
+        $type     = sanitize_key($type);
+
+        // Parse Keyword Planner CSV and map competition/CPC fields for KD scoring.
+        $result = [
+            'imported' => 0,
+            'skipped'  => 0,
+            'total'    => 0,
+        ];
+
+        if (!is_readable($file_path)) {
+            return $result;
+        }
+
+        $fh = fopen($file_path, 'r');
+        if (!$fh) {
+            return $result;
+        }
+
+        $header = fgetcsv($fh);
+        if (!$header || !is_array($header)) {
+            fclose($fh);
+            return $result;
+        }
+
+        $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $header[0]);
+        $normalized = array_map(function ($col) {
+            return strtolower(trim((string) $col));
+        }, $header);
+
+        $keyword_index = null;
+        $competition_index = null;
+        $bid_index = null;
+        $bid_high_index = null;
+        $bid_low_index = null;
+
+        foreach ($normalized as $index => $col) {
+            if ($keyword_index === null && strpos($col, 'keyword') !== false) {
+                $keyword_index = $index;
+            }
+            if ($competition_index === null && $col === 'competition') {
+                $competition_index = $index;
+            }
+            if (strpos($col, 'top of page bid') !== false) {
+                if (strpos($col, 'high') !== false) {
+                    $bid_high_index = $index;
+                } elseif (strpos($col, 'low') !== false) {
+                    $bid_low_index = $index;
+                } else {
+                    $bid_index = $index;
+                }
+            }
+        }
+
+        $rows = [];
+        while (($row = fgetcsv($fh)) !== false) {
+            $result['total']++;
+
+            $raw_keyword = $keyword_index !== null ? (string) ($row[$keyword_index] ?? '') : '';
+            if ($raw_keyword === '') {
+                $result['skipped']++;
+                continue;
+            }
+
+            $competition = $competition_index !== null ? (string) ($row[$competition_index] ?? '') : Keyword_Difficulty_Proxy::DEFAULT_COMPETITION;
+            $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
+
+            $bid_values = [];
+            if ($bid_high_index !== null) {
+                $bid_values[] = $row[$bid_high_index] ?? '';
+            }
+            if ($bid_low_index !== null) {
+                $bid_values[] = $row[$bid_low_index] ?? '';
+            }
+            if ($bid_index !== null && empty($bid_values)) {
+                $bid_values[] = $row[$bid_index] ?? '';
+            }
+
+            $cpc = Keyword_Difficulty_Proxy::DEFAULT_CPC;
+            if (!empty($bid_values)) {
+                $numeric = [];
+                foreach ($bid_values as $bid_value) {
+                    $clean = preg_replace('/[^0-9.\-]/', '', (string) $bid_value);
+                    if ($clean !== '') {
+                        $numeric[] = (float) $clean;
+                    }
+                }
+                if (!empty($numeric)) {
+                    $cpc = array_sum($numeric) / count($numeric);
+                }
+            }
+
+            $rows[] = [
+                'keyword'     => $raw_keyword,
+                'competition' => $competition,
+                'cpc'         => $cpc,
+            ];
+        }
+
+        fclose($fh);
+
+        $before_count = count(Keyword_Library::load($category, $type));
+        $after_count  = self::merge_write_csv($category, $type, $rows, false);
+        $result['imported'] = max(0, $after_count - $before_count);
+        $result['skipped']  = max(0, $result['total'] - $result['imported']);
+
+        Core::debug_log(sprintf(
+            '[TMW-KD-IMPORT] Planner CSV import: %d total, %d imported, %d skipped (%s/%s).',
+            (int) $result['total'],
+            (int) $result['imported'],
+            (int) $result['skipped'],
+            $category,
+            $type
+        ));
+
+        return $result;
     }
     
     // NEW METHOD - OUTSIDE merge_write_csv

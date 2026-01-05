@@ -23,6 +23,7 @@ require_once TMW_SEO_PATH . 'includes/class-tmw-seo-videoseo.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-automations.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-image-meta.php';
 require_once TMW_SEO_PATH . 'includes/class-template-engine.php';
+require_once TMW_SEO_PATH . 'includes/class-keyword-difficulty-proxy.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-library.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-pack-builder.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-pool.php';
