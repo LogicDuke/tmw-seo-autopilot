@@ -375,6 +375,11 @@ class Admin {
             'message' => $dry_run ? 'Dry run completed.' : 'Keyword packs built.',
             'preview' => $build,
         ];
+        $debug_enabled = (defined('TMWSEO_SERPER_DEBUG') && TMWSEO_SERPER_DEBUG)
+            || (defined('TMWSEO_KW_DEBUG') && TMWSEO_KW_DEBUG);
+        if ($debug_enabled && isset($run_state['quality_report'])) {
+            $response['quality_report'] = $run_state['quality_report'];
+        }
 
         if (!$dry_run) {
             $counts = [];
