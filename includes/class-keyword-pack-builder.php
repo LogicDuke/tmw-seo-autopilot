@@ -63,7 +63,6 @@ class Keyword_Pack_Builder {
             'mega',
             'rapidgator',
             'pornhub download',
-            'teen',
             'insecam',
             'cctv',
             'security camera',
@@ -73,8 +72,13 @@ class Keyword_Pack_Builder {
             'traffic camera',
             'video conferencing',
             'streaming 4k',
-            'best webcam for',
             'best webcam',
+            'best webcam for',
+            'webcam for',
+            'webcam review',
+            'webcam mic',
+            'webcam light',
+            'webcam mount',
             '4k webcam',
             'logitech',
             'brio',
@@ -82,6 +86,10 @@ class Keyword_Pack_Builder {
             'streaming webcam',
             'webcam under',
             'webcam with light',
+            'ip camera',
+            'dash cam',
+            'baby monitor',
+            'doorbell camera',
             'pornhub',
             'xvideos',
             'xhamster',
@@ -162,18 +170,150 @@ class Keyword_Pack_Builder {
             return false;
         }
 
-        foreach (self::blacklist() as $term) {
-            $term = strtolower($term);
-            if ($term !== '' && strpos($normalized, $term) !== false) {
-                return false;
-            }
-        }
-
-        if (!preg_match('/(stream|live|video|creator|platform|model)/i', $display)) {
+        if (self::is_blacklisted($normalized)) {
             return false;
         }
 
-        return true;
+        if (self::matches_offtopic_patterns($normalized)) {
+            return false;
+        }
+
+        return self::has_adult_intent($normalized);
+    }
+
+    /**
+     * Checks whether the normalized keyword matches the blacklist.
+     *
+     * @param string $normalized
+     * @return bool
+     */
+    protected static function is_blacklisted(string $normalized): bool {
+        foreach (self::blacklist() as $term) {
+            $term = strtolower($term);
+            if ($term !== '' && strpos($normalized, $term) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Detects adult cam intent anchors.
+     *
+     * @param string $normalized
+     * @return bool
+     */
+    protected static function has_adult_intent(string $normalized): bool {
+        $anchor_phrases = [
+            'cam girl',
+            'cam model',
+            'webcam model',
+            'live cam',
+        ];
+
+        foreach ($anchor_phrases as $phrase) {
+            if (strpos($normalized, $phrase) !== false) {
+                return true;
+            }
+        }
+
+        $platforms = [
+            'livejasmin',
+            'chaturbate',
+            'stripchat',
+            'cam4',
+            'myfreecams',
+            'camsoda',
+            'jerkmate',
+            'flirt4free',
+        ];
+
+        foreach ($platforms as $platform) {
+            if (strpos($normalized, $platform) !== false) {
+                return true;
+            }
+        }
+
+        $cam_terms = ['cam', 'cams', 'webcam'];
+        $intent_terms = ['girl', 'model', 'chat', 'show', 'site', 'cams'];
+
+        $has_cam = false;
+        foreach ($cam_terms as $cam) {
+            if (preg_match('/\b' . preg_quote($cam, '/') . '\b/', $normalized)) {
+                $has_cam = true;
+                break;
+            }
+        }
+
+        if ($has_cam) {
+            foreach ($intent_terms as $intent) {
+                if (preg_match('/\b' . preg_quote($intent, '/') . '\b/', $normalized)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Checks for off-topic patterns like hardware/security webcams.
+     *
+     * @param string $normalized
+     * @return bool
+     */
+    protected static function matches_offtopic_patterns(string $normalized): bool {
+        $underage_terms = ['teen', 'minor', 'underage'];
+        foreach ($underage_terms as $term) {
+            if (strpos($normalized, $term) !== false) {
+                return true;
+            }
+        }
+
+        $hard_reject_terms = [
+            'camera',
+            'cctv',
+            'security',
+            'ip camera',
+            'dash cam',
+            'baby monitor',
+            'doorbell camera',
+            'earthcam',
+            'traffic',
+            'street cameras',
+            'home cameras',
+            'insecam',
+            'zoom',
+            'teams',
+            'google meet',
+            'video conferencing',
+            'meeting',
+            'driver',
+            'software',
+            'settings',
+            'test',
+            'usb',
+            '4k',
+            'logitech',
+            'brio',
+        ];
+
+        foreach ($hard_reject_terms as $term) {
+            if (strpos($normalized, $term) !== false) {
+                return true;
+            }
+        }
+
+        if (strpos($normalized, 'near me') !== false && preg_match('/\b(camera|webcam|security)\b/', $normalized)) {
+            return true;
+        }
+
+        if (strpos($normalized, 'webcam') !== false && !preg_match('/\b(model|girl|cam|live cam|site|chat|show)\b/', $normalized)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -189,17 +329,22 @@ class Keyword_Pack_Builder {
         ];
 
         foreach ($keywords as $kw) {
-            $words = preg_split('/\s+/', trim((string) $kw));
+            $keyword_text = is_array($kw) ? (string) ($kw['keyword'] ?? '') : (string) $kw;
+            $words = preg_split('/\s+/', trim($keyword_text));
             $count = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
+            ['normalized' => $normalized] = self::normalize_keyword($keyword_text);
+            if ($normalized === '') {
+                continue;
+            }
             if ($count >= 5) {
-                $buckets['longtail'][] = $kw;
+                $buckets['longtail'][$normalized] = $kw;
             } elseif ($count >= 2) {
-                $buckets['extra'][] = $kw;
+                $buckets['extra'][$normalized] = $kw;
             }
         }
 
-        $buckets['extra']    = array_values(array_unique($buckets['extra']));
-        $buckets['longtail'] = array_values(array_unique($buckets['longtail']));
+        $buckets['extra']    = array_values($buckets['extra']);
+        $buckets['longtail'] = array_values($buckets['longtail']);
 
         return $buckets;
     }
@@ -220,32 +365,27 @@ class Keyword_Pack_Builder {
                 continue;
             }
 
-            $region_seed = preg_replace('/\blatina\b/i', 'latin american', $seed);
-            $region_seed = preg_replace('/\bcolombian\b/i', 'colombia', (string) $region_seed);
-
-            $indirect = [
-                "{$region_seed} streaming creators",
-                "{$region_seed} digital content industry",
-            ];
+            $indirect = [$seed];
+            if (stripos($seed, 'cam model') !== false) {
+                $indirect[] = str_ireplace('cam model', 'cam girl', $seed);
+                $indirect[] = str_ireplace('cam model', 'live cam', $seed);
+            }
+            if (stripos($seed, 'cam girl') !== false) {
+                $indirect[] = str_ireplace('cam girl', 'cam model', $seed);
+                $indirect[] = str_ireplace('cam girl', 'live cam', $seed);
+            }
+            if (stripos($seed, 'webcam model') !== false) {
+                $indirect[] = str_ireplace('webcam model', 'cam model', $seed);
+                $indirect[] = str_ireplace('webcam model', 'cam girl', $seed);
+            }
+            if (stripos($seed, 'live cam') !== false) {
+                $indirect[] = str_ireplace('live cam', 'cam girl', $seed);
+                $indirect[] = str_ireplace('live cam', 'cam model', $seed);
+            }
 
             $groups[] = [
                 'seed' => $seed,
                 'indirect' => array_values(array_unique(array_filter(array_map('trim', $indirect), 'strlen'))),
-            ];
-        }
-
-        $generic = [
-            'streaming platform features',
-            'live video creator tools',
-            'creator economy trends',
-            'digital content industry insights',
-            'online video engagement tips',
-        ];
-
-        if (!empty($generic)) {
-            $groups[] = [
-                'seed' => $category,
-                'indirect' => $generic,
             ];
         }
 
@@ -264,14 +404,7 @@ class Keyword_Pack_Builder {
             return [];
         }
 
-        if (preg_match('/\b(cam|cams|webcam|live cam|cam girl|cam model|cam site)\b/i', $seed)) {
-            return [$seed];
-        }
-
-        return [
-            "{$seed} streaming platform",
-            "{$seed} creator tools",
-        ];
+        return [$seed];
     }
 
     /**
@@ -288,11 +421,7 @@ class Keyword_Pack_Builder {
             return $keyword;
         }
 
-        if (stripos($keyword, $seed) !== false) {
-            return $keyword;
-        }
-
-        return trim($seed . ' ' . $keyword);
+        return $keyword;
     }
 
     /**
@@ -310,35 +439,26 @@ class Keyword_Pack_Builder {
         $templates = [
             '%s live cam',
             '%s webcam model',
-            '%s live video',
-            '%s streaming platform',
-            '%s streaming tips',
-            '%s live stream schedule',
-            '%s creator tools',
-            '%s webcam shows',
-            '%s live cam shows',
-            '%s cam model profile',
-            '%s online video creators',
-            '%s live chat room',
-            '%s cam show highlights',
-            '%s creator engagement',
-            '%s streaming equipment tips',
-            '%s live video creators',
-            '%s webcam industry trends',
-            '%s streaming growth trends',
-            '%s platform features',
-            '%s creator economy',
+            '%s cam girl',
+            '%s cam model',
+            '%s cam chat',
+            '%s cam show',
         ];
+
+        if (stripos($seed, 'livejasmin') !== false) {
+            $templates[] = '%s livejasmin model';
+        }
 
         $keywords = [];
         foreach ($templates as $template) {
             $keywords[] = sprintf($template, $seed);
         }
 
-        $extensions = ['show', 'schedule', 'tips', 'guide', 'profile', 'highlights', 'fans', 'community', 'platform'];
+        $extensions = ['show', 'chat', 'site', 'girls', 'models', 'near me', 'free'];
         foreach ($extensions as $extension) {
+            $keywords[] = sprintf('%s cam girl %s', $seed, $extension);
+            $keywords[] = sprintf('%s cam model %s', $seed, $extension);
             $keywords[] = sprintf('%s live cam %s', $seed, $extension);
-            $keywords[] = sprintf('%s webcam model %s', $seed, $extension);
         }
 
         $keywords = array_values(array_unique(array_filter(array_map('trim', $keywords), 'strlen')));
@@ -393,14 +513,34 @@ class Keyword_Pack_Builder {
         $per_seed = max(1, min(50, $per_seed));
         $gl = sanitize_text_field($gl ?: 'us');
         $hl = sanitize_text_field($hl ?: 'en');
-        $cam_required_regex = '/(stream|live|video|creator|platform|model)/i';
         $debug_enabled = (defined('TMWSEO_SERPER_DEBUG') && TMWSEO_SERPER_DEBUG)
             || (defined('TMWSEO_KW_DEBUG') && TMWSEO_KW_DEBUG);
         $max_calls = (int) $run_state['max_calls'];
 
+        if (!isset($run_state['quality_report']) || !is_array($run_state['quality_report'])) {
+            $run_state['quality_report'] = [
+                'accepted' => ['count' => 0, 'samples' => []],
+                'rejected_blacklist' => ['count' => 0, 'samples' => []],
+                'rejected_offtopic_pattern' => ['count' => 0, 'samples' => []],
+                'rejected_missing_adult_intent' => ['count' => 0, 'samples' => []],
+                'rejected_question_intent' => ['count' => 0, 'samples' => []],
+            ];
+        }
+        $quality_report = &$run_state['quality_report'];
+
         $keywords = [];
         $seed_groups = self::make_indirect_seeds($category, $seeds);
         $seed_target = max(1, $per_seed);
+
+        $track_quality = function (string $bucket, string $keyword) use (&$quality_report): void {
+            if (!isset($quality_report[$bucket])) {
+                return;
+            }
+            $quality_report[$bucket]['count']++;
+            if (count($quality_report[$bucket]['samples']) < 10) {
+                $quality_report[$bucket]['samples'][] = $keyword;
+            }
+        };
 
         foreach ($seed_groups as $group) {
             $seed = trim((string) ($group['seed'] ?? ''));
@@ -414,7 +554,8 @@ class Keyword_Pack_Builder {
             $seed_accepted_extra = 0;
             $seed_accepted_longtail = 0;
             $rejected_blacklist = 0;
-            $rejected_cam = 0;
+            $rejected_offtopic = 0;
+            $rejected_intent = 0;
             $accepted_samples = [];
             $seed_seen = [];
             $used_queries = [];
@@ -525,22 +666,27 @@ class Keyword_Pack_Builder {
                             continue;
                         }
 
-                        $blacklisted = false;
-                        foreach (self::blacklist() as $term) {
-                            $term = strtolower($term);
-                            if ($term !== '' && strpos($normalized, $term) !== false) {
-                                $blacklisted = true;
-                                break;
-                            }
-                        }
-
-                        if ($blacklisted) {
+                        if (self::is_blacklisted($normalized)) {
                             $rejected_blacklist++;
+                            if ($debug_enabled) {
+                                $track_quality('rejected_blacklist', $display);
+                            }
                             continue;
                         }
 
-                        if (!preg_match($cam_required_regex, $display)) {
-                            $rejected_cam++;
+                        if (self::matches_offtopic_patterns($normalized)) {
+                            $rejected_offtopic++;
+                            if ($debug_enabled) {
+                                $track_quality('rejected_offtopic_pattern', $display);
+                            }
+                            continue;
+                        }
+
+                        if (!self::has_adult_intent($normalized)) {
+                            $rejected_intent++;
+                            if ($debug_enabled) {
+                                $track_quality('rejected_missing_adult_intent', $display);
+                            }
                             continue;
                         }
 
@@ -558,10 +704,17 @@ class Keyword_Pack_Builder {
                             if (count($accepted_samples) < 5) {
                                 $accepted_samples[] = $display;
                             }
+
+                            if ($debug_enabled) {
+                                $track_quality('accepted', $display);
+                            }
                         }
 
                         if (!isset($keywords[$normalized])) {
-                            $keywords[$normalized] = $display;
+                            $keywords[$normalized] = [
+                                'keyword' => $display,
+                                'source_seed' => $seed,
+                            ];
                         }
 
                         if ($seed_accepted_extra >= $per_seed && $seed_accepted_longtail >= $per_seed) {
@@ -592,26 +745,40 @@ class Keyword_Pack_Builder {
                         continue;
                     }
 
-                    $blacklisted = false;
-                    foreach (self::blacklist() as $term) {
-                        $term = strtolower($term);
-                        if ($term !== '' && strpos($normalized, $term) !== false) {
-                            $blacklisted = true;
-                            break;
+                    if (self::is_blacklisted($normalized)) {
+                        if ($debug_enabled) {
+                            $track_quality('rejected_blacklist', $display);
                         }
+                        continue;
                     }
 
-                    if ($blacklisted || !preg_match($cam_required_regex, $display)) {
+                    if (self::matches_offtopic_patterns($normalized)) {
+                        if ($debug_enabled) {
+                            $track_quality('rejected_offtopic_pattern', $display);
+                        }
+                        continue;
+                    }
+
+                    if (!self::has_adult_intent($normalized)) {
+                        if ($debug_enabled) {
+                            $track_quality('rejected_missing_adult_intent', $display);
+                        }
                         continue;
                     }
 
                     if (!isset($seed_seen[$normalized])) {
                         $seed_seen[$normalized] = true;
                         $seed_accepted++;
+                        if ($debug_enabled) {
+                            $track_quality('accepted', $display);
+                        }
                     }
 
                     if (!isset($keywords[$normalized])) {
-                        $keywords[$normalized] = $display;
+                        $keywords[$normalized] = [
+                            'keyword' => $display,
+                            'source_seed' => $seed,
+                        ];
                     }
                 }
             }
@@ -621,8 +788,12 @@ class Keyword_Pack_Builder {
                 error_log('[TMW-KW] Queries: ' . wp_json_encode($used_queries));
                 error_log('[TMW-KW] Raw suggestions: ' . $seed_suggestions_count);
                 error_log('[TMW-KW] Accepted: ' . $seed_accepted . ' Samples: ' . wp_json_encode($accepted_samples));
-                error_log('[TMW-KW] Rejected blacklist: ' . $rejected_blacklist . ' Rejected cam-rule: ' . $rejected_cam);
+                error_log('[TMW-KW] Rejected blacklist: ' . $rejected_blacklist . ' Rejected offtopic: ' . $rejected_offtopic . ' Rejected adult-intent: ' . $rejected_intent);
             }
+        }
+
+        if ($debug_enabled) {
+            error_log('[TMW-KW-QUALITY] ' . wp_json_encode($quality_report));
         }
 
         return self::split_types(array_values($keywords));
