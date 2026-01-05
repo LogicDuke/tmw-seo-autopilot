@@ -1,8 +1,28 @@
 <?php
+/**
+ * Serper Client helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Serper Client class.
+ *
+ * @package TMW_SEO
+ */
 class Serper_Client {
+    /**
+     * Handles search.
+     *
+     * @param string $api_key
+     * @param string $query
+     * @param string $gl
+     * @param string $hl
+     * @param int $num
+     * @return array
+     */
     public static function search(string $api_key, string $query, string $gl = 'us', string $hl = 'en', int $num = 10): array {
         $api_key = trim($api_key);
         $query   = trim($query);
@@ -47,6 +67,12 @@ class Serper_Client {
         return ['data' => $json];
     }
 
+    /**
+     * Handles extract keywords.
+     *
+     * @param array $data
+     * @return array
+     */
     public static function extract_keywords(array $data): array {
         $keywords = [];
 
@@ -79,6 +105,12 @@ class Serper_Client {
         return array_values(array_unique(array_filter($keywords, 'strlen')));
     }
 
+    /**
+     * Handles extract suggestions.
+     *
+     * @param array $serper_json
+     * @return array
+     */
     public static function extract_suggestions(array $serper_json): array {
         $suggestions = [];
 

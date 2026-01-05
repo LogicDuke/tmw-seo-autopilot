@@ -1,10 +1,24 @@
 <?php
+/**
+ * Keyword Pack Builder helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Keyword Pack Builder class.
+ *
+ * @package TMW_SEO
+ */
 class Keyword_Pack_Builder {
     protected static $google_suggest_client;
 
+    /**
+     * Handles google suggest client.
+     * @return Google_Suggest_Client
+     */
     protected static function google_suggest_client(): Google_Suggest_Client {
         if (!self::$google_suggest_client) {
             self::$google_suggest_client = new Google_Suggest_Client();
@@ -13,17 +27,31 @@ class Keyword_Pack_Builder {
         return self::$google_suggest_client;
     }
 
+    /**
+     * Handles csv columns.
+     * @return array
+     */
     protected static function csv_columns(): array {
         // Extended keyword metadata columns for KD reporting + audit trail.
         return ['keyword', 'word_count', 'type', 'source_seed', 'category', 'timestamp', 'competition', 'cpc', 'tmw_kd'];
     }
 
+    /**
+     * Handles keyword word count.
+     *
+     * @param string $keyword
+     * @return int
+     */
     protected static function keyword_word_count(string $keyword): int {
         // Count words in a normalized keyword string.
         $words = preg_split('/\s+/', trim($keyword));
         return is_array($words) ? count(array_filter($words, 'strlen')) : 0;
     }
 
+    /**
+     * Handles blacklist.
+     * @return array
+     */
     public static function blacklist(): array {
         $list = [
             'leak',
@@ -77,6 +105,12 @@ class Keyword_Pack_Builder {
         return apply_filters('tmwseo_keyword_builder_blacklist', $list);
     }
 
+    /**
+     * Normalizes keyword.
+     *
+     * @param string $s
+     * @return array
+     */
     public static function normalize_keyword(string $s): array {
         $display = wp_strip_all_tags($s);
         $display = str_replace(['“', '”', '‘', '’'], ['"', '"', "'", "'"], $display);
@@ -116,6 +150,13 @@ class Keyword_Pack_Builder {
         ];
     }
 
+    /**
+     * Checks whether allowed.
+     *
+     * @param string $normalized
+     * @param string $display
+     * @return bool
+     */
     public static function is_allowed(string $normalized, string $display): bool {
         if ($normalized === '' || strlen($normalized) < 3) {
             return false;
@@ -135,6 +176,12 @@ class Keyword_Pack_Builder {
         return true;
     }
 
+    /**
+     * Handles split types.
+     *
+     * @param array $keywords
+     * @return array
+     */
     public static function split_types(array $keywords): array {
         $buckets = [
             'extra'    => [],
@@ -157,6 +204,13 @@ class Keyword_Pack_Builder {
         return $buckets;
     }
 
+    /**
+     * Handles make indirect seeds.
+     *
+     * @param string $category
+     * @param array $seeds
+     * @return array
+     */
     protected static function make_indirect_seeds(string $category, array $seeds): array {
         $groups = [];
 
@@ -198,6 +252,12 @@ class Keyword_Pack_Builder {
         return $groups;
     }
 
+    /**
+     * Builds efficient queries.
+     *
+     * @param string $seed
+     * @return array
+     */
     protected static function build_efficient_queries(string $seed): array {
         $seed = trim($seed);
         if ($seed === '') {
@@ -214,6 +274,13 @@ class Keyword_Pack_Builder {
         ];
     }
 
+    /**
+     * Handles contextualize keyword.
+     *
+     * @param string $seed
+     * @param string $keyword
+     * @return string
+     */
     protected static function contextualize_keyword(string $seed, string $keyword): string {
         $seed = trim($seed);
         $keyword = trim($keyword);
@@ -228,6 +295,12 @@ class Keyword_Pack_Builder {
         return trim($seed . ' ' . $keyword);
     }
 
+    /**
+     * Generates manual keywords.
+     *
+     * @param string $seed
+     * @return array
+     */
     protected static function generate_manual_keywords(string $seed): array {
         $seed = trim($seed);
         if ($seed === '') {
@@ -277,6 +350,18 @@ class Keyword_Pack_Builder {
         return array_slice($keywords, 0, 50);
     }
 
+    /**
+     * Handles generate.
+     *
+     * @param string $category
+     * @param array $seeds
+     * @param string $gl
+     * @param string $hl
+     * @param int $per_seed
+     * @param string $provider
+     * @param array $run_state
+     * @return mixed
+     */
     public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, string $provider = '', array &$run_state = null) {
         $provider = sanitize_text_field($provider ?: (string) get_option('tmwseo_keyword_provider', 'serper'));
         $allowed_providers = ['serper', 'google_suggest'];
@@ -543,6 +628,15 @@ class Keyword_Pack_Builder {
         return self::split_types(array_values($keywords));
     }
 
+    /**
+     * Handles merge write csv.
+     *
+     * @param string $category
+     * @param string $type
+     * @param array $keywords
+     * @param bool $append
+     * @return int
+     */
     public static function merge_write_csv(string $category, string $type, array $keywords, bool $append = false): int {
         $category = sanitize_key($category);
         $type     = sanitize_key($type);
@@ -783,6 +877,14 @@ class Keyword_Pack_Builder {
         return count($final);
     }
 
+    /**
+     * Handles import keyword planner csv.
+     *
+     * @param string $category
+     * @param string $type
+     * @param string $file_path
+     * @return array
+     */
     public static function import_keyword_planner_csv(string $category, string $type, string $file_path): array {
         $category = sanitize_key($category);
         $type     = sanitize_key($type);
@@ -994,6 +1096,14 @@ class Keyword_Pack_Builder {
         return [];
     }
 
+    /**
+     * Handles autofill google autocomplete.
+     *
+     * @param array $categories
+     * @param bool $dry_run
+     * @param array $options
+     * @return array
+     */
     public static function autofill_google_autocomplete(array $categories, bool $dry_run = false, array $options = []): array {
         // Load seed phrases for all categories from the data file.
         $seeds_file = TMW_SEO_PATH . 'data/google-autocomplete-seeds.php';
@@ -1127,6 +1237,15 @@ class Keyword_Pack_Builder {
         return $summary;
     }
 
+    /**
+     * Handles autofill google autocomplete batch.
+     *
+     * @param array $categories
+     * @param array $cursor
+     * @param bool $dry_run
+     * @param array $options
+     * @return array
+     */
     public static function autofill_google_autocomplete_batch(array $categories, array $cursor, bool $dry_run = false, array $options = []): array {
         $seeds_file = TMW_SEO_PATH . 'data/google-autocomplete-seeds.php';
         $all_seeds = file_exists($seeds_file) ? require $seeds_file : [];

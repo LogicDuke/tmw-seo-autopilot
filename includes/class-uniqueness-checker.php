@@ -1,11 +1,25 @@
 <?php
+/**
+ * Uniqueness Checker helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Uniqueness Checker class.
+ *
+ * @package TMW_SEO
+ */
 class Uniqueness_Checker {
     /**
-     * Compare candidate content against a random sample of existing posts.
-     * Returns max similarity (0-100).
+     * Handles similarity score.
+     *
+     * @param string $content
+     * @param mixed $post_type
+     * @param int $limit
+     * @return float
      */
     public static function similarity_score(string $content, $post_type, int $limit = 12): float {
         $post_types = (array) $post_type;
@@ -42,6 +56,12 @@ class Uniqueness_Checker {
         return round($max, 2);
     }
 
+    /**
+     * Handles tokenize.
+     *
+     * @param string $text
+     * @return array
+     */
     protected static function tokenize(string $text): array {
         $text = strtolower(strip_tags($text));
         $text = preg_replace('/[^a-z0-9]+/i', ' ', $text);

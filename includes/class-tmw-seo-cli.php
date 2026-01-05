@@ -1,9 +1,23 @@
 <?php
+/**
+ * Tmw Seo Cli helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
 if (defined('WP_CLI') && WP_CLI) {
+    /**
+     * Cli class.
+     *
+     * @package TMW_SEO
+     */
     class CLI {
+        /**
+         * Registers plugin hooks.
+         * @return mixed
+         */
         public static function boot() {
             \WP_CLI::add_command('tmw-seo generate', [__CLASS__, 'generate']);
             \WP_CLI::add_command('tmw-seo rollback', [__CLASS__, 'rollback']);
@@ -12,6 +26,13 @@ if (defined('WP_CLI') && WP_CLI) {
             \WP_CLI::add_command('tmw-seo keyword-packs init', [__CLASS__, 'keyword_packs_init']);
             \WP_CLI::add_command('tmwseo serper:keywords', [__CLASS__, 'serper_keywords']);
         }
+        /**
+         * Handles generate.
+         *
+         * @param mixed $args
+         * @param mixed $assoc
+         * @return mixed
+         */
         public static function generate($args, $assoc) {
             $pt = $assoc['post_type'] ?? Core::POST_TYPE;
             $limit = isset($assoc['limit']) ? (int)$assoc['limit'] : 100;
@@ -23,6 +44,13 @@ if (defined('WP_CLI') && WP_CLI) {
                 if (!empty($r['ok'])) $done++;
             } \WP_CLI::success("Generated SEO for $done posts.");
         }
+        /**
+         * Handles rollback.
+         *
+         * @param mixed $args
+         * @param mixed $assoc
+         * @return mixed
+         */
         public static function rollback($args, $assoc) {
             $id = (int)($assoc['post_id'] ?? 0);
             if (!$id) { \WP_CLI::error('Provide --post_id=ID'); return; }
@@ -30,6 +58,13 @@ if (defined('WP_CLI') && WP_CLI) {
             $r['ok'] ? \WP_CLI::success('Rollback complete') : \WP_CLI::error('Nothing to rollback');
         }
 
+        /**
+         * Handles keyword packs status.
+         *
+         * @param mixed $args
+         * @param mixed $assoc
+         * @return mixed
+         */
         public static function keyword_packs_status($args, $assoc) {
             $categories = Keyword_Library::categories();
             $types      = ['extra', 'longtail', 'competitor'];
@@ -48,17 +83,38 @@ if (defined('WP_CLI') && WP_CLI) {
             }
         }
 
+        /**
+         * Handles keyword packs flush.
+         *
+         * @param mixed $args
+         * @param mixed $assoc
+         * @return mixed
+         */
         public static function keyword_packs_flush($args, $assoc) {
             Keyword_Library::flush_cache();
             \WP_CLI::success('Keyword cache flushed.');
         }
 
+        /**
+         * Handles keyword packs init.
+         *
+         * @param mixed $args
+         * @param mixed $assoc
+         * @return mixed
+         */
         public static function keyword_packs_init($args, $assoc) {
             Keyword_Library::ensure_dirs_and_placeholders();
             Keyword_Library::flush_cache();
             \WP_CLI::success('Keyword pack folders initialized.');
         }
 
+        /**
+         * Handles serper keywords.
+         *
+         * @param mixed $args
+         * @param mixed $assoc
+         * @return mixed
+         */
         public static function serper_keywords($args, $assoc) {
             $category = sanitize_title($assoc['category'] ?? '');
             $seed     = sanitize_text_field($assoc['seed'] ?? '');

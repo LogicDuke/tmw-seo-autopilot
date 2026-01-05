@@ -1,11 +1,27 @@
 <?php
+/**
+ * Content Generator helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Content Generator class.
+ *
+ * @package TMW_SEO
+ */
 class Content_Generator {
     const MIN_MODEL_WORDS = 600;
     const MIN_VIDEO_WORDS = 500;
 
+    /**
+     * Generates model.
+     *
+     * @param array $context
+     * @return array
+     */
     public static function generate_model(array $context): array {
         $model_id = (int) ($context['model_id'] ?? 0);
         $name     = $context['name'] ?? '';
@@ -54,6 +70,12 @@ class Content_Generator {
         ];
     }
 
+    /**
+     * Generates video.
+     *
+     * @param array $context
+     * @return array
+     */
     public static function generate_video(array $context): array {
         $video_id = (int) ($context['video_id'] ?? 0);
         $name     = $context['name'] ?? '';
@@ -91,6 +113,15 @@ class Content_Generator {
         ];
     }
 
+    /**
+     * Handles base context.
+     *
+     * @param string $name
+     * @param array $pair
+     * @param array $tags
+     * @param array $context
+     * @return array
+     */
     protected static function base_context(string $name, array $pair, array $tags, array $context): array {
         $safe_tags = Core::get_safe_model_tag_keywords($tags);
         $categories = Keyword_Library::categories_from_looks($tags);
@@ -134,6 +165,13 @@ class Content_Generator {
         ];
     }
 
+    /**
+     * Renders focus blocks.
+     *
+     * @param array $base
+     * @param string $name
+     * @return string
+     */
     protected static function render_focus_blocks(array $base, string $name): string {
         $focus1 = trim((string) ($base['extra_focus_1'] ?? ''));
         $focus2 = trim((string) ($base['extra_focus_2'] ?? ''));
@@ -153,6 +191,14 @@ class Content_Generator {
         return implode("\n", $blocks);
     }
 
+    /**
+     * Renders faqs.
+     *
+     * @param array $faqs
+     * @param array $base
+     * @param array $longtail_keywords
+     * @return string
+     */
     protected static function render_faqs(array $faqs, array $base, array $longtail_keywords = []): string {
         $longtail_append = [];
         if (!empty($longtail_keywords)) {
@@ -181,6 +227,13 @@ class Content_Generator {
         return $html;
     }
 
+    /**
+     * Renders related.
+     *
+     * @param array $context
+     * @param string $name
+     * @return string
+     */
     protected static function render_related(array $context, string $name): string {
         $out = '<h2>Related Content</h2>';
 
@@ -245,6 +298,13 @@ class Content_Generator {
         return $out;
     }
 
+    /**
+     * Renders longtail section.
+     *
+     * @param array $longtail_keywords
+     * @param string $name
+     * @return string
+     */
     protected static function render_longtail_section(array $longtail_keywords, string $name): string {
         $items = array_slice(array_values(array_unique(array_filter($longtail_keywords))), 0, 3);
         if (empty($items)) {
@@ -261,6 +321,15 @@ class Content_Generator {
         return $out;
     }
 
+    /**
+     * Handles pad content.
+     *
+     * @param string $content
+     * @param int $missing_words
+     * @param string $name
+     * @param string $type
+     * @return string
+     */
     protected static function pad_content(string $content, int $missing_words, string $name, string $type): string {
         if ($missing_words < 50) {
             return $content;

@@ -1,9 +1,19 @@
 <?php
+/**
+ * Provider Video Template helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO\Providers;
 if (!defined('ABSPATH')) exit;
 
 use TMW_SEO\Core;
 
+/**
+ * Videotemplate class.
+ *
+ * @package TMW_SEO
+ */
 class VideoTemplate {
     /** VIDEO: returns ['title','meta','keywords'=>[5],'content'] */
     public function generate_video(array $c): array {

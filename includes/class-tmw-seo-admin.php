@@ -1,9 +1,24 @@
 <?php
+/**
+ * Admin UI handlers for TMW SEO Autopilot.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Admin UI and AJAX handlers.
+ *
+ * @package TMW_SEO
+ */
 class Admin {
     const TAG = '[TMW-SEO-UI]';
+    /**
+     * Registers admin hooks.
+     *
+     * @return void
+     */
     public static function boot() {
         add_action('add_meta_boxes', [__CLASS__, 'meta_box']);
         add_action('add_meta_boxes', [__CLASS__, 'add_video_metabox']);
@@ -25,16 +40,33 @@ class Admin {
         add_action('wp_ajax_tmwseo_autofill_google_keywords', [__CLASS__, 'ajax_autofill_google_keywords']);
     }
 
+    /**
+     * Handles the `admin_enqueue_scripts` hook.
+     *
+     * @param string $hook Admin page hook.
+     * @return void
+     */
     public static function assets($hook) {
         if (strpos($hook, 'tmw-seo-autopilot') !== false) {
             wp_enqueue_style('tmw-seo-admin', TMW_SEO_URL . 'assets/admin.css', [], '0.8.0');
         }
     }
 
+    /**
+     * Handles the `add_meta_boxes` hook for models.
+     *
+     * @return void
+     */
     public static function meta_box() {
         add_meta_box('tmw-seo-box', 'TMW SEO Autopilot', [__CLASS__, 'render_box'], 'model', 'side', 'high');
     }
 
+    /**
+     * Renders the model meta box.
+     *
+     * @param \WP_Post $post Current post object.
+     * @return void
+     */
     public static function render_box($post) {
         wp_nonce_field('tmw_seo_box', 'tmw_seo_nonce');
         $openai_enabled = \TMW_SEO\Providers\OpenAI::is_enabled();
@@ -82,6 +114,11 @@ class Admin {
         <?php
         }
 
+    /**
+     * Handles the `wp_ajax_tmw_get_bulk_models` hook.
+     *
+     * @return void
+     */
     public static function ajax_get_bulk_models() {
         check_ajax_referer('tmw_bulk_generate', 'nonce');
 
@@ -122,6 +159,11 @@ class Admin {
         wp_send_json_success(['models' => $models]);
     }
 
+    /**
+     * Handles the `wp_ajax_tmw_bulk_process_batch` hook.
+     *
+     * @return void
+     */
     public static function ajax_bulk_process_batch() {
         check_ajax_referer('tmw_bulk_generate', 'nonce');
 
@@ -185,6 +227,11 @@ class Admin {
         wp_send_json_success($results);
     }
 
+    /**
+     * Handles the `wp_ajax_tmw_seo_generate` hook.
+     *
+     * @return void
+     */
     public static function ajax_generate() {
         check_ajax_referer('tmw_seo_nonce', 'nonce');
         if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'No permission']);
@@ -197,6 +244,11 @@ class Admin {
         wp_send_json_error(['message' => $res['message'] ?? 'Error']);
     }
 
+    /**
+     * Handles the `wp_ajax_tmw_seo_rollback` hook.
+     *
+     * @return void
+     */
     public static function ajax_rollback() {
         check_ajax_referer('tmw_seo_nonce', 'nonce');
         if (!current_user_can('edit_posts')) wp_send_json_error();
@@ -205,6 +257,11 @@ class Admin {
         $res['ok'] ? wp_send_json_success() : wp_send_json_error();
     }
 
+    /**
+     * Handles the `wp_ajax_tmwseo_serper_test` hook.
+     *
+     * @return void
+     */
     public static function ajax_serper_test() {
         check_ajax_referer('tmwseo_serper_test', 'nonce');
         if (!current_user_can('manage_options')) {
@@ -231,6 +288,11 @@ class Admin {
         ]);
     }
 
+    /**
+     * Handles the `wp_ajax_tmwseo_build_keyword_pack` hook.
+     *
+     * @return void
+     */
     public static function ajax_build_keyword_pack() {
         check_ajax_referer('tmwseo_build_keyword_pack', 'nonce');
         if (!current_user_can('manage_options')) {
@@ -354,6 +416,11 @@ class Admin {
         wp_send_json_success($response);
     }
 
+    /**
+     * Handles the `wp_ajax_tmwseo_autofill_google_keywords` hook.
+     *
+     * @return void
+     */
     public static function ajax_autofill_google_keywords() {
         if (!check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce', false)) {
             wp_send_json_error(['message' => 'Invalid nonce.', 'http_status' => 403], 403);
@@ -423,11 +490,25 @@ class Admin {
         ]);
     }
 
+    /**
+     * Handles the `bulk_actions-edit-model` filter.
+     *
+     * @param array $actions Bulk action list.
+     * @return array
+     */
     public static function bulk_action($actions) {
         $actions['tmw_seo_generate_bulk'] = 'Generate SEO (TMW)';
         return $actions;
     }
 
+    /**
+     * Handles the `handle_bulk_actions-edit-model` filter.
+     *
+     * @param string $redirect Redirect URL.
+     * @param string $doaction Action name.
+     * @param array  $ids Selected post IDs.
+     * @return string
+     */
     public static function handle_bulk($redirect, $doaction, $ids) {
         if ($doaction !== 'tmw_seo_generate_bulk') return $redirect;
         $count = 0;
@@ -438,6 +519,11 @@ class Admin {
         return add_query_arg('tmw_seo_bulk_done', $count, $redirect);
     }
 
+    /**
+     * Handles the `admin_menu` hook.
+     *
+     * @return void
+     */
     public static function tools_page() {
         add_submenu_page('tools.php', 'TMW SEO Autopilot', 'TMW SEO Autopilot', 'manage_options', 'tmw-seo-autopilot', [__CLASS__, 'render_tools']);
         add_submenu_page('tools.php', 'TMW SEO Keyword Packs', 'TMW SEO Keyword Packs', 'manage_options', 'tmw-seo-keyword-packs', [__CLASS__, 'render_keyword_packs']);
@@ -445,12 +531,23 @@ class Admin {
         add_submenu_page('tools.php', 'TMW SEO Usage', 'TMW SEO Usage', 'manage_options', 'tmw-seo-usage', [__CLASS__, 'render_usage_dashboard']);
     }
 
+    /**
+     * Normalizes admin values for hash usage.
+     *
+     * @param string $value Raw value.
+     * @return string
+     */
     protected static function normalize_for_hash_admin(string $value): string {
         $value = trim($value);
         $value = preg_replace('/\s+/', ' ', $value);
         return strtolower((string)$value);
     }
 
+    /**
+     * Handles the `admin_post_tmwseo_usage_reset` hook.
+     *
+     * @return void
+     */
     public static function handle_usage_reset() {
         if (!current_user_can('manage_options')) {
             wp_die('Access denied');
@@ -487,6 +584,12 @@ class Admin {
         exit;
     }
 
+    /**
+     * Prepares usage sets for admin display.
+     *
+     * @param array $raw Raw usage data.
+     * @return array
+     */
     protected static function prepare_used_set($raw): array {
         $set = [];
         if (is_array($raw)) {
@@ -501,6 +604,11 @@ class Admin {
         return $set;
     }
 
+    /**
+     * Renders the keyword usage dashboard.
+     *
+     * @return void
+     */
     public static function render_usage_dashboard() {
         if (!current_user_can('manage_options')) {
             return;
@@ -671,6 +779,11 @@ class Admin {
         <?php
     }
 
+    /**
+     * Renders the keyword packs admin screen.
+     *
+     * @return void
+     */
     public static function render_keyword_packs() {
         if (!current_user_can('manage_options')) {
             return;
@@ -1355,6 +1468,11 @@ class Admin {
         <?php
     }
 
+    /**
+     * Renders the keyword usage admin screen.
+     *
+     * @return void
+     */
     public static function render_keyword_usage() {
         if (!current_user_can('manage_options')) {
             return;
@@ -1487,6 +1605,11 @@ class Admin {
         <?php
     }
 
+    /**
+     * Renders the main tools dashboard.
+     *
+     * @return void
+     */
     public static function render_tools() {
         if (!current_user_can('manage_options')) {
             return;
@@ -1977,12 +2100,23 @@ class Admin {
         <?php
     }
 
+    /**
+     * Handles the `add_meta_boxes` hook for videos.
+     *
+     * @return void
+     */
     public static function add_video_metabox() {
         foreach (\TMW_SEO\Core::video_post_types() as $pt) {
             add_meta_box('tmwseo_box', 'TMW SEO Autopilot', [__CLASS__, 'render_video_box'], $pt, 'side', 'high');
         }
     }
 
+    /**
+     * Renders the video meta box.
+     *
+     * @param \WP_Post $post Current post object.
+     * @return void
+     */
     public static function render_video_box($post) {
         wp_nonce_field('tmwseo_box', 'tmwseo_box_nonce');
         $override = get_post_meta($post->ID, 'tmwseo_model_name', true);
@@ -1994,6 +2128,13 @@ class Admin {
         if ($last) echo '<p><em>Last run:</em> ' . esc_html($last) . '</p>';
     }
 
+    /**
+     * Handles the `save_post` hook for video meta box data.
+     *
+     * @param int      $post_id Post ID.
+     * @param \WP_Post $post Post object.
+     * @return void
+     */
     public static function save_video_metabox($post_id, $post) {
         if (!isset($_POST['tmwseo_box_nonce']) || !wp_verify_nonce($_POST['tmwseo_box_nonce'], 'tmwseo_box')) return;
         if (!current_user_can('edit_post', $post_id)) return;
@@ -2001,6 +2142,11 @@ class Admin {
         if ($val !== '') update_post_meta($post_id, 'tmwseo_model_name', $val); else delete_post_meta($post_id, 'tmwseo_model_name');
     }
 
+    /**
+     * Handles the `admin_post_tmwseo_generate_now` hook.
+     *
+     * @return void
+     */
     public static function handle_generate_now() {
         $post_id = (int)($_GET['post_id'] ?? 0);
         if (!$post_id || !current_user_can('edit_post', $post_id)) wp_die('No permission');
@@ -2040,6 +2186,11 @@ class Admin {
         exit;
     }
 
+    /**
+     * Handles the `admin_post_tmwseo_save_settings` hook.
+     *
+     * @return void
+     */
     public static function handle_save_settings() {
         if (!current_user_can('manage_options')) wp_die('No permission');
         if (!isset($_POST['tmwseo_settings_nonce']) || !wp_verify_nonce($_POST['tmwseo_settings_nonce'], 'tmwseo_save_settings')) wp_die('Bad nonce');
@@ -2064,6 +2215,11 @@ class Admin {
         exit;
     }
 
+    /**
+     * Handles the `admin_notices` hook.
+     *
+     * @return void
+     */
     public static function admin_notice() {
         $screen = get_current_screen();
         if (!$screen || $screen->base !== 'post') return;

@@ -1,18 +1,36 @@
 <?php
+/**
+ * Tmw Seo helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
 use TMW_SEO\Media\Image_Meta_Generator;
 
+/**
+ * Csv Title Selector class.
+ *
+ * @package TMW_SEO
+ */
 class CSV_Title_Selector {
     const LOCK_TIMEOUT = 30;
     const MAX_LOCK_ATTEMPTS = 5;
     const RETRY_DELAY_MS = 200;
 
+    /**
+     * Returns the lock key.
+     * @return string
+     */
     protected static function lock_key(): string {
         return 'tmwseo_lock_video_title_keys';
     }
 
+    /**
+     * Acquires a lock token.
+     * @return ?string
+     */
     public static function acquire_lock(): ?string {
         for ( $i = 0; $i < self::MAX_LOCK_ATTEMPTS; $i++ ) {
             $token = wp_generate_password( 32, false ) . '-' . microtime( true );
@@ -29,6 +47,12 @@ class CSV_Title_Selector {
         return null;
     }
 
+    /**
+     * Releases a lock token.
+     *
+     * @param ?string $token
+     * @return void
+     */
     public static function release_lock( ?string $token ): void {
         if ( ! $token ) {
             return;
@@ -41,6 +65,11 @@ class CSV_Title_Selector {
     }
 }
 
+/**
+ * Core class.
+ *
+ * @package TMW_SEO
+ */
 class Core {
     const TAG = '[TMW-SEO-GEN]';
     const POST_TYPE = 'model';
@@ -52,7 +81,10 @@ class Core {
     protected static $csv_access_order = [];
 
     /**
-     * Debug log helper: only logs when TMW_DEBUG is truthy.
+     * Handles debug log.
+     *
+     * @param mixed $message
+     * @return void
      */
     public static function debug_log( $message ): void {
         if ( defined( 'TMW_DEBUG' ) && TMW_DEBUG ) {
@@ -60,6 +92,10 @@ class Core {
         }
     }
 
+    /**
+     * Returns the csv directory.
+     * @return string
+     */
     public static function csv_dir(): string {
         $uploads = wp_upload_dir();
         $dir     = trailingslashit( $uploads['basedir'] ) . 'tmwseo-csv/';
@@ -69,6 +105,12 @@ class Core {
         return $dir;
     }
 
+    /**
+     * Returns the csv path.
+     *
+     * @param string $file
+     * @return string
+     */
     public static function csv_path( string $file ): string {
         $file       = ltrim( $file, '/\\' );
         $upload_dir = trailingslashit( self::csv_dir() );
@@ -90,6 +132,12 @@ class Core {
         return $upload_dir . $file; // Default path for new files.
     }
 
+    /**
+     * Handles read csv assoc.
+     *
+     * @param string $path
+     * @return array
+     */
     public static function read_csv_assoc( string $path ): array {
         $resolved_path = is_readable( $path ) ? $path : self::csv_path( $path );
 
@@ -149,6 +197,12 @@ class Core {
         return $rows;
     }
 
+    /**
+     * Normalizes tokens.
+     *
+     * @param string $text
+     * @return array
+     */
     public static function normalize_tokens( string $text ): array {
         $text   = strtolower( $text );
         $text   = preg_replace( '/[^a-z0-9]+/i', ' ', $text );
@@ -169,6 +223,13 @@ class Core {
         return array_values( array_unique( $tokens ) );
     }
 
+    /**
+     * Handles score video row.
+     *
+     * @param array $row
+     * @param array $needle_tokens
+     * @return int
+     */
     public static function score_video_row( array $row, array $needle_tokens ): int {
         $focus = $row['focus_keyword'] ?? '';
         $title = $row['seo_title'] ?? '';
@@ -186,6 +247,10 @@ class Core {
         return $score;
     }
 
+    /**
+     * Handles video post types.
+     * @return array
+     */
     public static function video_post_types(): array {
         $opt = get_option('tmwseo_video_pts');
         if (is_array($opt) && !empty($opt)) {
@@ -196,6 +261,10 @@ class Core {
         return $guessed;
     }
 
+    /**
+     * Handles guess video post types.
+     * @return array
+     */
     public static function guess_video_post_types(): array {
         $candidates = [];
         foreach (['video', 'videos'] as $def) {
@@ -215,6 +284,12 @@ class Core {
         return array_values(array_unique(array_filter($candidates)));
     }
 
+    /**
+     * Checks whether video post type.
+     *
+     * @param string $post_type
+     * @return bool
+     */
     public static function is_video_post_type(string $post_type): bool {
         $types = array_merge(self::video_post_types(), ['video', 'videos']);
         return in_array($post_type, array_unique($types), true);
@@ -226,10 +301,18 @@ class Core {
         return array_values(array_filter(array_map('trim', explode(',', strtolower($order)))));
     }
 
+    /**
+     * Handles subaff pattern.
+     * @return string
+     */
     public static function subaff_pattern(): string {
         return defined('TMW_SEO_SUBAFF_PATTERN') ? TMW_SEO_SUBAFF_PATTERN : '{slug}-{brand}-{postId}';
     }
 
+    /**
+     * Handles default og.
+     * @return string
+     */
     public static function default_og(): string {
         return defined('TMW_SEO_DEFAULT_OG') ? TMW_SEO_DEFAULT_OG : '';
     }
@@ -432,6 +515,13 @@ class Core {
         return ['ok' => true, 'video' => $payload_video, 'model' => $payload_model, 'model_id' => $model_id];
     }
 
+    /**
+     * Handles resolve video manual inputs.
+     *
+     * @param \WP_Post $post
+     * @param string $model_name
+     * @return array
+     */
     public static function resolve_video_manual_inputs(\WP_Post $post, string $model_name): array {
         $manual_title_raw = trim((string) $post->post_title);
         $fallback_title = sprintf(
@@ -461,6 +551,13 @@ class Core {
         ];
     }
 
+    /**
+     * Handles fallback video focus keyword.
+     *
+     * @param int $post_id
+     * @param string $seed
+     * @return string
+     */
     protected static function fallback_video_focus_keyword(int $post_id, string $seed): string {
         $pool = ['webcam', 'cam', 'webcams', 'models', 'highlights'];
         $seed_value = $seed !== '' ? crc32($seed) : $post_id;
@@ -504,6 +601,12 @@ class Core {
         return ['ok' => true, 'payload' => $payload];
     }
 
+    /**
+     * Handles rollback.
+     *
+     * @param int $post_id
+     * @return array
+     */
     public static function rollback(int $post_id): array {
         $post = get_post($post_id);
         if (!$post) {
@@ -553,6 +656,12 @@ class Core {
         return self::get_video_model_name($post);
     }
 
+    /**
+     * Gets video model name.
+     *
+     * @param \WP_Post $post
+     * @return string
+     */
     public static function get_video_model_name(\WP_Post $post): string {
         $raw_name = self::get_video_model_name_raw($post);
         $safe_name = self::sanitize_sfw_text($raw_name, 'Live Cam Model');
@@ -564,6 +673,12 @@ class Core {
         return $safe_name;
     }
 
+    /**
+     * Gets video model name raw.
+     *
+     * @param \WP_Post $post
+     * @return string
+     */
     public static function get_video_model_name_raw(\WP_Post $post): string {
         $raw_name = trim((string) get_post_meta($post->ID, 'tmwseo_model_name', true));
 
@@ -601,6 +716,14 @@ class Core {
         ], 'https://ctwmsg.com/');
     }
 
+    /**
+     * Builds subaff.
+     *
+     * @param int $post_id
+     * @param string $brand
+     * @param string $slug
+     * @return string
+     */
     protected static function build_subaff(int $post_id, string $brand, string $slug): string {
         $pattern = self::subaff_pattern();
         $replacements = [
@@ -650,6 +773,12 @@ class Core {
         ];
     }
 
+    /**
+     * Handles video title row key.
+     *
+     * @param array $row
+     * @return string
+     */
     protected static function video_title_row_key( array $row ): string {
         return md5(
             trim( (string) ( $row['focus_keyword'] ?? '' ) ) . '|' .
@@ -659,12 +788,26 @@ class Core {
         );
     }
 
+    /**
+     * Normalizes for hash.
+     *
+     * @param string $value
+     * @return string
+     */
     protected static function normalize_for_hash( string $value ): string {
         $value = trim( $value );
         $value = preg_replace( '/\s+/', ' ', $value );
         return strtolower( (string) $value );
     }
 
+    /**
+     * Selects video title focus csv.
+     *
+     * @param \WP_Post $post
+     * @param array $looks
+     * @param string $lj_title
+     * @return array
+     */
     public static function select_video_title_focus_csv( \WP_Post $post, array $looks, string $lj_title ): array {
         $existing_key = (string) get_post_meta( $post->ID, '_tmwseo_csv_video_title_key', true );
         $rows         = self::read_csv_assoc( self::csv_path( 'video_seo_titles.csv' ) );
@@ -820,6 +963,14 @@ class Core {
         ];
     }
 
+    /**
+     * Selects video extras csv.
+     *
+     * @param \WP_Post $post
+     * @param array $looks
+     * @param string $lj_title
+     * @return array
+     */
     public static function select_video_extras_csv( \WP_Post $post, array $looks, string $lj_title ): array {
         $existing_key = (string) get_post_meta( $post->ID, '_tmwseo_csv_video_extras_key', true );
         $rows         = self::read_csv_assoc( self::csv_path( 'video_extra_keywords.csv' ) );
@@ -889,6 +1040,12 @@ class Core {
         ];
     }
 
+    /**
+     * Selects model extras csv.
+     *
+     * @param \WP_Post $post
+     * @return array
+     */
     public static function select_model_extras_csv( \WP_Post $post ): array {
         $existing_key = (string) get_post_meta( $post->ID, '_tmwseo_csv_model_extras_key', true );
         $rows         = self::read_csv_assoc( self::csv_path( 'model_extra_keywords.csv' ) );
@@ -940,11 +1097,25 @@ class Core {
         ];
     }
 
+    /**
+     * Handles video focus.
+     *
+     * @param string $name
+     * @return string
+     */
     public static function video_focus(string $name): string {
         $safe_name = self::sanitize_sfw_text($name, 'Live Cam Model');
         return self::sanitize_sfw_text(sprintf('%s live cam highlights', $safe_name), 'Live Cam Model live cam highlights');
     }
 
+    /**
+     * Builds ctx model.
+     *
+     * @param int $model_id
+     * @param string $name
+     * @param array $args
+     * @return array
+     */
     protected static function build_ctx_model(int $model_id, string $name, array $args): array {
         $looks = self::first_looks($model_id);
         if ( empty( $looks ) && ! empty( $args['looks'] ) && is_array( $args['looks'] ) ) {
@@ -981,6 +1152,12 @@ class Core {
         ];
     }
 
+    /**
+     * Handles first looks.
+     *
+     * @param int $post_id
+     * @return array
+     */
     public static function first_looks(int $post_id): array {
         $out = [];
         foreach (['video_tag', 'post_tag', 'models', 'category', 'livejasmin_tag'] as $tax) {
@@ -995,6 +1172,14 @@ class Core {
         return array_values(array_unique(array_filter($out)));
     }
 
+    /**
+     * Picks extras.
+     *
+     * @param string $name
+     * @param array $looks
+     * @param array $defaults
+     * @return array
+     */
     protected static function pick_extras(string $name, array $looks, array $defaults): array {
         $choices = array_values(array_unique(array_merge($looks, $defaults)));
         $extras = [];
@@ -1070,6 +1255,13 @@ class Core {
         self::update_featured_image_meta($post_id, $ctx['name'] ?? $post->post_title);
         }
     
+    /**
+     * Handles cta block.
+     *
+     * @param array $ctx
+     * @param int $post_id
+     * @return string
+     */
     protected static function cta_block(array $ctx, int $post_id): string {
         $name = $ctx['name'] ?? get_the_title($post_id);
         if (!$name) {
@@ -1082,6 +1274,13 @@ class Core {
         return '<p class="tmwseo-cta"><a href="' . esc_url($url) . '" rel="sponsored nofollow noopener" target="_blank">' . esc_html($label) . '</a></p>';
     }
 
+    /**
+     * Handles internal links block.
+     *
+     * @param array $ctx
+     * @param string $type
+     * @return string
+     */
     protected static function internal_links_block(array $ctx, string $type): string {
         $links = '';
         if ($type === 'VIDEO' && !empty($ctx['model_permalink'])) {
@@ -1099,6 +1298,13 @@ class Core {
         return $links;
     }
     
+    /**
+     * Updates featured image meta.
+     *
+     * @param int $post_id
+     * @param string $name
+     * @return void
+     */
     protected static function update_featured_image_meta(int $post_id, string $name): void {
         $post = get_post($post_id);
         if (!$post instanceof \WP_Post) {
@@ -1118,6 +1324,12 @@ class Core {
         Image_Meta_Generator::generate_for_featured_image($thumb_id, $post);
     }
 
+    /**
+     * Handles deep link url.
+     *
+     * @param string $type
+     * @return string
+     */
     protected static function deep_link_url(string $type): string {
         if ($type === 'video') {
             foreach (self::video_post_types() as $pt) {
@@ -1135,6 +1347,13 @@ class Core {
         return home_url('/models/');
     }
 
+    /**
+     * Composes rankmath for video.
+     *
+     * @param \WP_Post $post
+     * @param array $ctx
+     * @return array
+     */
     public static function compose_rankmath_for_video(\WP_Post $post, array $ctx): array {
         $manual_title_raw = trim((string) ($ctx['manual_title'] ?? $post->post_title));
         $csv_title        = trim( (string) ( $ctx['csv_title'] ?? '' ) );
@@ -1181,6 +1400,10 @@ class Core {
         ];
     }
 
+    /**
+     * Handles model extra keyword pool.
+     * @return array
+     */
     protected static function model_extra_keyword_pool(): array {
         return [
             'live cam',
@@ -1211,10 +1434,20 @@ class Core {
         ];
 }
 
+    /**
+     * Gets model extra keyword pool.
+     * @return array
+     */
     public static function get_model_extra_keyword_pool(): array {
         return self::model_extra_keyword_pool();
     }
 
+    /**
+     * Handles model random extras.
+     *
+     * @param int $count
+     * @return array
+     */
     protected static function model_random_extras(int $count = 4): array {
         $pool = self::model_extra_keyword_pool();
         shuffle($pool);
@@ -1222,8 +1455,10 @@ class Core {
     }
 
     /**
-     * Build soft, non-explicit keywords from model tags.
-     * Only uses an allow-list of safe descriptive tags (hair, style, vibe, role, etc.).
+     * Handles safe model tag keywords.
+     *
+     * @param array $looks
+     * @return array
      */
     protected static function safe_model_tag_keywords(array $looks): array {
         if (empty($looks)) {
@@ -1326,14 +1561,22 @@ class Core {
         return self::sanitize_sfw_keywords(array_values(array_unique($keywords)));
     }
 
+    /**
+     * Gets safe model tag keywords.
+     *
+     * @param array $looks
+     * @return array
+     */
     public static function get_safe_model_tag_keywords(array $looks): array {
         return self::safe_model_tag_keywords($looks);
     }
 
     /**
-     * Compute the extra keywords for a model post, based on safe tags and
-     * the generic soft adult pool. Uses tags from the model itself and,
-     * when available, from its latest linked video.
+     * Handles compute model extras.
+     *
+     * @param \WP_Post $post
+     * @param array $ctx
+     * @return array
      */
     protected static function compute_model_extras( \WP_Post $post, array $ctx = [] ): array {
         // 1) Collect looks from model.
@@ -1360,6 +1603,13 @@ class Core {
         return $extras;
     }
 
+    /**
+     * Composes rankmath for model.
+     *
+     * @param \WP_Post $post
+     * @param array $ctx
+     * @return array
+     */
     public static function compose_rankmath_for_model( \WP_Post $post, array $ctx ): array {
         $name  = self::sanitize_sfw_text($ctx['name'], 'Live Cam Model');
         $focus = $name; // Model focus keyword is always the name.
@@ -1435,6 +1685,15 @@ class Core {
         ];
     }
 
+    /**
+     * Updates rankmath meta.
+     *
+     * @param int $post_id
+     * @param array $rm
+     * @param bool $protect_manual
+     * @param bool $preserve_focus
+     * @return void
+     */
     public static function update_rankmath_meta(int $post_id, array $rm, bool $protect_manual = false, bool $preserve_focus = false): void {
         $existing_focus = trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true));
         $safe_title = self::sanitize_sfw_text((string) ($rm['title'] ?? ''), 'Live Cam Model — Live Cam Highlights');
@@ -1532,6 +1791,12 @@ class Core {
         Core::debug_log( self::TAG . " [RM] set focus='" . $focus_for_log . "' extras=" . json_encode( $rm['extras'] ) . " for post#$post_id" );
     }
 
+    /**
+     * Normalizes manual focus keyword.
+     *
+     * @param string $focus
+     * @return string
+     */
     public static function normalize_manual_focus_keyword(string $focus): string {
         $focus = preg_replace( '/\s+/', ' ', (string) $focus );
         $focus = trim( (string) $focus );
@@ -1545,6 +1810,13 @@ class Core {
         return mb_substr( $focus, 0, 80 );
     }
 
+    /**
+     * Builds video rankmath title.
+     *
+     * @param string $focus
+     * @param string $manual_title
+     * @return string
+     */
     protected static function build_video_rankmath_title(string $focus, string $manual_title): string {
         if ($focus === '') {
             return self::truncate_seo_text($manual_title, 60);
@@ -1557,6 +1829,13 @@ class Core {
         return self::truncate_seo_text(sprintf('%s %s', $focus, $manual_title), 60);
     }
 
+    /**
+     * Builds video rankmath description.
+     *
+     * @param string $focus
+     * @param string $manual_title
+     * @return string
+     */
     protected static function build_video_rankmath_description(string $focus, string $manual_title): string {
         $desc = sprintf(
             'Watch %s webcam highlights. %s — full recap and moments.',
@@ -1566,6 +1845,13 @@ class Core {
         return self::truncate_seo_text($desc, 180);
     }
 
+    /**
+     * Handles truncate seo text.
+     *
+     * @param string $text
+     * @param int $max
+     * @return string
+     */
     protected static function truncate_seo_text(string $text, int $max): string {
         $text = trim($text);
         if (mb_strlen($text) <= $max) {
@@ -1579,14 +1865,36 @@ class Core {
         return rtrim($trimmed, " \t\n\r\0\x0B-—–,:;");
     }
 
+    /**
+     * Checks whether old video title.
+     *
+     * @param string $title
+     * @param string $focus
+     * @return bool
+     */
     protected static function is_old_video_title(string $title, string $focus): bool {
         return stripos($title, $focus) !== false && stripos($title, 'featured moments') !== false;
     }
 
+    /**
+     * Checks whether old video description.
+     *
+     * @param string $desc
+     * @param string $focus
+     * @return bool
+     */
     protected static function is_old_video_description(string $desc, string $focus): bool {
         return stripos($desc, $focus) !== false && stripos($desc, 'quick reel') !== false;
     }
 
+    /**
+     * Builds video post title.
+     *
+     * @param \WP_Post $post
+     * @param string $focus
+     * @param string $model_name
+     * @return string
+     */
     protected static function build_video_post_title( \WP_Post $post, string $focus, string $model_name ): string {
         $original = trim( (string) $post->post_title );
         $focus    = trim( (string) $focus );
@@ -1602,6 +1910,14 @@ class Core {
         return $focus;
     }
 
+    /**
+     * Conditionally update video title.
+     *
+     * @param \WP_Post $post
+     * @param string $focus
+     * @param string $model_name
+     * @return void
+     */
     public static function maybe_update_video_title( \WP_Post $post, string $focus, string $model_name ): void {
         $post_id = $post->ID;
 
@@ -1672,6 +1988,13 @@ class Core {
         }
     }
 
+    /**
+     * Conditionally update video slug.
+     *
+     * @param \WP_Post $post
+     * @param string $focus
+     * @return void
+     */
     public static function maybe_update_video_slug( \WP_Post $post, string $focus ): void {
         if (defined('TMW_DEBUG') && TMW_DEBUG) {
             Core::debug_log(self::TAG . " [VIDEO-SLUG] Skipping slug update for post#{$post->ID}");
@@ -1708,6 +2031,14 @@ class Core {
         update_post_meta( $post->ID, '_tmwseo_slug_locked', 1 );
     }
 
+    /**
+     * Updates video slug from manual inputs.
+     *
+     * @param \WP_Post $post
+     * @param string $focus
+     * @param string $manual_title
+     * @return void
+     */
     public static function update_video_slug_from_manual_inputs(\WP_Post $post, string $focus, string $manual_title): void {
         if (!in_array($post->post_type, self::video_post_types(), true)) {
             return;
@@ -1726,6 +2057,13 @@ class Core {
         );
     }
 
+    /**
+     * Builds video slug.
+     *
+     * @param string $focus
+     * @param string $manual_title
+     * @return string
+     */
     protected static function build_video_slug(string $focus, string $manual_title): string {
         $slug = sanitize_title(trim(sprintf('%s %s', $focus, $manual_title)));
         if ($slug === '') {
@@ -1745,6 +2083,13 @@ class Core {
         return trim($trimmed, '-');
     }
 
+    /**
+     * Sanitizes sfw text.
+     *
+     * @param string $text
+     * @param string $fallback
+     * @return string
+     */
     public static function sanitize_sfw_text(string $text, string $fallback = 'Live Cam Model'): string {
         $clean = wp_strip_all_tags($text);
         $clean = trim($clean);
@@ -1811,6 +2156,12 @@ class Core {
         return $clean;
     }
 
+    /**
+     * Normalizes sfw phrase.
+     *
+     * @param string $text
+     * @return string
+     */
     protected static function normalize_sfw_phrase(string $text): string {
         $text = preg_replace('/\s*[-–—]+\s*/', ' ', $text);
         $text = preg_replace('/\s*[:;|]+\s*/', ' ', $text);
@@ -1818,6 +2169,12 @@ class Core {
         return trim($text, " \t\n\r\0\x0B-—–,:;|");
     }
 
+    /**
+     * Handles video category fallback.
+     *
+     * @param int $post_id
+     * @return string
+     */
     protected static function video_category_fallback(int $post_id): string {
         if (!taxonomy_exists('video_category')) {
             return 'Live Cam';
@@ -1829,6 +2186,12 @@ class Core {
         return (string) $terms[0];
     }
 
+    /**
+     * Handles rewrite sfw video title.
+     *
+     * @param \WP_Post $post
+     * @return array
+     */
     public static function rewrite_sfw_video_title(\WP_Post $post): array {
         $raw_title  = (string) $post->post_title;
         $sfw_phrase = self::sanitize_sfw_text($raw_title, '');
@@ -1868,6 +2231,13 @@ class Core {
         ];
     }
 
+    /**
+     * Sanitizes sfw keywords.
+     *
+     * @param array $keywords
+     * @param array $fallbacks
+     * @return array
+     */
     protected static function sanitize_sfw_keywords(array $keywords, array $fallbacks = []): array {
         $out = [];
         foreach ($keywords as $keyword) {
@@ -1897,10 +2267,23 @@ class Core {
         update_post_meta($video_id, '_tmwseo_model_id', $model_id);
     }
 
+    /**
+     * Handles link model to video.
+     *
+     * @param int $model_id
+     * @param int $video_id
+     * @return void
+     */
     protected static function link_model_to_video(int $model_id, int $video_id): void {
         update_post_meta($model_id, '_tmwseo_latest_video_id', $video_id);
     }
 
+    /**
+     * Handles provider.
+     *
+     * @param string $strategy
+     * @return mixed
+     */
     protected static function provider(string $strategy) {
         if ($strategy === 'openai' && Providers\OpenAI::is_enabled()) {
             return new Providers\OpenAI();

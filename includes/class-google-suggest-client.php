@@ -1,18 +1,49 @@
 <?php
+/**
+ * Google Suggest Client helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Google Suggest Client class.
+ *
+ * @package TMW_SEO
+ */
 class Google_Suggest_Client {
     protected $last_cached = false;
 
+    /**
+     * Handles cache key.
+     *
+     * @param string $query
+     * @param string $hl
+     * @param string $gl
+     * @return string
+     */
     public static function cache_key(string $query, string $hl = 'en', string $gl = 'us'): string {
         return 'tmwseo_suggest_' . md5($hl . '|' . $gl . '|' . $query);
     }
 
+    /**
+     * Handles was last cached.
+     * @return bool
+     */
     public function was_last_cached(): bool {
         return $this->last_cached;
     }
 
+    /**
+     * Handles fetch.
+     *
+     * @param string $query
+     * @param string $hl
+     * @param string $gl
+     * @param array $options
+     * @return mixed
+     */
     public function fetch(string $query, string $hl = 'en', string $gl = 'us', array $options = []) {
         $query = trim($query);
         $hl = sanitize_text_field($hl ?: 'en');
@@ -105,6 +136,12 @@ class Google_Suggest_Client {
         return $suggestions;
     }
 
+    /**
+     * Handles url hint.
+     *
+     * @param string $url
+     * @return string
+     */
     protected static function url_hint(string $url): string {
         $parts = wp_parse_url($url);
         if (!is_array($parts) || empty($parts['host'])) {

@@ -1,8 +1,23 @@
 <?php
+/**
+ * Tmw Seo Rankmath helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Rankmath class.
+ *
+ * @package TMW_SEO
+ */
 class RankMath {
+    /**
+     * Registers Rank Math hooks.
+     *
+     * @return void
+     */
     public static function boot() {
         if (!self::is_rankmath_active()) {
             return;
@@ -12,8 +27,10 @@ class RankMath {
     }
 
     /**
-     * Generate an SEO snippet title for model posts only.
-     * Pattern: {Model} — {Number} {Sentiment} {PowerWord} Profile Highlights
+     * Generates model snippet title.
+     *
+     * @param \WP_Post $post
+     * @return string
      */
     public static function generate_model_snippet_title( \WP_Post $post ): string {
         $name = trim(get_the_title($post));
@@ -55,6 +72,12 @@ class RankMath {
         return sprintf('%s — %d %s %s Profile Highlights', $name, $number, $sentiment, $power_word);
     }
 
+    /**
+     * Handles the `rank_math/frontend/title` filter.
+     *
+     * @param string $title Existing title.
+     * @return string
+     */
     public static function filter_frontend_title($title) {
         global $post;
 
@@ -78,6 +101,12 @@ class RankMath {
         return $generated;
     }
 
+    /**
+     * Checks whether to inject a model title.
+     *
+     * @param mixed $post Post object.
+     * @return bool
+     */
     protected static function should_inject_model_title($post): bool {
         if (!$post instanceof \WP_Post) {
             return false;
@@ -88,6 +117,11 @@ class RankMath {
         return true;
     }
 
+    /**
+     * Checks whether Rank Math is active.
+     *
+     * @return bool
+     */
     protected static function is_rankmath_active(): bool {
         return class_exists('RankMath') || class_exists('\\RankMath\\Helper') || defined('RANK_MATH_VERSION');
     }

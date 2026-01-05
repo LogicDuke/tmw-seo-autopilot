@@ -1,9 +1,16 @@
 <?php
+/**
+ * Keyword Manager helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
 /**
- * Handles competitor keyword distribution and density checks.
+ * Keyword Manager class.
+ *
+ * @package TMW_SEO
  */
 class Keyword_Manager {
     protected static $competitor_map = [
@@ -14,12 +21,24 @@ class Keyword_Manager {
         4 => ['MyFreeCams', 'Chaturbate'],
     ];
 
+    /**
+     * Handles competitor pair.
+     *
+     * @param int $index
+     * @return array
+     */
     public static function competitor_pair(int $index): array {
         $bucket = (int) floor($index / 800);
         $pair   = self::$competitor_map[$bucket % count(self::$competitor_map)] ?? self::$competitor_map[0];
         return $pair;
     }
 
+    /**
+     * Handles platform counts.
+     *
+     * @param string $type
+     * @return array
+     */
     public static function platform_counts(string $type): array {
         if ($type === 'video') {
             return [
@@ -36,7 +55,13 @@ class Keyword_Manager {
     }
 
     /**
-     * Determine whether a keyword needs filling. Returns keywords to add.
+     * Handles fill keyword.
+     *
+     * @param string $content
+     * @param string $keyword
+     * @param int $min
+     * @param int $max
+     * @return array
      */
     public static function fill_keyword(string $content, string $keyword, int $min, int $max): array {
         $keyword = trim($keyword);
@@ -58,6 +83,15 @@ class Keyword_Manager {
         return [$keyword];
     }
 
+    /**
+     * Applies density.
+     *
+     * @param string $content
+     * @param string $name
+     * @param array $pair
+     * @param string $type
+     * @return array
+     */
     public static function apply_density(string $content, string $name, array $pair, string $type = 'model'): array {
         $keywords = array_filter(array_unique([
             $name,
@@ -90,6 +124,14 @@ class Keyword_Manager {
         ];
     }
 
+    /**
+     * Handles reduce focus density.
+     *
+     * @param string $content
+     * @param string $name
+     * @param string $type
+     * @return string
+     */
     protected static function reduce_focus_density(string $content, string $name, string $type): string {
         $pattern = '/' . preg_quote($name, '/') . '/i';
         $total   = preg_match_all($pattern, $content, $matches);
