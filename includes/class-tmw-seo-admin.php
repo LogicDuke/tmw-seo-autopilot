@@ -14,6 +14,7 @@ if (!defined('ABSPATH')) exit;
  */
 class Admin {
     const TAG = '[TMW-SEO-UI]';
+    const CAP = 'manage_options';
     /**
      * Registers admin hooks.
      *
@@ -29,7 +30,8 @@ class Admin {
         add_action('wp_ajax_tmw_bulk_process_batch', [__CLASS__, 'ajax_bulk_process_batch']);
         add_filter('bulk_actions-edit-model', [__CLASS__, 'bulk_action']);
         add_filter('handle_bulk_actions-edit-model', [__CLASS__, 'handle_bulk'], 10, 3);
-        add_action('admin_menu', [__CLASS__, 'tools_page']);
+        add_action('admin_menu', [__CLASS__, 'register_menu'], 9);
+        add_action('admin_init', [__CLASS__, 'redirect_tools_pages']);
         add_action('save_post', [__CLASS__, 'save_video_metabox'], 10, 2);
         add_action('admin_post_tmwseo_generate_now', [__CLASS__, 'handle_generate_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'handle_save_settings']);
@@ -122,7 +124,7 @@ class Admin {
     public static function ajax_get_bulk_models() {
         check_ajax_referer('tmw_bulk_generate', 'nonce');
 
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             wp_send_json_error(['message' => 'No permission']);
         }
 
@@ -167,7 +169,7 @@ class Admin {
     public static function ajax_bulk_process_batch() {
         check_ajax_referer('tmw_bulk_generate', 'nonce');
 
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             wp_send_json_error(['message' => 'No permission']);
         }
 
@@ -264,7 +266,7 @@ class Admin {
      */
     public static function ajax_serper_test() {
         check_ajax_referer('tmwseo_serper_test', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             wp_send_json_error(['message' => 'No permission']);
         }
 
@@ -295,7 +297,7 @@ class Admin {
      */
     public static function ajax_build_keyword_pack() {
         check_ajax_referer('tmwseo_build_keyword_pack', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             wp_send_json_error(['message' => 'No permission']);
         }
 
@@ -430,7 +432,7 @@ class Admin {
         if (!check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce', false)) {
             wp_send_json_error(['message' => 'Invalid nonce.', 'http_status' => 403], 403);
         }
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             wp_send_json_error(['message' => 'No permission.', 'http_status' => 403], 403);
         }
 
@@ -525,15 +527,196 @@ class Admin {
     }
 
     /**
-     * Handles the `admin_menu` hook.
+     * Registers the admin menu structure.
      *
      * @return void
      */
-    public static function tools_page() {
-        add_submenu_page('tools.php', 'TMW SEO Autopilot', 'TMW SEO Autopilot', 'manage_options', 'tmw-seo-autopilot', [__CLASS__, 'render_tools']);
-        add_submenu_page('tools.php', 'TMW SEO Keyword Packs', 'TMW SEO Keyword Packs', 'manage_options', 'tmw-seo-keyword-packs', [__CLASS__, 'render_keyword_packs']);
-        add_submenu_page('tools.php', 'TMW SEO Keyword Usage', 'TMW SEO Keyword Usage', 'manage_options', 'tmw-seo-keyword-usage', [__CLASS__, 'render_keyword_usage']);
-        add_submenu_page('tools.php', 'TMW SEO Usage', 'TMW SEO Usage', 'manage_options', 'tmw-seo-usage', [__CLASS__, 'render_usage_dashboard']);
+    public static function register_menu() {
+        add_menu_page(
+            'TMW SEO Autopilot',
+            'TMW SEO Autopilot',
+            self::CAP,
+            'tmw-seo-autopilot',
+            [__CLASS__, 'render_tools'],
+            'dashicons-chart-area',
+            58
+        );
+
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'Dashboard',
+            'Dashboard',
+            self::CAP,
+            'tmw-seo-autopilot',
+            [__CLASS__, 'render_tools']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'TMW SEO Keyword Packs',
+            'Keyword Packs',
+            self::CAP,
+            'tmw-seo-keyword-packs',
+            [__CLASS__, 'render_keyword_packs']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'TMW SEO Keyword Usage',
+            'Keyword Usage',
+            self::CAP,
+            'tmw-seo-keyword-usage',
+            [__CLASS__, 'render_keyword_usage']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'TMW SEO Usage',
+            'Usage / CSV Stats',
+            self::CAP,
+            'tmw-seo-usage',
+            [__CLASS__, 'render_usage_dashboard']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'Automations / Scheduled Actions',
+            'Automations',
+            self::CAP,
+            'tmw-seo-scheduled-actions',
+            [__CLASS__, 'render_scheduled_actions']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'Codex Reports',
+            'Codex Reports',
+            self::CAP,
+            'tmw-seo-codex-reports',
+            [__CLASS__, 'render_codex_reports']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'TMW SEO Settings',
+            'Settings',
+            self::CAP,
+            'tmw-seo-settings',
+            [__CLASS__, 'render_settings']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'OpenAI Integration',
+            'OpenAI Integration',
+            self::CAP,
+            'tmw-seo-openai',
+            [__CLASS__, 'render_openai_integration']
+        );
+
+        remove_submenu_page('tmw-seo-autopilot', 'tmw-seo-autopilot');
+    }
+
+    /**
+     * Redirects legacy Tools URLs to the top-level menu.
+     *
+     * @return void
+     */
+    public static function redirect_tools_pages() {
+        if (!is_admin()) {
+            return;
+        }
+
+        global $pagenow;
+        $page = sanitize_key($_GET['page'] ?? '');
+        if ($pagenow === 'tools.php' && $page !== '' && strpos($page, 'tmw-seo-') === 0) {
+            wp_safe_redirect(admin_url('admin.php?page=' . $page));
+            exit;
+        }
+    }
+
+    /**
+     * Renders the scheduled actions placeholder page.
+     *
+     * @return void
+     */
+    public static function render_scheduled_actions() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+
+        self::render_placeholder_page(
+            'Automations / Scheduled Actions',
+            'Scheduled actions management will live here. Hook status, queue health, and automation schedules will be surfaced in this view.'
+        );
+    }
+
+    /**
+     * Renders the Codex reports placeholder page.
+     *
+     * @return void
+     */
+    public static function render_codex_reports() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+
+        self::render_placeholder_page(
+            'Codex Reports',
+            'Reporting dashboards are coming soon. This page will host Codex performance and content analytics.'
+        );
+    }
+
+    /**
+     * Renders the settings landing page.
+     *
+     * @return void
+     */
+    public static function render_settings() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+
+        $keyword_packs_url = admin_url('admin.php?page=tmw-seo-keyword-packs');
+        $dashboard_url     = admin_url('admin.php?page=tmw-seo-autopilot');
+        ?>
+        <div class="wrap">
+            <h1>TMW SEO Settings</h1>
+            <p>This space will consolidate provider and automation settings as new integrations arrive.</p>
+            <div class="card">
+                <h2>Current configuration</h2>
+                <ul>
+                    <li><a href="<?php echo esc_url($keyword_packs_url); ?>">Keyword provider settings</a></li>
+                    <li><a href="<?php echo esc_url($dashboard_url); ?>">Video post type controls</a></li>
+                </ul>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Renders the OpenAI integration placeholder page.
+     *
+     * @return void
+     */
+    public static function render_openai_integration() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+
+        self::render_placeholder_page(
+            'OpenAI Integration',
+            'Coming soon. Configure OpenAI providers, models, and guardrails here.'
+        );
+    }
+
+    /**
+     * Renders a placeholder admin page.
+     *
+     * @param string $title Page title.
+     * @param string $message Description text.
+     * @return void
+     */
+    protected static function render_placeholder_page(string $title, string $message) {
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html($title); ?></h1>
+            <p><?php echo esc_html($message); ?></p>
+        </div>
+        <?php
     }
 
     /**
@@ -554,14 +737,14 @@ class Admin {
      * @return void
      */
     public static function handle_usage_reset() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             wp_die('Access denied');
         }
 
         check_admin_referer('tmwseo_usage_reset');
 
         $enabled = (defined('TMWSEO_ENABLE_USAGE_RESET') && TMWSEO_ENABLE_USAGE_RESET) || apply_filters('tmwseo_enable_usage_reset', false);
-        $redirect = add_query_arg('page', 'tmw-seo-usage', admin_url('tools.php'));
+        $redirect = add_query_arg('page', 'tmw-seo-usage', admin_url('admin.php'));
 
         if (!$enabled) {
             wp_safe_redirect(add_query_arg('reset_error', 'disabled', $redirect));
@@ -615,7 +798,7 @@ class Admin {
      * @return void
      */
     public static function render_usage_dashboard() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             return;
         }
 
@@ -790,7 +973,7 @@ class Admin {
      * @return void
      */
     public static function render_keyword_packs() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             return;
         }
 
@@ -800,7 +983,7 @@ class Admin {
 
         if (!empty($_POST['tmwseo_keyword_action'])) {
             check_admin_referer('tmwseo_keyword_packs');
-            if (!current_user_can('manage_options')) {
+            if (!current_user_can(self::CAP)) {
                 return;
             }
 
@@ -937,7 +1120,7 @@ class Admin {
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:640px;">
                 <?php wp_nonce_field('tmwseo_save_settings', 'tmwseo_settings_nonce'); ?>
                 <input type="hidden" name="action" value="tmwseo_save_settings">
-                <input type="hidden" name="redirect_to" value="<?php echo esc_attr(admin_url('tools.php?page=tmw-seo-keyword-packs')); ?>">
+                <input type="hidden" name="redirect_to" value="<?php echo esc_attr(admin_url('admin.php?page=tmw-seo-keyword-packs')); ?>">
                 <table class="form-table">
                     <tr>
                         <th scope="row"><label for="tmwseo_keyword_provider">Keyword Provider</label></th>
@@ -1479,7 +1662,7 @@ class Admin {
      * @return void
      */
     public static function render_keyword_usage() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             return;
         }
 
@@ -1538,7 +1721,7 @@ class Admin {
             'category' => $selected_category,
             'type' => $selected_type,
             'tmwseo_export_usage' => 1,
-        ], admin_url('tools.php'));
+        ], admin_url('admin.php'));
 
         ?>
         <div class="wrap">
@@ -1616,7 +1799,7 @@ class Admin {
      * @return void
      */
     public static function render_tools() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(self::CAP)) {
             return;
         }
 
@@ -2197,9 +2380,9 @@ class Admin {
      * @return void
      */
     public static function handle_save_settings() {
-        if (!current_user_can('manage_options')) wp_die('No permission');
+        if (!current_user_can(self::CAP)) wp_die('No permission');
         if (!isset($_POST['tmwseo_settings_nonce']) || !wp_verify_nonce($_POST['tmwseo_settings_nonce'], 'tmwseo_save_settings')) wp_die('Bad nonce');
-        $redirect = !empty($_POST['redirect_to']) ? esc_url_raw($_POST['redirect_to']) : admin_url('tools.php?page=tmw-seo-autopilot&saved=1');
+        $redirect = !empty($_POST['redirect_to']) ? esc_url_raw($_POST['redirect_to']) : admin_url('admin.php?page=tmw-seo-autopilot&saved=1');
         $pts = isset($_POST['tmwseo_video_pts']) ? (array) $_POST['tmwseo_video_pts'] : [];
         $pts = array_values(array_unique(array_map('sanitize_key', $pts)));
         update_option('tmwseo_video_pts', $pts, false);
