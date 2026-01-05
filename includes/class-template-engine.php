@@ -1,17 +1,25 @@
 <?php
+/**
+ * Template Engine helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
 /**
- * Lightweight template loader that reads arrays from /templates/*.php.
- * Templates are cached via static property and WordPress transients so
- * bulk generation does not repeatedly touch the filesystem.
+ * Template Engine class.
+ *
+ * @package TMW_SEO
  */
 class Template_Engine {
     const CACHE_KEY_PREFIX = 'tmwseo_tpl_';
 
     /**
-     * Load template library by slug (e.g., model-intros => templates/model-intros.php).
+     * Handles load.
+     *
+     * @param string $slug
+     * @return array
      */
     public static function load(string $slug): array {
         $slug      = str_replace(['..', '/'], '', $slug);
@@ -36,7 +44,12 @@ class Template_Engine {
     }
 
     /**
-     * Deterministic selection using crc32 of the seed.
+     * Handles pick.
+     *
+     * @param string $slug
+     * @param string $seed
+     * @param int $offset
+     * @return string
      */
     public static function pick(string $slug, string $seed, int $offset = 0): string {
         $templates = self::load($slug);
@@ -49,7 +62,13 @@ class Template_Engine {
     }
 
     /**
-     * Specialized pick for FAQ entries (arrays with question/answer keys).
+     * Picks faq.
+     *
+     * @param string $slug
+     * @param string $seed
+     * @param int $count
+     * @param int $offset
+     * @return array
      */
     public static function pick_faq(string $slug, string $seed, int $count = 4, int $offset = 0): array {
         $templates = array_values(array_filter(self::load($slug), 'is_array'));
@@ -91,7 +110,11 @@ class Template_Engine {
     }
 
     /**
-     * Replace placeholders in a template string using a context array.
+     * Handles render.
+     *
+     * @param string $template
+     * @param array $context
+     * @return string
      */
     public static function render(string $template, array $context): string {
         $replacements = [];

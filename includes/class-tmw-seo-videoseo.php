@@ -1,12 +1,35 @@
 <?php
+/**
+ * Tmw Seo Videoseo helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Videoseo class.
+ *
+ * @package TMW_SEO
+ */
 class VideoSEO {
+    /**
+     * Registers video SEO hooks.
+     *
+     * @return void
+     */
     public static function boot() {
         add_action('transition_post_status', [__CLASS__, 'on_transition'], 35, 3);
     }
 
+    /**
+     * Handles the `transition_post_status` hook.
+     *
+     * @param string   $new_status New status.
+     * @param string   $old_status Old status.
+     * @param \WP_Post $post Post object.
+     * @return void
+     */
     public static function on_transition($new_status, $old_status, $post) {
         if ($new_status !== 'publish' || $old_status === 'publish') {
             return;
@@ -72,6 +95,13 @@ class VideoSEO {
         unset($processing[$post_id]);
     }
 
+    /**
+     * Generates for video.
+     *
+     * @param int $post_id
+     * @param \WP_Post $post
+     * @return void
+     */
     protected static function generate_for_video(int $post_id, \WP_Post $post): void {
         $raw_model_name = Core::get_video_model_name_raw($post);
         $model_name = Core::sanitize_sfw_text($raw_model_name, 'Live Cam Model');

@@ -1,13 +1,26 @@
 <?php
+/**
+ * Keyword Difficulty Proxy helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Keyword Difficulty Proxy class.
+ *
+ * @package TMW_SEO
+ */
 class Keyword_Difficulty_Proxy {
     const DEFAULT_COMPETITION = 'medium';
     const DEFAULT_CPC = 0.50;
 
     /**
-     * Normalize competition string to low/medium/high.
+     * Normalizes competition.
+     *
+     * @param mixed $value
+     * @return string
      */
     public static function normalize_competition($value): string {
         $value = strtolower(trim((string) $value));
@@ -27,7 +40,10 @@ class Keyword_Difficulty_Proxy {
     }
 
     /**
-     * Normalize CPC to a float value.
+     * Normalizes cpc.
+     *
+     * @param mixed $value
+     * @return float
      */
     public static function normalize_cpc($value): float {
         if (is_numeric($value)) {
@@ -45,7 +61,12 @@ class Keyword_Difficulty_Proxy {
     }
 
     /**
-     * Calculate TMW KD% and allow external providers to override.
+     * Handles score.
+     *
+     * @param string $keyword
+     * @param mixed $competition
+     * @param mixed $cpc
+     * @return int
      */
     public static function score(string $keyword, $competition = null, $cpc = null): int {
         $competition = self::normalize_competition($competition);
@@ -67,7 +88,12 @@ class Keyword_Difficulty_Proxy {
     }
 
     /**
-     * Adjust KD using GSC performance signals (Phase 2).
+     * Handles adjust for gsc.
+     *
+     * @param int $kd
+     * @param int $impressions
+     * @param float $avg_position
+     * @return int
      */
     public static function adjust_for_gsc(int $kd, int $impressions, float $avg_position): int {
         if ($impressions > 100 && $avg_position > 20) {
@@ -80,7 +106,12 @@ class Keyword_Difficulty_Proxy {
     }
 
     /**
-     * Build a normalized keyword row for CSV output.
+     * Builds row.
+     *
+     * @param string $keyword
+     * @param mixed $competition
+     * @param mixed $cpc
+     * @return array
      */
     public static function build_row(string $keyword, $competition = null, $cpc = null): array {
         $competition = self::normalize_competition($competition);
@@ -94,6 +125,12 @@ class Keyword_Difficulty_Proxy {
         ];
     }
 
+    /**
+     * Handles base score.
+     *
+     * @param string $competition
+     * @return int
+     */
     protected static function base_score(string $competition): int {
         switch ($competition) {
             case 'low':
@@ -106,6 +143,12 @@ class Keyword_Difficulty_Proxy {
         }
     }
 
+    /**
+     * Handles cpc bump.
+     *
+     * @param float $cpc
+     * @return int
+     */
     protected static function cpc_bump(float $cpc): int {
         if ($cpc <= 0.50) {
             return 0;
@@ -122,6 +165,12 @@ class Keyword_Difficulty_Proxy {
         return 15;
     }
 
+    /**
+     * Handles longtail discount.
+     *
+     * @param string $keyword
+     * @return int
+     */
     protected static function longtail_discount(string $keyword): int {
         $words = preg_split('/\s+/', trim($keyword));
         $count = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
@@ -138,6 +187,12 @@ class Keyword_Difficulty_Proxy {
         return 20;
     }
 
+    /**
+     * Handles clamp.
+     *
+     * @param int $value
+     * @return int
+     */
     protected static function clamp(int $value): int {
         return max(0, min(100, $value));
     }

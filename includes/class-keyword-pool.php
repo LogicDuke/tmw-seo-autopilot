@@ -1,8 +1,23 @@
 <?php
+/**
+ * Keyword pool utilities.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Keyword Pool class.
+ *
+ * @package TMW_SEO
+ */
 class Keyword_Pool {
+    /**
+     * Returns the base directory for keyword pools.
+     *
+     * @return string
+     */
     public static function pool_dir(): string {
         $uploads = wp_upload_dir();
         $dir     = trailingslashit($uploads['basedir']) . 'tmwseo-keywords/';
@@ -12,6 +27,12 @@ class Keyword_Pool {
         return $dir;
     }
 
+    /**
+     * Loads keywords for a category slug.
+     *
+     * @param string $slug Category slug.
+     * @return array
+     */
     public static function load_category_keywords(string $slug): array {
         $slug = sanitize_title($slug);
         if ($slug === '') {
@@ -76,6 +97,11 @@ class Keyword_Pool {
         return $keywords;
     }
 
+    /**
+     * Returns the usage log path, creating it when missing.
+     *
+     * @return string
+     */
     public static function usage_log_path(): string {
         $path = trailingslashit(self::pool_dir()) . 'usage_log.csv';
         if (!file_exists($path)) {
@@ -88,6 +114,12 @@ class Keyword_Pool {
         return $path;
     }
 
+    /**
+     * Checks whether a keyword has already been logged as used.
+     *
+     * @param string $keyword Keyword text.
+     * @return bool
+     */
     public static function is_used(string $keyword): bool {
         $keyword = strtolower(trim($keyword));
         if ($keyword === '') {
@@ -119,6 +151,16 @@ class Keyword_Pool {
         return $used;
     }
 
+    /**
+     * Logs a keyword as used for a category and post.
+     *
+     * @param string $keyword Keyword text.
+     * @param string $category Category slug.
+     * @param string $post_type Post type slug.
+     * @param int    $post_id Post ID.
+     * @param string $url Post URL.
+     * @return void
+     */
     public static function mark_used(string $keyword, string $category, string $post_type, int $post_id, string $url): void {
         $path = self::usage_log_path();
         $fh   = fopen($path, 'a');
@@ -140,6 +182,16 @@ class Keyword_Pool {
         fclose($fh);
     }
 
+    /**
+     * Picks unused keywords from category pools and logs usage.
+     *
+     * @param array  $categories Category slugs.
+     * @param int    $count Number of keywords to pick.
+     * @param string $post_type Post type slug.
+     * @param int    $post_id Post ID.
+     * @param string $url Post URL.
+     * @return array
+     */
     public static function pick_keywords(array $categories, int $count, string $post_type, int $post_id, string $url): array {
         $count      = max(0, $count);
         $categories = array_values(array_filter(array_unique(array_map('sanitize_title', $categories))));

@@ -1,10 +1,20 @@
 <?php
+/**
+ * Tmw Seo Media helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
+/**
+ * Media class.
+ *
+ * @package TMW_SEO
+ */
 class Media {
     const TAG = '[TMW-SEO-MEDIA]';
 
@@ -20,6 +30,11 @@ class Media {
         'main_thumbnail',
     ];
 
+    /**
+     * Registers media-related hooks.
+     *
+     * @return void
+     */
     public static function boot() {
         if (!is_admin()) {
             return;
@@ -36,6 +51,14 @@ class Media {
         add_action('updated_post_meta', [__CLASS__, 'on_thumb_meta'], 10, 4);
     }
 
+    /**
+     * Handles the `set_post_thumbnail` hook.
+     *
+     * @param int   $post_id Post ID.
+     * @param int   $thumb_id Attachment ID.
+     * @param mixed $meta Optional metadata.
+     * @return void
+     */
     public static function on_set_thumb($post_id, $thumb_id, $meta = null) {
         $post = get_post($post_id);
         if (!$post instanceof \WP_Post) {
@@ -60,15 +83,15 @@ class Media {
     }
 
     /**
-     * Ensure attachment fields are filled whenever _thumbnail_id is set/updated
-     * directly via post meta on ANY post type (models, videos, posts, pages, etc).
+     * Handles the `added_post_meta` and `updated_post_meta` hooks.
      *
-     * This covers importers / plugins that bypass set_post_thumbnail().
+     * Ensures attachment fields are filled when `_thumbnail_id` is updated directly.
      *
-     * @param int    $meta_id
+     * @param int    $meta_id Meta ID.
      * @param int    $object_id Post ID that owns the thumbnail.
-     * @param string $meta_key
-     * @param mixed  $meta_value Attachment ID stored in _thumbnail_id.
+     * @param string $meta_key Meta key.
+     * @param mixed  $meta_value Attachment ID stored in `_thumbnail_id`.
+     * @return void
      */
     public static function on_thumb_meta($meta_id, $object_id, $meta_key, $meta_value) {
         // Only care about the featured image meta.
@@ -98,6 +121,12 @@ class Media {
         self::fill_attachment_fields($thumb_id, $post);
     }
 
+    /**
+     * Handles the `add_attachment` hook.
+     *
+     * @param int $att_id Attachment ID.
+     * @return void
+     */
     public static function on_add_attachment($att_id) {
         $att = get_post($att_id);
         if ($att && 'attachment' === $att->post_type && empty($att->post_title)) {
@@ -105,6 +134,14 @@ class Media {
         }
     }
 
+    /**
+     * Handles the `save_post_{post_type}` hook for video posts.
+     *
+     * @param int      $post_id Post ID.
+     * @param \WP_Post $post Post object.
+     * @param bool     $update Whether this is an existing post.
+     * @return void
+     */
     public static function on_save_video($post_id, $post, $update) {
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
             return;
@@ -130,6 +167,13 @@ class Media {
         self::fill_attachment_fields($thumb_id, $post);
     }
 
+    /**
+     * Fills attachment fields from the parent post context.
+     *
+     * @param int      $thumb_id Attachment ID.
+     * @param \WP_Post $parent_post Parent post.
+     * @return void
+     */
     private static function fill_attachment_fields(int $thumb_id, \WP_Post $parent_post): void {
         if (!$thumb_id || !$parent_post instanceof \WP_Post || !self::supports_post_type($parent_post->post_type)) {
             return;
@@ -155,6 +199,12 @@ class Media {
         }
     }
 
+    /**
+     * Checks whether a post type is supported for media automation.
+     *
+     * @param string $post_type Post type slug.
+     * @return bool
+     */
     private static function supports_post_type(string $post_type): bool {
         return in_array($post_type, array_merge([Core::MODEL_PT], Core::video_post_types()), true);
     }

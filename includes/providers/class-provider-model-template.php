@@ -1,41 +1,26 @@
 <?php
+/**
+ * Provider Model Template helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO\Providers;
 if (!defined('ABSPATH')) exit;
 
 use TMW_SEO\Core;
 
+/**
+ * Modeltemplate class.
+ *
+ * @package TMW_SEO
+ */
 class ModelTemplate {
-    /** MODEL: returns ['title','meta','keywords'=>[5],'content'] */
-    public function generate_model(array $c): array {
-        $name   = isset($c['name']) ? $c['name'] : '';
-        $focus  = $name !== '' ? $name . ' OnlyFans' : 'LiveJasmin model';
-        $title  = sprintf('%s OnlyFans & LiveJasmin | Live Webcam Chat', $name);
-        $title  = mb_substr($title, 0, 60);
-        $meta   = sprintf(
-            'Looking for %s on OnlyFans, Chaturbate, or Stripchat? Watch %s live on LiveJasmin for premium HD webcam shows.',
-            $name,
-            $name
-        );
-
-        $content_payload = \TMW_SEO\Content_Generator::generate_model($c);
-
-        $keywords = array_values(array_unique(array_merge([
-            $focus,
-            $name . ' LiveJasmin',
-            $name . ' webcam',
-            $name . ' Chaturbate',
-            $name . ' cam',
-        ], $content_payload['keywords'])));
-
-        return [
-            'title'    => $title,
-            'meta'     => $meta,
-            'keywords' => $keywords,
-            'content'  => $content_payload['content'],
-        ];
-    }
-
-    /* helpers */
+    /**
+     * Handles html.
+     *
+     * @param array $blocks
+     * @return string
+     */
     protected function html(array $blocks): string {
         $out = '';
         foreach ($blocks as $b) {
@@ -59,6 +44,12 @@ class ModelTemplate {
         return $out;
     }
 
+    /**
+     * Handles faq html.
+     *
+     * @param array $rows
+     * @return array
+     */
     protected function faq_html(array $rows): array {
         $out = [];
         foreach ($rows as $r) {
@@ -68,18 +59,38 @@ class ModelTemplate {
         return $out;
     }
 
+    /**
+     * Handles mini toc.
+     * @return string
+     */
     protected function mini_toc(): string {
         return '<nav class="tmw-mini-toc">
   <a href="#intro">Intro</a> · <a href="#highlights">Highlights</a> · <a href="#faq">FAQ</a>
 </nav>';
     }
 
+    /**
+     * Handles enforce word goal.
+     *
+     * @param string $content
+     * @param string $focus
+     * @param int $min
+     * @param int $max
+     * @return string
+     */
     protected function enforce_word_goal(string $content, string $focus, int $min = 900, int $max = 1200): string {
         // New behavior: do not aggressively pad with repeated paragraphs.
         // We accept whatever the base template produces.
         return $content;
     }
 
+    /**
+     * Applies density guard.
+     *
+     * @param string $content
+     * @param string $focus
+     * @return string
+     */
     protected function apply_density_guard(string $content, string $focus): string {
         // Old behavior: force at least 8 mentions of the focus keyword
         // by appending more paragraphs with the name.

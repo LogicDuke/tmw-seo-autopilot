@@ -1,9 +1,11 @@
 <?php
 /**
- * Image meta generator
+ * Image meta generator helpers.
  *
  * Fills ALT, Title, Caption and Description for attachments
  * when they are used as featured images on video/model posts.
+ *
+ * @package TMW_SEO
  */
 
 namespace TMW_SEO\Media;
@@ -14,13 +16,19 @@ if (!defined('ABSPATH')) {
 
 use TMW_SEO\Core;
 
+/**
+ * Image Meta Generator class.
+ *
+ * @package TMW_SEO
+ */
 class Image_Meta_Generator {
 
     /**
-     * Main entry point – called by our boot class.
+     * Generates metadata for a featured image attachment.
      *
-     * @param int      $attachment_id
-     * @param \WP_Post $parent_post
+     * @param int      $attachment_id Attachment post ID.
+     * @param \WP_Post $parent_post Parent post object.
+     * @return void
      */
     public static function generate_for_featured_image(int $attachment_id, \WP_Post $parent_post): void {
         // Only for real image attachments.
@@ -78,8 +86,8 @@ class Image_Meta_Generator {
     /**
      * Build non-explicit, SEO-friendly text based on context.
      *
-     * @param \WP_Post $attachment
-     * @param \WP_Post $parent_post
+     * @param \WP_Post $attachment Attachment post.
+     * @param \WP_Post $parent_post Parent post.
      * @return array{alt:string,title:string,caption:string,description:string}
      */
     protected static function build_meta_text(\WP_Post $attachment, \WP_Post $parent_post): array {

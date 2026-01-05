@@ -6,12 +6,21 @@
  * Author: The Milisofia Ltd
  * License: GPLv2 or later
  */
+/**
+ * Plugin bootstrap for TMW SEO Autopilot.
+ *
+ * @package TMW_SEO
+ */
 if (!defined('ABSPATH')) exit;
 
+/** Plugin filesystem path. */
 define('TMW_SEO_PATH', plugin_dir_path(__FILE__));
+/** Plugin URL. */
 define('TMW_SEO_URL', plugin_dir_url(__FILE__));
+/** Log tag prefix. */
 define('TMW_SEO_TAG', '[TMW-SEO]');
 if (!defined('TMWSEO_SERPER_DEBUG')) {
+    /** Enable Serper debug logging by default. */
     define('TMWSEO_SERPER_DEBUG', true);
 }
 

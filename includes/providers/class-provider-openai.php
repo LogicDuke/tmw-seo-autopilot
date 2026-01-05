@@ -1,17 +1,41 @@
 <?php
+/**
+ * Provider Openai helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO\Providers;
 if (!defined('ABSPATH')) exit;
 
 use TMW_SEO\Core;
 
+/**
+ * Openai class.
+ *
+ * @package TMW_SEO
+ */
 class OpenAI {
+    /**
+     * Checks whether enabled.
+     * @return bool
+     */
     public static function is_enabled(): bool {
         return defined('TMW_SEO_OPENAI') || defined('OPENAI_API_KEY');
     }
+    /**
+     * Handles api key.
+     * @return string
+     */
     private function api_key(): string {
         return defined('TMW_SEO_OPENAI') ? TMW_SEO_OPENAI : (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '');
     }
 
+    /**
+     * Generates video.
+     *
+     * @param array $ctx
+     * @return array
+     */
     public function generate_video(array $ctx): array {
         $raw = $this->generate([
             'name' => $ctx['name'],
@@ -30,6 +54,12 @@ class OpenAI {
         ];
     }
 
+    /**
+     * Generates model.
+     *
+     * @param array $ctx
+     * @return array
+     */
     public function generate_model(array $ctx): array {
         $raw = $this->generate([
             'name' => $ctx['name'],
@@ -48,6 +78,13 @@ class OpenAI {
         ];
     }
 
+    /**
+     * Handles generate.
+     *
+     * @param array $ctx
+     * @param string $type
+     * @return array
+     */
     public function generate(array $ctx, string $type = 'model'): array {
         if (!$this->api_key()) {
             return [];

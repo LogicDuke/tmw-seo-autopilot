@@ -1,10 +1,24 @@
 <?php
+/**
+ * Keyword Usage helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Keyword Usage class.
+ *
+ * @package TMW_SEO
+ */
 class Keyword_Usage {
     const SCHEMA_VERSION = 1;
 
+    /**
+     * Conditionally upgrade.
+     * @return void
+     */
     public static function maybe_upgrade(): void {
         $current = (int) get_option('tmwseo_keyword_usage_schema', 0);
         if ($current < self::SCHEMA_VERSION) {
@@ -13,6 +27,10 @@ class Keyword_Usage {
         }
     }
 
+    /**
+     * Handles install.
+     * @return void
+     */
     public static function install(): void {
         global $wpdb;
         $charset_collate = $wpdb->get_charset_collate();
@@ -54,6 +72,16 @@ class Keyword_Usage {
         update_option('tmwseo_keyword_usage_schema', self::SCHEMA_VERSION, false);
     }
 
+    /**
+     * Handles record usage.
+     *
+     * @param array $keywords
+     * @param string $category
+     * @param string $type
+     * @param int $post_id
+     * @param string $post_type
+     * @return void
+     */
     public static function record_usage(array $keywords, string $category, string $type, int $post_id, string $post_type): void {
         global $wpdb;
         $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
@@ -105,6 +133,14 @@ class Keyword_Usage {
         }
     }
 
+    /**
+     * Gets usage counts.
+     *
+     * @param array $keywords
+     * @param string $category
+     * @param string $type
+     * @return array
+     */
     public static function get_usage_counts(array $keywords, string $category, string $type): array {
         $stats = self::get_usage_stats($keywords, $category, $type);
         $counts = [];
@@ -114,6 +150,15 @@ class Keyword_Usage {
         return $counts;
     }
 
+    /**
+     * Handles was used recently.
+     *
+     * @param string $keyword
+     * @param string $category
+     * @param string $type
+     * @param int $days
+     * @return bool
+     */
     public static function was_used_recently(string $keyword, string $category, string $type, int $days): bool {
         global $wpdb;
         $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
@@ -137,6 +182,14 @@ class Keyword_Usage {
         return !empty($last_used);
     }
 
+    /**
+     * Gets usage stats.
+     *
+     * @param array $keywords
+     * @param string $category
+     * @param string $type
+     * @return array
+     */
     public static function get_usage_stats(array $keywords, string $category, string $type): array {
         global $wpdb;
         $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
@@ -184,6 +237,13 @@ class Keyword_Usage {
         return $stats;
     }
 
+    /**
+     * Checks whether within days.
+     *
+     * @param ?string $date
+     * @param int $days
+     * @return bool
+     */
     public static function is_within_days(?string $date, int $days): bool {
         if (empty($date)) {
             return false;

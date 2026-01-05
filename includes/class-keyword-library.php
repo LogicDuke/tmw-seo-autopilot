@@ -1,20 +1,42 @@
 <?php
+/**
+ * Keyword Library helpers.
+ *
+ * @package TMW_SEO
+ */
 namespace TMW_SEO;
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Keyword Library class.
+ *
+ * @package TMW_SEO
+ */
 class Keyword_Library {
     protected static $cache = [];
     protected static $blacklist = ['leak', 'download', 'nude', 'torrent', 'teen'];
 
+    /**
+     * Returns the uploads base directory.
+     * @return string
+     */
     public static function uploads_base_dir(): string {
         $uploads = wp_upload_dir();
         return trailingslashit($uploads['basedir']) . 'tmwseo-keywords';
     }
 
+    /**
+     * Returns the plugin base directory.
+     * @return string
+     */
     public static function plugin_base_dir(): string {
         return trailingslashit(TMW_SEO_PATH) . 'data/keywords';
     }
 
+    /**
+     * Ensures dirs and placeholders.
+     * @return void
+     */
     public static function ensure_dirs_and_placeholders(): void {
         $categories = self::categories();
         $types      = ['extra', 'longtail', 'competitor'];
@@ -48,6 +70,10 @@ class Keyword_Library {
         }
     }
 
+    /**
+     * Handles categories.
+     * @return array
+     */
     public static function categories(): array {
         return [
             'general',
@@ -83,7 +109,10 @@ class Keyword_Library {
     }
 
     /**
-     * Map raw looks/tags to canonical category slugs that match keyword folders.
+     * Handles categories from looks.
+     *
+     * @param array $looks
+     * @return array
      */
     public static function categories_from_looks(array $looks): array {
         $looks = array_map('strtolower', array_map('trim', $looks));
@@ -153,6 +182,12 @@ class Keyword_Library {
         return $categories;
     }
 
+    /**
+     * Handles categories from safe tags.
+     *
+     * @param array $safe_tags
+     * @return array
+     */
     public static function categories_from_safe_tags(array $safe_tags): array {
         $safe_tags = array_map('strtolower', array_map('trim', $safe_tags));
         foreach ($safe_tags as $tag) {
@@ -166,6 +201,13 @@ class Keyword_Library {
         return array_slice($matches, 0, 3);
     }
 
+    /**
+     * Handles load.
+     *
+     * @param string $category
+     * @param string $type
+     * @return array
+     */
     public static function load(string $category, string $type): array {
         $category = sanitize_key($category);
         $type     = sanitize_key($type);
@@ -201,6 +243,13 @@ class Keyword_Library {
         return $keywords;
     }
 
+    /**
+     * Loads rows.
+     *
+     * @param string $category
+     * @param string $type
+     * @return array
+     */
     public static function load_rows(string $category, string $type): array {
         $category = sanitize_key($category);
         $type     = sanitize_key($type);
@@ -213,6 +262,15 @@ class Keyword_Library {
         return self::parse_csv_rows($path);
     }
 
+    /**
+     * Handles pick.
+     *
+     * @param string $category
+     * @param string $type
+     * @param int $count
+     * @param string $seed
+     * @return array
+     */
     public static function pick(string $category, string $type, int $count, string $seed): array {
         $keywords = self::load($category, $type);
         if (empty($keywords)) {
@@ -234,6 +292,19 @@ class Keyword_Library {
         return array_values(array_unique($picked));
     }
 
+    /**
+     * Picks multi.
+     *
+     * @param array $categories
+     * @param string $type
+     * @param int $count
+     * @param string $seed
+     * @param array $used_on_page
+     * @param int $cooldown_days
+     * @param int $post_id
+     * @param string $post_type
+     * @return array
+     */
     public static function pick_multi(array $categories, string $type, int $count, string $seed, array $used_on_page = [], int $cooldown_days = 30, int $post_id = 0, string $post_type = ''): array {
         $categories = array_values(array_unique(array_filter(array_map('sanitize_key', $categories))));
         $primary_category = $categories[0] ?? 'general';
@@ -324,6 +395,12 @@ class Keyword_Library {
         return $picked;
     }
 
+    /**
+     * Sanitizes keyword.
+     *
+     * @param string $keyword
+     * @return string
+     */
     protected static function sanitize_keyword(string $keyword): string {
         $keyword = strip_tags($keyword);
         $keyword = preg_replace('/\s+/', ' ', $keyword);
@@ -331,6 +408,12 @@ class Keyword_Library {
         return $keyword;
     }
 
+    /**
+     * Handles parse csv rows.
+     *
+     * @param string $path
+     * @return array
+     */
     protected static function parse_csv_rows(string $path): array {
         $rows = [];
         if (!file_exists($path)) {
@@ -415,6 +498,12 @@ class Keyword_Library {
         return $rows;
     }
 
+    /**
+     * Checks whether blacklisted.
+     *
+     * @param string $keyword
+     * @return bool
+     */
     protected static function is_blacklisted(string $keyword): bool {
         foreach (self::$blacklist as $banned) {
             if (stripos($keyword, $banned) !== false) {
@@ -424,6 +513,10 @@ class Keyword_Library {
         return false;
     }
 
+    /**
+     * Handles flush cache.
+     * @return void
+     */
     public static function flush_cache(): void {
         global $wpdb;
         self::$cache = [];

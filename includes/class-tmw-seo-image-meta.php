@@ -1,9 +1,11 @@
 <?php
 /**
- * TMW SEO – Image meta bootstrap
+ * TMW SEO image meta bootstrap.
  *
  * Hooks into featured image changes for videos and models
  * and calls the media\Image_Meta_Generator helper.
+ *
+ * @package TMW_SEO
  */
 
 namespace TMW_SEO;
@@ -14,8 +16,18 @@ if (!defined('ABSPATH')) {
 
 use TMW_SEO\Media\Image_Meta_Generator;
 
+/**
+ * Image Meta class.
+ *
+ * @package TMW_SEO
+ */
 class Image_Meta {
 
+    /**
+     * Registers image meta hooks.
+     *
+     * @return void
+     */
     public static function boot(): void {
         // When a featured image is set or changed.
         add_action('set_post_thumbnail', [__CLASS__, 'on_set_post_thumbnail'], 10, 2);
@@ -28,10 +40,11 @@ class Image_Meta {
     }
 
     /**
-     * Fires when a thumbnail is selected on the edit screen.
+     * Handles the `set_post_thumbnail` hook.
      *
-     * @param int $post_id
-     * @param int $thumb_id
+     * @param int $post_id Post ID.
+     * @param int $thumb_id Thumbnail attachment ID.
+     * @return void
      */
     public static function on_set_post_thumbnail(int $post_id, int $thumb_id): void {
         $post = get_post($post_id);
@@ -47,11 +60,12 @@ class Image_Meta {
     }
 
     /**
-     * Backup hook – if the importer sets the thumbnail before we’re loaded.
+     * Handles the `save_post_{post_type}` hook for video/model posts.
      *
-     * @param int      $post_id
-     * @param \WP_Post $post
-     * @param bool     $update
+     * @param int      $post_id Post ID.
+     * @param \WP_Post $post Post object.
+     * @param bool     $update Whether this is an existing post.
+     * @return void
      */
     public static function on_save_post_with_thumbnail(int $post_id, \WP_Post $post, bool $update): void {
         if ( ! Core::is_video_post_type( $post->post_type ) && $post->post_type !== Core::MODEL_PT ) {
