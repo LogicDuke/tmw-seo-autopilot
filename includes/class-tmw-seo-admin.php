@@ -355,29 +355,33 @@ class Admin {
     }
 
     public static function ajax_autofill_google_keywords() {
-        check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce');
+        if (!check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce.', 'http_status' => 403], 403);
+        }
         if (!current_user_can('manage_options')) {
-            wp_send_json_error(['message' => 'No permission']);
+            wp_send_json_error(['message' => 'No permission.', 'http_status' => 403], 403);
         }
 
-        // Process categories in batches to keep each AJAX request short.
+        // Endpoint: https://suggestqueries.google.com/complete/search
+        // Root cause (from logs): prior multi-category batches exceeded PHP execution time; switch to seed cursor.
+        // Batch size: 2 seeds (~10-20 suggestions) per call; retries on 429/503 with exponential backoff.
         $categories = Keyword_Library::categories();
-        $batch_size = 5;
-        $batch      = max(0, (int) ($_POST['batch'] ?? 0));
+        $category_index = max(0, (int) ($_POST['category_index'] ?? 0));
+        $seed_offset = max(0, (int) ($_POST['seed_offset'] ?? 0));
         $dry_run    = !empty($_POST['dry_run']);
 
-        $offset = $batch * $batch_size;
-        $batch_categories = array_slice($categories, $offset, $batch_size);
-
-        if (empty($batch_categories)) {
+        if ($category_index >= count($categories)) {
             wp_send_json_success([
-                'done'            => true,
-                'batch'           => $batch,
-                'next_batch'      => $batch + 1,
-                'categories'      => [],
-                'total_keywords'  => 0,
-                'total_categories'=> count($categories),
-                'errors'          => [],
+                'done'               => true,
+                'cursor'             => [
+                    'category_index' => $category_index,
+                    'seed_offset'    => $seed_offset,
+                ],
+                'categories'         => [],
+                'batch_keywords'     => 0,
+                'total_categories'   => count($categories),
+                'completed_categories' => count($categories),
+                'errors'             => [],
             ]);
         }
 
@@ -386,24 +390,36 @@ class Admin {
             'gl' => (string) get_option('tmwseo_serper_gl', 'us'),
             'hl' => (string) get_option('tmwseo_serper_hl', 'en'),
             'per_seed' => 10,
-            'rate_limit_ms' => 500,
+            'rate_limit_ms' => 200,
+            'seed_batch_size' => 2,
+            'accept_language' => 'en-US,en;q=0.9',
         ];
 
-        $result = Keyword_Pack_Builder::autofill_google_autocomplete($batch_categories, $dry_run, $options);
+        $result = Keyword_Pack_Builder::autofill_google_autocomplete_batch(
+            $categories,
+            [
+                'category_index' => $category_index,
+                'seed_offset'    => $seed_offset,
+            ],
+            $dry_run,
+            $options
+        );
 
         if (!$dry_run) {
             Keyword_Library::flush_cache();
         }
 
-        $done = ($offset + $batch_size) >= count($categories);
         wp_send_json_success([
-            'done'            => $done,
-            'batch'           => $batch,
-            'next_batch'      => $batch + 1,
-            'categories'      => $result['categories'] ?? [],
-            'total_keywords'  => $result['total_keywords'] ?? 0,
-            'total_categories'=> count($categories),
-            'errors'          => $result['errors'] ?? [],
+            'done'                => $result['done'] ?? false,
+            'cursor'              => $result['cursor'] ?? [
+                'category_index' => $category_index,
+                'seed_offset'    => $seed_offset,
+            ],
+            'categories'          => $result['categories'] ?? [],
+            'batch_keywords'      => $result['batch_keywords'] ?? 0,
+            'completed_categories'=> $result['completed_categories'] ?? 0,
+            'total_categories'    => count($categories),
+            'errors'              => $result['errors'] ?? [],
         ]);
     }
 
@@ -1177,10 +1193,8 @@ class Admin {
                     tmwseoRunBuild(true);
                 });
 
-                // Google Autocomplete auto-fill (batch-based progress).
+                // Google Autocomplete auto-fill (cursor-based progress).
                 var tmwseoAutofillCategories = <?php echo wp_json_encode($categories); ?>;
-                var tmwseoAutofillBatchSize = 5;
-                var tmwseoAutofillTotalBatches = Math.ceil(tmwseoAutofillCategories.length / tmwseoAutofillBatchSize);
 
                 function tmwseoRenderAutofillStatus(message) {
                     $('#tmwseo-autofill-status').text(message);
@@ -1205,37 +1219,67 @@ class Admin {
                     $log.append($item);
                 }
 
-                function tmwseoRunAutofillBatch(batchIndex, dryRun, state) {
+                function tmwseoFormatAutofillError(error) {
+                    if (!error) {
+                        return 'Unknown error';
+                    }
+                    if (typeof error === 'string') {
+                        return error;
+                    }
+                    var message = error.message || 'Error';
+                    var prefix = error.query ? (error.query + ': ') : '';
+                    var details = [];
+                    if (error.http_code) {
+                        details.push('HTTP ' + error.http_code);
+                    }
+                    if (error.url) {
+                        details.push(error.url);
+                    }
+                    if (error.snippet) {
+                        details.push('Snippet: ' + error.snippet);
+                    }
+                    return prefix + message + (details.length ? ' (' + details.join(' | ') + ')' : '');
+                }
+
+                function tmwseoRunAutofillBatch(cursor, dryRun, state) {
                     var data = {
                         action: 'tmwseo_autofill_google_keywords',
                         nonce: $('#tmwseo-autofill-nonce').val(),
-                        batch: batchIndex,
+                        category_index: cursor.categoryIndex || 0,
+                        seed_offset: cursor.seedOffset || 0,
                         dry_run: dryRun ? 1 : 0
                     };
 
-                    tmwseoRenderAutofillStatus('Processing batch ' + (batchIndex + 1) + ' of ' + tmwseoAutofillTotalBatches + '...');
+                    tmwseoRenderAutofillStatus('Processing category ' + (cursor.categoryIndex + 1) + ' of ' + state.totalCategories + '...');
 
-                    $.post(ajaxurl, data, function(resp){
+                    $.ajax({
+                        url: ajaxurl,
+                        method: 'POST',
+                        data: data
+                    }).done(function(resp){
                         if (resp && resp.success) {
                             var payload = resp.data || {};
                             var categories = payload.categories || [];
                             categories.forEach(function(entry){
                                 var name = entry.category ? entry.category : 'category';
                                 var found = entry.found || 0;
-                                state.completed += 1;
-                                state.totalKeywords += found;
-                                tmwseoAppendAutofillLog('Processing ' + name + '... ' + found + ' keywords found');
+                                var seedOffset = entry.seed_offset || 0;
+                                var seedTotal = entry.seed_total || 0;
+                                var seedStatus = seedTotal ? (' (seed ' + seedOffset + '/' + seedTotal + ')') : '';
+                                tmwseoAppendAutofillLog('Processing ' + name + '... ' + found + ' keywords found' + seedStatus);
                             });
 
                             if (payload.errors && payload.errors.length) {
                                 tmwseoSetAutofillNotice('Some categories returned errors. See log for details.', 'error');
                                 payload.errors.forEach(function(error){
-                                    tmwseoAppendAutofillLog('Error: ' + error, true);
+                                    tmwseoAppendAutofillLog('Error: ' + tmwseoFormatAutofillError(error), true);
                                 });
                             } else {
                                 tmwseoSetAutofillNotice('', '');
                             }
 
+                            state.completed = payload.completed_categories || state.completed;
+                            state.totalKeywords += payload.batch_keywords || 0;
                             var percent = state.totalCategories > 0 ? Math.round((state.completed / state.totalCategories) * 100) : 100;
                             $('#tmwseo-autofill-bar').val(percent);
 
@@ -1251,17 +1295,31 @@ class Admin {
                                 return;
                             }
 
-                            tmwseoRunAutofillBatch(payload.next_batch || (batchIndex + 1), dryRun, state);
+                            var nextCursor = payload.cursor || {};
+                            tmwseoRunAutofillBatch({
+                                categoryIndex: nextCursor.category_index || 0,
+                                seedOffset: nextCursor.seed_offset || 0
+                            }, dryRun, state);
                         } else {
                             var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
-                            tmwseoAppendAutofillLog('Error: ' + message, true);
-                            tmwseoSetAutofillNotice('Auto-fill failed: ' + message, 'error');
+                            var detail = resp && resp.data && resp.data.details ? resp.data.details : '';
+                            var status = resp && resp.data && resp.data.http_status ? ('HTTP ' + resp.data.http_status + ' ') : '';
+                            var extra = detail ? ' (' + detail + ')' : '';
+                            tmwseoAppendAutofillLog('Error: ' + status + message + extra, true);
+                            tmwseoSetAutofillNotice('Auto-fill failed: ' + status + message + extra, 'error');
                             tmwseoRenderAutofillStatus('Stopped due to error.');
                             $('#tmwseo-autofill-start').prop('disabled', false);
                         }
-                    }).fail(function(){
-                        tmwseoAppendAutofillLog('Error: request failed', true);
-                        tmwseoSetAutofillNotice('Auto-fill failed: request failed.', 'error');
+                    }).fail(function(jqXHR){
+                        var statusText = jqXHR && jqXHR.status ? ('HTTP ' + jqXHR.status + ' ') : '';
+                        var message = 'request failed';
+                        if (jqXHR && jqXHR.responseJSON && jqXHR.responseJSON.data && jqXHR.responseJSON.data.message) {
+                            message = jqXHR.responseJSON.data.message;
+                        } else if (jqXHR && jqXHR.responseText && jqXHR.responseText.trim().charAt(0) === '<') {
+                            message = 'Server error (likely fatal). Check debug.log.';
+                        }
+                        tmwseoAppendAutofillLog('Error: ' + statusText + message, true);
+                        tmwseoSetAutofillNotice('Auto-fill failed: ' + statusText + message, 'error');
                         tmwseoRenderAutofillStatus('Stopped due to error.');
                         $('#tmwseo-autofill-start').prop('disabled', false);
                     });
@@ -1289,7 +1347,7 @@ class Admin {
                         totalKeywords: 0
                     };
 
-                    tmwseoRunAutofillBatch(0, dryRun, state);
+                    tmwseoRunAutofillBatch({categoryIndex: 0, seedOffset: 0}, dryRun, state);
                 });
             })(jQuery);
             </script>

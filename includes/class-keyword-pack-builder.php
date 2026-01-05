@@ -902,50 +902,96 @@ class Keyword_Pack_Builder {
         return $result;
     }
     
-    protected static function fetch_google_suggestions(string $query, string $hl, string $gl, int $limit, int $rate_limit_ms, float &$last_call, array &$errors): array {
-        // Enforce a 500ms rate limit between outbound Google Suggest calls.
+    protected static function fetch_google_suggestions(
+        string $category,
+        string $query,
+        string $hl,
+        string $gl,
+        int $limit,
+        int $rate_limit_ms,
+        float &$last_call,
+        array &$errors,
+        int $max_retries = 3,
+        string $accept_language = 'en-US,en;q=0.9'
+    ): array {
+        // Enforce a 150-300ms rate limit between outbound Google Suggest calls.
         $client = self::google_suggest_client();
-        $backoff_key = 'tmwseo_google_suggest_backoff';
-        $backoff_until = (int) get_transient($backoff_key);
-        if ($backoff_until > time()) {
-            $errors[] = sprintf('%s: Google rate-limit cooldown active.', $query);
-            Core::debug_log(sprintf('[TMW-AUTOFILL] Backoff active for "%s".', $query));
-            return [];
-        }
 
-        if ($rate_limit_ms > 0 && $last_call > 0) {
-            $elapsed = (microtime(true) - $last_call) * 1000;
-            if ($elapsed < $rate_limit_ms) {
-                usleep((int) (($rate_limit_ms - $elapsed) * 1000));
+        $attempt = 0;
+        $backoff = [0.5, 1.0, 2.0];
+        while ($attempt <= $max_retries) {
+            if ($rate_limit_ms > 0 && $last_call > 0) {
+                $elapsed = (microtime(true) - $last_call) * 1000;
+                if ($elapsed < $rate_limit_ms) {
+                    usleep((int) (($rate_limit_ms - $elapsed) * 1000));
+                }
             }
-        }
 
-        $result = $client->fetch($query, $hl, $gl);
+            $result = $client->fetch(
+                $query,
+                $hl,
+                $gl,
+                [
+                    'accept_language' => $accept_language,
+                    'timeout'         => 18,
+                ]
+            );
 
-        if (!$client->was_last_cached()) {
-            $last_call = microtime(true);
-        }
+            if (!$client->was_last_cached()) {
+                $last_call = microtime(true);
+            }
 
-        if (is_wp_error($result)) {
+            if (!is_wp_error($result)) {
+                return array_slice((array) $result, 0, $limit);
+            }
+
             $data = $result->get_error_data();
             $http_code = is_array($data) ? (int) ($data['http_code'] ?? 0) : 0;
             $message = $result->get_error_message();
-            Core::debug_log(sprintf('[TMW-AUTOFILL] Google Suggest error for "%s": %s', $query, $message));
+            $snippet = is_array($data) ? (string) ($data['body_snippet'] ?? '') : '';
+            $url_hint = is_array($data) ? (string) ($data['url'] ?? '') : '';
 
-            // Retry after cooling off if Google responds with a rate-limit error.
-            if ($http_code === 429) {
-                $cooldown = 60;
-                set_transient($backoff_key, time() + $cooldown, $cooldown);
-                Core::debug_log('[TMW-AUTOFILL] Rate limit hit, entering cooldown.');
-                $errors[] = sprintf('%s: Google rate limit hit; cooldown started.', $query);
-                return [];
+            Core::debug_log(sprintf(
+                '[TMW-KEYPACKS] Google Suggest error (%s/%s): %s (HTTP %d) %s %s',
+                $category,
+                $query,
+                $message,
+                $http_code,
+                $url_hint,
+                $snippet ? 'Snippet: ' . $snippet : ''
+            ));
+
+            if (in_array($http_code, [429, 503], true) && $attempt < $max_retries) {
+                $delay = $backoff[min($attempt, count($backoff) - 1)];
+                usleep((int) ($delay * 1000000));
+                $attempt++;
+                continue;
             }
 
-            $errors[] = sprintf('%s: %s', $query, $message);
+            $snippet = $snippet !== '' ? wp_strip_all_tags($snippet) : '';
+            if (in_array($http_code, [429, 503], true)) {
+                $errors[] = [
+                    'category'  => $category,
+                    'query'     => $query,
+                    'message'   => sprintf('Google rate limited (HTTP %d). Please try again later.', $http_code),
+                    'http_code' => $http_code,
+                    'url'       => $url_hint,
+                    'snippet'   => $snippet,
+                ];
+            } else {
+                $errors[] = [
+                    'category'  => $category,
+                    'query'     => $query,
+                    'message'   => $message,
+                    'http_code' => $http_code,
+                    'url'       => $url_hint,
+                    'snippet'   => $snippet,
+                ];
+            }
             return [];
         }
 
-        return array_slice((array) $result, 0, $limit);
+        return [];
     }
 
     public static function autofill_google_autocomplete(array $categories, bool $dry_run = false, array $options = []): array {
@@ -965,7 +1011,8 @@ class Keyword_Pack_Builder {
         // Keep Google autocomplete suggestions to the requested 8-10 range.
         $per_seed = (int) ($options['per_seed'] ?? 10);
         $per_seed = max(8, min(10, $per_seed));
-        $rate_limit_ms = (int) ($options['rate_limit_ms'] ?? 500);
+        $rate_limit_ms = (int) ($options['rate_limit_ms'] ?? 200);
+        $accept_language = sanitize_text_field((string) ($options['accept_language'] ?? 'en-US,en;q=0.9'));
 
         $brands = ['livejasmin', 'chaturbate', 'stripchat'];
         $priority = ['extra' => 1, 'longtail' => 2, 'competitor' => 3];
@@ -995,7 +1042,7 @@ class Keyword_Pack_Builder {
                 }
 
                 // Pull suggestions from Google Autocomplete (with retry on 429s).
-                $suggestions = self::fetch_google_suggestions($seed, $hl, $gl, $per_seed, $rate_limit_ms, $last_call, $summary['errors']);
+                $suggestions = self::fetch_google_suggestions($category, $seed, $hl, $gl, $per_seed, $rate_limit_ms, $last_call, $summary['errors'], 3, $accept_language);
                 foreach ($suggestions as $suggestion) {
                     ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword((string) $suggestion);
                     if ($normalized === '' || !self::is_allowed($normalized, $display)) {
@@ -1076,6 +1123,188 @@ class Keyword_Pack_Builder {
 
             $summary['categories'][] = $category_entry;
         }
+
+        return $summary;
+    }
+
+    public static function autofill_google_autocomplete_batch(array $categories, array $cursor, bool $dry_run = false, array $options = []): array {
+        $seeds_file = TMW_SEO_PATH . 'data/google-autocomplete-seeds.php';
+        $all_seeds = file_exists($seeds_file) ? require $seeds_file : [];
+        if (!is_array($all_seeds)) {
+            return [
+                'done'               => true,
+                'cursor'             => $cursor,
+                'categories'         => [],
+                'batch_keywords'     => 0,
+                'errors'             => ['Seed file missing or invalid.'],
+                'completed_categories' => 0,
+            ];
+        }
+
+        $gl = sanitize_text_field((string) ($options['gl'] ?? get_option('tmwseo_serper_gl', 'us')));
+        $hl = sanitize_text_field((string) ($options['hl'] ?? get_option('tmwseo_serper_hl', 'en')));
+        $per_seed = (int) ($options['per_seed'] ?? 10);
+        $per_seed = max(8, min(10, $per_seed));
+        $rate_limit_ms = (int) ($options['rate_limit_ms'] ?? 200);
+        $accept_language = sanitize_text_field((string) ($options['accept_language'] ?? 'en-US,en;q=0.9'));
+        $seed_batch_size = max(1, min(5, (int) ($options['seed_batch_size'] ?? 2)));
+
+        $category_index = max(0, (int) ($cursor['category_index'] ?? 0));
+        $seed_offset = max(0, (int) ($cursor['seed_offset'] ?? 0));
+        $total_categories = count($categories);
+
+        if ($category_index >= $total_categories) {
+            return [
+                'done'                => true,
+                'cursor'              => $cursor,
+                'categories'          => [],
+                'batch_keywords'      => 0,
+                'errors'              => [],
+                'completed_categories' => $total_categories,
+            ];
+        }
+
+        $category = sanitize_key($categories[$category_index]);
+        $seeds = $all_seeds[$category] ?? [];
+        $seeds = array_values(array_unique(array_filter(array_map('trim', (array) $seeds), 'strlen')));
+
+        $summary = [
+            'done'                => false,
+            'cursor'              => $cursor,
+            'categories'          => [],
+            'batch_keywords'      => 0,
+            'errors'              => [],
+            'completed_categories' => $category_index,
+        ];
+
+        if (empty($seeds)) {
+            $summary['errors'][] = sprintf('%s: no seeds found.', $category);
+            $summary['categories'][] = [
+                'category'       => $category,
+                'found'          => 0,
+                'seed_offset'    => $seed_offset,
+                'seed_total'     => 0,
+                'category_done'  => true,
+            ];
+            $summary['cursor'] = [
+                'category_index' => $category_index + 1,
+                'seed_offset'    => 0,
+            ];
+            $summary['completed_categories'] = $category_index + 1;
+            $summary['done'] = ($category_index + 1) >= $total_categories;
+            return $summary;
+        }
+
+        $seed_slice = array_slice($seeds, $seed_offset, $seed_batch_size);
+        $last_call = 0.0;
+        $keyword_map = [];
+
+        $brands = ['livejasmin', 'chaturbate', 'stripchat'];
+        $priority = ['extra' => 1, 'longtail' => 2, 'competitor' => 3];
+
+        foreach ($seed_slice as $seed) {
+            $seed = sanitize_text_field($seed);
+            if ($seed === '') {
+                continue;
+            }
+
+            $suggestions = self::fetch_google_suggestions($category, $seed, $hl, $gl, $per_seed, $rate_limit_ms, $last_call, $summary['errors'], 3, $accept_language);
+            foreach ($suggestions as $suggestion) {
+                ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword((string) $suggestion);
+                if ($normalized === '' || !self::is_allowed($normalized, $display)) {
+                    continue;
+                }
+
+                $word_count = self::keyword_word_count($display);
+                if ($word_count <= 1) {
+                    continue;
+                }
+
+                $type = null;
+                foreach ($brands as $brand) {
+                    if (stripos($display, $brand) !== false) {
+                        $type = 'competitor';
+                        break;
+                    }
+                }
+
+                if (!$type) {
+                    $type = $word_count >= 5 ? 'longtail' : 'extra';
+                }
+
+                $row = [
+                    'keyword'     => $display,
+                    'word_count'  => $word_count,
+                    'type'        => $type,
+                    'source_seed' => $seed,
+                    'category'    => $category,
+                    'timestamp'   => current_time('mysql'),
+                    'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                    'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                    'tmw_kd'      => Keyword_Difficulty_Proxy::score($display, Keyword_Difficulty_Proxy::DEFAULT_COMPETITION, Keyword_Difficulty_Proxy::DEFAULT_CPC),
+                ];
+
+                if (!isset($keyword_map[$normalized]) || $priority[$type] > $priority[$keyword_map[$normalized]['type']]) {
+                    $keyword_map[$normalized] = $row;
+                }
+            }
+        }
+
+        $rows_by_type = [
+            'extra'      => [],
+            'longtail'   => [],
+            'competitor' => [],
+        ];
+        foreach ($keyword_map as $row) {
+            $rows_by_type[$row['type']][] = $row;
+        }
+
+        $found_count = count($keyword_map);
+        $summary['batch_keywords'] = $found_count;
+
+        $category_entry = [
+            'category'      => $category,
+            'found'         => $found_count,
+            'seed_offset'   => $seed_offset + count($seed_slice),
+            'seed_total'    => count($seeds),
+            'category_done' => ($seed_offset + count($seed_slice)) >= count($seeds),
+            'counts'        => [
+                'extra'      => count($rows_by_type['extra']),
+                'longtail'   => count($rows_by_type['longtail']),
+                'competitor' => count($rows_by_type['competitor']),
+            ],
+        ];
+
+        if (!$dry_run) {
+            $new_counts = [];
+            foreach ($rows_by_type as $type => $rows) {
+                $before = count(Keyword_Library::load($category, $type));
+                $after = self::merge_write_csv($category, $type, $rows, false);
+                $new_counts[$type] = max(0, $after - $before);
+            }
+            $category_entry['new_counts'] = $new_counts;
+            Core::debug_log(sprintf('[TMW-KEYPACKS] %s: %d keywords processed (seed %d/%d).', $category, $found_count, $category_entry['seed_offset'], $category_entry['seed_total']));
+        } else {
+            Core::debug_log(sprintf('[TMW-KEYPACKS] %s: %d keywords previewed (seed %d/%d).', $category, $found_count, $category_entry['seed_offset'], $category_entry['seed_total']));
+        }
+
+        $summary['categories'][] = $category_entry;
+
+        if ($category_entry['category_done']) {
+            $summary['cursor'] = [
+                'category_index' => $category_index + 1,
+                'seed_offset'    => 0,
+            ];
+            $summary['completed_categories'] = $category_index + 1;
+        } else {
+            $summary['cursor'] = [
+                'category_index' => $category_index,
+                'seed_offset'    => $category_entry['seed_offset'],
+            ];
+            $summary['completed_categories'] = $category_index;
+        }
+
+        $summary['done'] = $summary['completed_categories'] >= $total_categories;
 
         return $summary;
     }
