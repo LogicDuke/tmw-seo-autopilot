@@ -26,6 +26,7 @@ if (!defined('TMWSEO_SERPER_DEBUG')) {
 
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-admin.php';
+require_once TMW_SEO_PATH . 'includes/admin/class-admin-ui.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-cli.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-rankmath.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-videoseo.php';

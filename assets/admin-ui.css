@@ -1,0 +1,151 @@
+.tmwseo-admin {
+    max-width: 1200px;
+}
+
+.tmwseo-admin-hero {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 12px 0 16px;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+}
+
+.tmwseo-admin-brand-title {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.tmwseo-admin-brand-subtitle {
+    color: #646970;
+    font-size: 13px;
+}
+
+.tmwseo-admin-page h1 {
+    margin: 0;
+    font-size: 22px;
+}
+
+.tmwseo-admin-tabs {
+    margin-top: 0;
+}
+
+.tmwseo-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin: 18px 0;
+}
+
+.tmwseo-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.tmwseo-card h3 {
+    margin-top: 0;
+    font-size: 14px;
+    color: #646970;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.tmwseo-kpi-value {
+    font-size: 30px;
+    font-weight: 600;
+    margin: 8px 0;
+}
+
+.tmwseo-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.tmwseo-progress {
+    background: #f0f0f1;
+    border-radius: 999px;
+    height: 8px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.tmwseo-progress span {
+    display: block;
+    height: 100%;
+    background: #2271b1;
+}
+
+.tmwseo-alert {
+    color: #b32d2e;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.tmwseo-text-good {
+    color: #116329;
+    font-weight: 600;
+}
+
+.tmwseo-text-bad {
+    color: #b32d2e;
+    font-weight: 600;
+}
+
+.tmwseo-masked {
+    display: inline-block;
+    margin-left: 8px;
+    color: #646970;
+    font-size: 12px;
+}
+
+.tmwseo-status-connected {
+    background: #edfaef;
+    color: #116329;
+}
+
+.tmwseo-status-missing {
+    background: #fcf2f2;
+    color: #b32d2e;
+}
+
+.tmwseo-integrations-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+}
+
+.tmwseo-provider-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.tmwseo-inline-form {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #f0f0f1;
+}
+
+.tmwseo-hidden {
+    display: none;
+}
+
+.tmwseo-quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
