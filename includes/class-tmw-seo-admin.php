@@ -656,6 +656,34 @@ class Admin {
                     }
                 }
             }
+
+            if ($action === 'import_planner' && !empty($_FILES['tmwseo_planner_csv']['tmp_name'])) {
+                $category = sanitize_key($_POST['tmwseo_planner_category'] ?? '');
+                $type     = sanitize_key($_POST['tmwseo_planner_type'] ?? '');
+
+                if (!in_array($category, $categories, true)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Invalid category selected.'];
+                } elseif (!in_array($type, ['extra', 'longtail', 'competitor'], true)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Invalid keyword type selected.'];
+                } elseif (!is_uploaded_file($_FILES['tmwseo_planner_csv']['tmp_name'])) {
+                    $notices[] = ['type' => 'error', 'text' => 'Upload failed.'];
+                } elseif (strtolower(pathinfo($_FILES['tmwseo_planner_csv']['name'], PATHINFO_EXTENSION)) !== 'csv') {
+                    $notices[] = ['type' => 'error', 'text' => 'Please upload a CSV file.'];
+                } else {
+                    Keyword_Library::ensure_dirs_and_placeholders();
+                    $import = Keyword_Pack_Builder::import_keyword_planner_csv($category, $type, $_FILES['tmwseo_planner_csv']['tmp_name']);
+                    Keyword_Library::flush_cache();
+                    $notices[] = [
+                        'type' => 'updated',
+                        'text' => sprintf(
+                            'Imported %d keywords for %s (%s).',
+                            (int) $import['imported'],
+                            esc_html($category),
+                            esc_html($type)
+                        ),
+                    ];
+                }
+            }
         }
 
         $uploads_base = Keyword_Library::uploads_base_dir();
@@ -691,6 +719,22 @@ class Admin {
         $serper_nonce   = wp_create_nonce('tmwseo_serper_test');
         $build_nonce    = wp_create_nonce('tmwseo_build_keyword_pack');
         $default_per    = 10;
+
+        $status_category = sanitize_key($_GET['tmwseo_status_category'] ?? ($categories[0] ?? 'general'));
+        if (!in_array($status_category, $categories, true)) {
+            $status_category = $categories[0] ?? 'general';
+        }
+        $status_type = sanitize_key($_GET['tmwseo_status_type'] ?? 'extra');
+        if (!in_array($status_type, $types, true)) {
+            $status_type = 'extra';
+        }
+        $filter_easy_kd = !empty($_GET['tmwseo_kd_under_40']);
+        $status_rows_preview = Keyword_Library::load_rows($status_category, $status_type);
+        if ($filter_easy_kd) {
+            $status_rows_preview = array_values(array_filter($status_rows_preview, function ($row) {
+                return isset($row['tmw_kd']) && (int) $row['tmw_kd'] < 40;
+            }));
+        }
 
         ?>
         <div class="wrap">
@@ -819,6 +863,64 @@ class Admin {
                 </tbody>
             </table>
 
+            <h2 class="title" style="margin-top:30px;">Keyword Status</h2>
+            <form method="get" style="margin-bottom:15px;">
+                <input type="hidden" name="page" value="tmw-seo-keyword-packs">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_status_category">Category</label></th>
+                        <td>
+                            <select name="tmwseo_status_category" id="tmwseo_status_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>" <?php selected($status_category, $cat); ?>><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_status_type">Type</label></th>
+                        <td>
+                            <select name="tmwseo_status_type" id="tmwseo_status_type">
+                                <?php foreach ($types as $type) : ?>
+                                    <option value="<?php echo esc_attr($type); ?>" <?php selected($status_type, $type); ?>><?php echo esc_html($type); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Filters</th>
+                        <td>
+                            <label><input type="checkbox" name="tmwseo_kd_under_40" value="1" <?php checked($filter_easy_kd); ?>> Show only KD &lt; 40 (easy wins)</label>
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit"><button type="submit" class="button button-primary">Apply</button></p>
+            </form>
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Competition</th>
+                        <th>CPC</th>
+                        <th>TMW KD%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($status_rows_preview)) : ?>
+                        <tr><td colspan="4">No keywords found for this selection.</td></tr>
+                    <?php else : ?>
+                        <?php foreach (array_slice($status_rows_preview, 0, 200) as $row) : ?>
+                            <tr>
+                                <td><?php echo esc_html($row['keyword'] ?? ''); ?></td>
+                                <td><?php echo esc_html($row['competition'] ?? Keyword_Difficulty_Proxy::DEFAULT_COMPETITION); ?></td>
+                                <td><?php echo esc_html(number_format((float) ($row['cpc'] ?? Keyword_Difficulty_Proxy::DEFAULT_CPC), 2, '.', '')); ?></td>
+                                <td><?php echo esc_html((int) ($row['tmw_kd'] ?? 0)); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+
             <h2 class="title" style="margin-top:30px;">Upload CSV</h2>
             <form method="post" enctype="multipart/form-data">
                 <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
@@ -850,6 +952,42 @@ class Admin {
                     </tr>
                 </table>
                 <p class="submit"><button type="submit" class="button button-primary">Upload</button></p>
+            </form>
+
+            <h2 class="title" style="margin-top:30px;">Import Keyword Planner Data</h2>
+            <form method="post" enctype="multipart/form-data">
+                <?php wp_nonce_field('tmwseo_keyword_packs'); ?>
+                <input type="hidden" name="tmwseo_keyword_action" value="import_planner">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_planner_category">Category</label></th>
+                        <td>
+                            <select name="tmwseo_planner_category" id="tmwseo_planner_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>"><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_planner_type">Type</label></th>
+                        <td>
+                            <select name="tmwseo_planner_type" id="tmwseo_planner_type">
+                                <option value="extra">extra</option>
+                                <option value="longtail">longtail</option>
+                                <option value="competitor">competitor</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_planner_csv">Keyword Planner CSV</label></th>
+                        <td>
+                            <input type="file" name="tmwseo_planner_csv" id="tmwseo_planner_csv" accept=".csv" required>
+                            <p class="description">Expected columns include Keyword, Competition, and Top of page bid.</p>
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit"><button type="submit" class="button button-primary">Import Keyword Planner Data</button></p>
             </form>
 
             <h2 class="title" style="margin-top:30px;">Maintenance</h2>

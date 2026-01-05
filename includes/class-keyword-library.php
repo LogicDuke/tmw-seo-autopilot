@@ -29,7 +29,7 @@ class Keyword_Library {
                 }
 
                 $placeholder_rows = [
-                    ['keyword'],
+                    ['keyword', 'competition', 'cpc', 'tmw_kd'],
                 ];
 
                 foreach ($types as $type) {
@@ -188,38 +188,29 @@ class Keyword_Library {
             return $cached;
         }
 
-        $keywords = [];
-        if (file_exists($path)) {
-            $fh = fopen($path, 'r');
-            if ($fh) {
-                $first = true;
-                while (($row = fgetcsv($fh)) !== false) {
-                    if (count($row) === 0) {
-                        continue;
-                    }
-                    $value = isset($row[0]) ? self::sanitize_keyword($row[0]) : '';
-                    if ($value === '') {
-                        continue;
-                    }
-                    if ($first && strtolower($value) === 'keyword') {
-                        $first = false;
-                        continue;
-                    }
-                    $first = false;
-                    if (self::is_blacklisted($value)) {
-                        continue;
-                    }
-                    $keywords[] = $value;
-                }
-                fclose($fh);
-            }
-        }
+        $rows = self::parse_csv_rows($path);
+        $keywords = array_map(function ($row) {
+            return $row['keyword'] ?? '';
+        }, $rows);
+        $keywords = array_filter($keywords, 'strlen');
 
         $keywords = array_values(array_unique($keywords));
         self::$cache[$cache_key] = $keywords;
         set_transient($transient_key, $keywords, DAY_IN_SECONDS);
 
         return $keywords;
+    }
+
+    public static function load_rows(string $category, string $type): array {
+        $category = sanitize_key($category);
+        $type     = sanitize_key($type);
+
+        $uploads_path = trailingslashit(self::uploads_base_dir()) . "{$category}/{$type}.csv";
+        $plugin_path  = trailingslashit(self::plugin_base_dir()) . "{$category}/{$type}.csv";
+
+        $path = file_exists($uploads_path) ? $uploads_path : $plugin_path;
+
+        return self::parse_csv_rows($path);
     }
 
     public static function pick(string $category, string $type, int $count, string $seed): array {
@@ -338,6 +329,90 @@ class Keyword_Library {
         $keyword = preg_replace('/\s+/', ' ', $keyword);
         $keyword = trim($keyword);
         return $keyword;
+    }
+
+    protected static function parse_csv_rows(string $path): array {
+        $rows = [];
+        if (!file_exists($path)) {
+            return $rows;
+        }
+
+        $fh = fopen($path, 'r');
+        if (!$fh) {
+            return $rows;
+        }
+
+        $header_map = [];
+        $first_row  = fgetcsv($fh);
+        $data_rows  = [];
+
+        // Allow legacy single-column CSVs while supporting extended metadata headers.
+        if ($first_row !== false && is_array($first_row)) {
+            $normalized_header = array_map(function ($col) {
+                return strtolower(trim((string) $col));
+            }, $first_row);
+            $normalized_header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) ($normalized_header[0] ?? ''));
+
+            foreach ($normalized_header as $index => $col) {
+                if ($col === 'keyword' || $col === 'phrase') {
+                    $header_map['keyword'] = $index;
+                }
+                if ($col === 'competition') {
+                    $header_map['competition'] = $index;
+                }
+                if ($col === 'cpc') {
+                    $header_map['cpc'] = $index;
+                }
+                if ($col === 'tmw_kd' || $col === 'tmw_kd%') {
+                    $header_map['tmw_kd'] = $index;
+                }
+            }
+
+            if (empty($header_map)) {
+                $data_rows = [$first_row];
+            }
+        }
+
+        while (($row = fgetcsv($fh)) !== false) {
+            $data_rows[] = $row;
+        }
+        fclose($fh);
+
+        $keyword_index = $header_map['keyword'] ?? 0;
+
+        foreach ($data_rows as $row) {
+            $raw_keyword = isset($row[$keyword_index]) ? self::sanitize_keyword((string) $row[$keyword_index]) : '';
+            if ($raw_keyword === '') {
+                continue;
+            }
+
+            if (self::is_blacklisted($raw_keyword)) {
+                continue;
+            }
+
+            $competition = isset($header_map['competition'], $row[$header_map['competition']])
+                ? $row[$header_map['competition']]
+                : Keyword_Difficulty_Proxy::DEFAULT_COMPETITION;
+            $cpc = isset($header_map['cpc'], $row[$header_map['cpc']])
+                ? $row[$header_map['cpc']]
+                : Keyword_Difficulty_Proxy::DEFAULT_CPC;
+            $tmw_kd_raw = isset($header_map['tmw_kd'], $row[$header_map['tmw_kd']])
+                ? $row[$header_map['tmw_kd']]
+                : '';
+
+            $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
+            $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
+            $tmw_kd      = $tmw_kd_raw !== '' ? (int) round((float) $tmw_kd_raw) : Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+
+            $rows[] = [
+                'keyword'     => $raw_keyword,
+                'competition' => $competition,
+                'cpc'         => $cpc,
+                'tmw_kd'      => max(0, min(100, $tmw_kd)),
+            ];
+        }
+
+        return $rows;
     }
 
     protected static function is_blacklisted(string $keyword): bool {
