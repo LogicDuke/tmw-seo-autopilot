@@ -905,6 +905,13 @@ class Keyword_Pack_Builder {
     protected static function fetch_google_suggestions(string $query, string $hl, string $gl, int $limit, int $rate_limit_ms, float &$last_call, array &$errors): array {
         // Enforce a 500ms rate limit between outbound Google Suggest calls.
         $client = self::google_suggest_client();
+        $backoff_key = 'tmwseo_google_suggest_backoff';
+        $backoff_until = (int) get_transient($backoff_key);
+        if ($backoff_until > time()) {
+            $errors[] = sprintf('%s: Google rate-limit cooldown active.', $query);
+            Core::debug_log(sprintf('[TMW-AUTOFILL] Backoff active for "%s".', $query));
+            return [];
+        }
 
         if ($rate_limit_ms > 0 && $last_call > 0) {
             $elapsed = (microtime(true) - $last_call) * 1000;
@@ -927,14 +934,11 @@ class Keyword_Pack_Builder {
 
             // Retry after cooling off if Google responds with a rate-limit error.
             if ($http_code === 429) {
-                Core::debug_log('[TMW-AUTOFILL] Rate limit hit, pausing 60s before retry.');
-                sleep(60);
-                $retry = $client->fetch($query, $hl, $gl);
-                if (is_wp_error($retry)) {
-                    $errors[] = sprintf('%s: %s', $query, $retry->get_error_message());
-                    return [];
-                }
-                return array_slice((array) $retry, 0, $limit);
+                $cooldown = 60;
+                set_transient($backoff_key, time() + $cooldown, $cooldown);
+                Core::debug_log('[TMW-AUTOFILL] Rate limit hit, entering cooldown.');
+                $errors[] = sprintf('%s: Google rate limit hit; cooldown started.', $query);
+                return [];
             }
 
             $errors[] = sprintf('%s: %s', $query, $message);
