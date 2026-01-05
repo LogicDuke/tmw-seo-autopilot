@@ -29,7 +29,7 @@ class Keyword_Library {
                 }
 
                 $placeholder_rows = [
-                    ['keyword', 'competition', 'cpc', 'tmw_kd'],
+                    ['keyword', 'word_count', 'type', 'source_seed', 'category', 'timestamp', 'competition', 'cpc', 'tmw_kd'],
                 ];
 
                 foreach ($types as $type) {

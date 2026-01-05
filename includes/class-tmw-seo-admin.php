@@ -22,6 +22,7 @@ class Admin {
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
         add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
+        add_action('wp_ajax_tmwseo_autofill_google_keywords', [__CLASS__, 'ajax_autofill_google_keywords']);
     }
 
     public static function assets($hook) {
@@ -351,6 +352,59 @@ class Admin {
 
         delete_transient($lock_key);
         wp_send_json_success($response);
+    }
+
+    public static function ajax_autofill_google_keywords() {
+        check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+
+        // Process categories in batches to keep each AJAX request short.
+        $categories = Keyword_Library::categories();
+        $batch_size = 5;
+        $batch      = max(0, (int) ($_POST['batch'] ?? 0));
+        $dry_run    = !empty($_POST['dry_run']);
+
+        $offset = $batch * $batch_size;
+        $batch_categories = array_slice($categories, $offset, $batch_size);
+
+        if (empty($batch_categories)) {
+            wp_send_json_success([
+                'done'            => true,
+                'batch'           => $batch,
+                'next_batch'      => $batch + 1,
+                'categories'      => [],
+                'total_keywords'  => 0,
+                'total_categories'=> count($categories),
+                'errors'          => [],
+            ]);
+        }
+
+        // Use saved locale settings for Google Autocomplete.
+        $options = [
+            'gl' => (string) get_option('tmwseo_serper_gl', 'us'),
+            'hl' => (string) get_option('tmwseo_serper_hl', 'en'),
+            'per_seed' => 10,
+            'rate_limit_ms' => 500,
+        ];
+
+        $result = Keyword_Pack_Builder::autofill_google_autocomplete($batch_categories, $dry_run, $options);
+
+        if (!$dry_run) {
+            Keyword_Library::flush_cache();
+        }
+
+        $done = ($offset + $batch_size) >= count($categories);
+        wp_send_json_success([
+            'done'            => $done,
+            'batch'           => $batch,
+            'next_batch'      => $batch + 1,
+            'categories'      => $result['categories'] ?? [],
+            'total_keywords'  => $result['total_keywords'] ?? 0,
+            'total_categories'=> count($categories),
+            'errors'          => $result['errors'] ?? [],
+        ]);
     }
 
     public static function bulk_action($actions) {
@@ -718,6 +772,7 @@ class Admin {
         }
         $serper_nonce   = wp_create_nonce('tmwseo_serper_test');
         $build_nonce    = wp_create_nonce('tmwseo_build_keyword_pack');
+        $autofill_nonce = wp_create_nonce('tmwseo_autofill_google_keywords');
         $default_per    = 10;
 
         $status_category = sanitize_key($_GET['tmwseo_status_category'] ?? ($categories[0] ?? 'general'));
@@ -835,6 +890,23 @@ class Admin {
                     <span id="tmwseo-build-result" style="margin-left:10px;"></span>
                 </p>
             </form>
+
+            <h2 class="title" style="margin-top:30px;">Auto-Fill from Google Autocomplete</h2>
+            <p>Fetch Google Autocomplete suggestions for all categories and auto-populate <code>extra.csv</code>, <code>longtail.csv</code>, and <code>competitor.csv</code> inside <code>wp-content/uploads/tmwseo-keywords</code>.</p>
+            <div style="max-width:760px;">
+                <div id="tmwseo-autofill-notice"></div>
+                <input type="hidden" id="tmwseo-autofill-nonce" value="<?php echo esc_attr($autofill_nonce); ?>">
+                <label><input type="checkbox" id="tmwseo-autofill-dry-run" value="1"> Preview without saving</label>
+                <p class="submit">
+                    <button type="button" class="button button-primary" id="tmwseo-autofill-start">Auto-Fill from Google Autocomplete</button>
+                </p>
+                <div id="tmwseo-autofill-progress" style="display:none; margin-top:10px;">
+                    <progress id="tmwseo-autofill-bar" value="0" max="100" style="width:100%;"></progress>
+                    <div id="tmwseo-autofill-status" style="margin-top:8px;"></div>
+                    <ul id="tmwseo-autofill-log" style="margin-top:8px;"></ul>
+                </div>
+                <div id="tmwseo-autofill-summary" style="margin-top:10px; font-weight:600;"></div>
+            </div>
 
             <h2 class="title">Status</h2>
             <p><strong>Uploads base:</strong> <?php echo esc_html($uploads_base); ?></p>
@@ -1103,6 +1175,121 @@ class Admin {
                 $('#tmwseo-build-preview').on('click', function(e){
                     e.preventDefault();
                     tmwseoRunBuild(true);
+                });
+
+                // Google Autocomplete auto-fill (batch-based progress).
+                var tmwseoAutofillCategories = <?php echo wp_json_encode($categories); ?>;
+                var tmwseoAutofillBatchSize = 5;
+                var tmwseoAutofillTotalBatches = Math.ceil(tmwseoAutofillCategories.length / tmwseoAutofillBatchSize);
+
+                function tmwseoRenderAutofillStatus(message) {
+                    $('#tmwseo-autofill-status').text(message);
+                }
+
+                function tmwseoSetAutofillNotice(message, type) {
+                    var $notice = $('#tmwseo-autofill-notice');
+                    if (!message) {
+                        $notice.empty();
+                        return;
+                    }
+                    var noticeClass = type === 'error' ? 'notice notice-error' : 'notice notice-success';
+                    $notice.html('<div class="' + noticeClass + '"><p>' + message + '</p></div>');
+                }
+
+                function tmwseoAppendAutofillLog(message, isError) {
+                    var $log = $('#tmwseo-autofill-log');
+                    var $item = $('<li/>').text(message);
+                    if (isError) {
+                        $item.css('color', '#b32d2e');
+                    }
+                    $log.append($item);
+                }
+
+                function tmwseoRunAutofillBatch(batchIndex, dryRun, state) {
+                    var data = {
+                        action: 'tmwseo_autofill_google_keywords',
+                        nonce: $('#tmwseo-autofill-nonce').val(),
+                        batch: batchIndex,
+                        dry_run: dryRun ? 1 : 0
+                    };
+
+                    tmwseoRenderAutofillStatus('Processing batch ' + (batchIndex + 1) + ' of ' + tmwseoAutofillTotalBatches + '...');
+
+                    $.post(ajaxurl, data, function(resp){
+                        if (resp && resp.success) {
+                            var payload = resp.data || {};
+                            var categories = payload.categories || [];
+                            categories.forEach(function(entry){
+                                var name = entry.category ? entry.category : 'category';
+                                var found = entry.found || 0;
+                                state.completed += 1;
+                                state.totalKeywords += found;
+                                tmwseoAppendAutofillLog('Processing ' + name + '... ' + found + ' keywords found');
+                            });
+
+                            if (payload.errors && payload.errors.length) {
+                                tmwseoSetAutofillNotice('Some categories returned errors. See log for details.', 'error');
+                                payload.errors.forEach(function(error){
+                                    tmwseoAppendAutofillLog('Error: ' + error, true);
+                                });
+                            } else {
+                                tmwseoSetAutofillNotice('', '');
+                            }
+
+                            var percent = state.totalCategories > 0 ? Math.round((state.completed / state.totalCategories) * 100) : 100;
+                            $('#tmwseo-autofill-bar').val(percent);
+
+                            if (payload.done) {
+                                tmwseoRenderAutofillStatus('Completed.');
+                                $('#tmwseo-autofill-summary').text('Completed! ' + state.totalCategories + ' categories, ' + state.totalKeywords + ' total keywords' + (dryRun ? ' (preview)' : '') + '.');
+                                $('#tmwseo-autofill-start').prop('disabled', false);
+                                if (!dryRun) {
+                                    setTimeout(function(){
+                                        location.reload();
+                                    }, 1200);
+                                }
+                                return;
+                            }
+
+                            tmwseoRunAutofillBatch(payload.next_batch || (batchIndex + 1), dryRun, state);
+                        } else {
+                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
+                            tmwseoAppendAutofillLog('Error: ' + message, true);
+                            tmwseoSetAutofillNotice('Auto-fill failed: ' + message, 'error');
+                            tmwseoRenderAutofillStatus('Stopped due to error.');
+                            $('#tmwseo-autofill-start').prop('disabled', false);
+                        }
+                    }).fail(function(){
+                        tmwseoAppendAutofillLog('Error: request failed', true);
+                        tmwseoSetAutofillNotice('Auto-fill failed: request failed.', 'error');
+                        tmwseoRenderAutofillStatus('Stopped due to error.');
+                        $('#tmwseo-autofill-start').prop('disabled', false);
+                    });
+                }
+
+                $('#tmwseo-autofill-start').on('click', function(e){
+                    e.preventDefault();
+                    var $btn = $(this);
+                    var dryRun = $('#tmwseo-autofill-dry-run').is(':checked');
+                    if (!tmwseoAutofillCategories.length) {
+                        tmwseoRenderAutofillStatus('No categories available.');
+                        return;
+                    }
+
+                    $btn.prop('disabled', true);
+                    $('#tmwseo-autofill-log').empty();
+                    $('#tmwseo-autofill-summary').text('');
+                    tmwseoSetAutofillNotice('', '');
+                    $('#tmwseo-autofill-progress').show();
+                    $('#tmwseo-autofill-bar').val(0);
+
+                    var state = {
+                        totalCategories: tmwseoAutofillCategories.length,
+                        completed: 0,
+                        totalKeywords: 0
+                    };
+
+                    tmwseoRunAutofillBatch(0, dryRun, state);
                 });
             })(jQuery);
             </script>
