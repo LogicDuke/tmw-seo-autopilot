@@ -101,7 +101,6 @@ class Keyword_Scheduler {
             }
 
             $file_data = &$file_store[$file_key];
-            $indexes   = $file_data['indexes'];
             $row_index = $ref['row_index'];
 
             $volume_row = $volume_data[$keyword] ?? [];

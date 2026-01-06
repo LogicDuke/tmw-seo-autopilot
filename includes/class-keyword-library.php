@@ -402,7 +402,7 @@ class Keyword_Library {
      * @param string $keyword
      * @return string
      */
-    protected static function sanitize_keyword(string $keyword): string {
+    public static function sanitize_keyword(string $keyword): string {
         $keyword = strip_tags($keyword);
         $keyword = preg_replace('/\s+/', ' ', $keyword);
         $keyword = trim($keyword);
