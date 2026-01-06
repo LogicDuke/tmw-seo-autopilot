@@ -1372,91 +1372,9 @@ class Keyword_Pack_Builder {
         if ($fh) {
             if (!$append) {
                 fputcsv($fh, self::csv_columns());
-                foreach ($final as $row) {
-                    $row = array_merge(
-                        [
-                            'word_count'  => self::keyword_word_count($row['keyword']),
-                            'type'        => $type,
-                            'source_seed' => '',
-                            'category'    => $category,
-                            'timestamp'   => current_time('mysql'),
-                            'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
-                            'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
-                            'tmw_kd'      => null,
-                            'search_volume' => null,
-                            'competition_level' => '',
-                            'kd_keyword_used' => $row['keyword'],
-                            'tmw_kd_source' => '',
-                        ],
-                        $row
-                    );
-                    $cpc_value = is_numeric($row['cpc']) ? number_format((float) $row['cpc'], 2, '.', '') : '';
-                    $tmw_kd_value = $row['tmw_kd'];
-                    $tmw_kd_csv = $tmw_kd_value === null ? '' : (int) $tmw_kd_value;
-                    $search_volume = $row['search_volume'];
-                    $search_volume_csv = $search_volume === null ? '' : (int) $search_volume;
-                    $competition_level = $row['competition_level'] !== '' ? $row['competition_level'] : $row['competition'];
-                    $kd_keyword_used = $row['kd_keyword_used'] !== '' ? $row['kd_keyword_used'] : $row['keyword'];
-                    $kd_source = $row['tmw_kd_source'] ?? '';
-                    fputcsv($fh, [
-                        $row['keyword'],
-                        (int) $row['word_count'],
-                        $row['type'],
-                        $row['source_seed'],
-                        $row['category'],
-                        $row['timestamp'],
-                        $row['competition'],
-                        $cpc_value,
-                        $tmw_kd_csv,
-                        $search_volume_csv,
-                        $competition_level,
-                        $kd_keyword_used,
-                        $kd_source,
-                    ]);
-                }
+                self::write_csv_rows($fh, $final, $type, $category);
             } else {
-                foreach ($new_only as $row) {
-                    $row = array_merge(
-                        [
-                            'word_count'  => self::keyword_word_count($row['keyword']),
-                            'type'        => $type,
-                            'source_seed' => '',
-                            'category'    => $category,
-                            'timestamp'   => current_time('mysql'),
-                            'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
-                            'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
-                            'tmw_kd'      => null,
-                            'search_volume' => null,
-                            'competition_level' => '',
-                            'kd_keyword_used' => $row['keyword'],
-                            'tmw_kd_source' => '',
-                        ],
-                        $row
-                    );
-                    $cpc_value = is_numeric($row['cpc']) ? number_format((float) $row['cpc'], 2, '.', '') : '';
-                    $tmw_kd_value = $row['tmw_kd'];
-                    $tmw_kd_csv = $tmw_kd_value === null ? '' : (int) $tmw_kd_value;
-                    $search_volume = $row['search_volume'];
-                    $search_volume_csv = $search_volume === null ? '' : (int) $search_volume;
-                    $competition_level = $row['competition_level'] !== '' ? $row['competition_level'] : $row['competition'];
-                    $kd_keyword_used = $row['kd_keyword_used'] !== '' ? $row['kd_keyword_used'] : $row['keyword'];
-                    $kd_source = $row['tmw_kd_source'] ?? '';
-                    fputcsv($fh, [
-                        $row['keyword'],
-                        (int) $row['word_count'],
-                        $row['type'],
-                        $row['source_seed'],
-                        $row['category'],
-                        $row['timestamp'],
-                        $row['competition'],
-                        $cpc_value,
-                        $tmw_kd_csv,
-                        $search_volume_csv,
-                        $competition_level,
-                        $kd_keyword_used,
-                        $kd_source,
-                    ]);
-                }
+                self::write_csv_rows($fh, $new_only, $type, $category);
             }
             fclose($fh);
         }
@@ -2029,7 +1947,16 @@ class Keyword_Pack_Builder {
         }, $keyword_map);
 
         $volume_data = $client->search_volume($keywords, $location_code, $language_code);
-        $kd_data     = $client->resolve_keyword_difficulty($keywords, $location_code, $language_code);
+        if (is_wp_error($volume_data)) {
+            error_log(sprintf('[TMW SEO] DataForSEO search volume failed: %s', $volume_data->get_error_message()));
+            $volume_data = [];
+        }
+
+        $kd_data = $client->resolve_keyword_difficulty($keywords, $location_code, $language_code);
+        if (is_wp_error($kd_data)) {
+            error_log(sprintf('[TMW SEO] DataForSEO keyword difficulty failed: %s', $kd_data->get_error_message()));
+            $kd_data = [];
+        }
 
         foreach ($keyword_map as &$row) {
             $keyword = $row['keyword'] ?? '';
@@ -2060,5 +1987,73 @@ class Keyword_Pack_Builder {
         unset($row);
 
         return $keyword_map;
+    }
+
+    /**
+     * Prepare a CSV row with defaults and formatting.
+     *
+     * @param array  $row      Keyword data row.
+     * @param string $type     Keyword type.
+     * @param string $category Keyword category.
+     * @return array
+     */
+    protected static function prepare_csv_row(array $row, string $type, string $category): array {
+        $row = array_merge(
+            [
+                'word_count'  => self::keyword_word_count($row['keyword']),
+                'type'        => $type,
+                'source_seed' => '',
+                'category'    => $category,
+                'timestamp'   => current_time('mysql'),
+                'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                'tmw_kd'      => null,
+                'search_volume' => null,
+                'competition_level' => '',
+                'kd_keyword_used' => $row['keyword'],
+                'tmw_kd_source' => '',
+            ],
+            $row
+        );
+
+        $cpc_value = is_numeric($row['cpc']) ? number_format((float) $row['cpc'], 2, '.', '') : '';
+        $tmw_kd_value = $row['tmw_kd'];
+        $tmw_kd_csv = $tmw_kd_value === null ? '' : (int) $tmw_kd_value;
+        $search_volume = $row['search_volume'];
+        $search_volume_csv = $search_volume === null ? '' : (int) $search_volume;
+        $competition_level = $row['competition_level'] !== '' ? $row['competition_level'] : $row['competition'];
+        $kd_keyword_used = $row['kd_keyword_used'] !== '' ? $row['kd_keyword_used'] : $row['keyword'];
+        $kd_source = $row['tmw_kd_source'] ?? '';
+
+        return [
+            $row['keyword'],
+            (int) $row['word_count'],
+            $row['type'],
+            $row['source_seed'],
+            $row['category'],
+            $row['timestamp'],
+            $row['competition'],
+            $cpc_value,
+            $tmw_kd_csv,
+            $search_volume_csv,
+            $competition_level,
+            $kd_keyword_used,
+            $kd_source,
+        ];
+    }
+
+    /**
+     * Write CSV rows to a file handle.
+     *
+     * @param resource $fh       File handle.
+     * @param array    $rows     Rows to write.
+     * @param string   $type     Keyword type.
+     * @param string   $category Keyword category.
+     * @return void
+     */
+    protected static function write_csv_rows($fh, array $rows, string $type, string $category): void {
+        foreach ($rows as $row) {
+            fputcsv($fh, self::prepare_csv_row($row, $type, $category));
+        }
     }
 }
