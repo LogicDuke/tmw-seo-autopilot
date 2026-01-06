@@ -453,6 +453,18 @@ class Keyword_Library {
                 if ($col === 'tmw_kd' || $col === 'tmw_kd%') {
                     $header_map['tmw_kd'] = $index;
                 }
+                if ($col === 'search_volume') {
+                    $header_map['search_volume'] = $index;
+                }
+                if ($col === 'competition_level') {
+                    $header_map['competition_level'] = $index;
+                }
+                if ($col === 'kd_keyword_used') {
+                    $header_map['kd_keyword_used'] = $index;
+                }
+                if ($col === 'kd_source' || $col === 'tmw_kd_source') {
+                    $header_map['kd_source'] = $index;
+                }
             }
 
             if (empty($header_map)) {
@@ -486,27 +498,45 @@ class Keyword_Library {
             $tmw_kd_raw = isset($header_map['tmw_kd'], $row[$header_map['tmw_kd']])
                 ? $row[$header_map['tmw_kd']]
                 : '';
+            $search_volume = isset($header_map['search_volume'], $row[$header_map['search_volume']])
+                ? (int) $row[$header_map['search_volume']]
+                : null;
+            $competition_level = isset($header_map['competition_level'], $row[$header_map['competition_level']])
+                ? trim((string) $row[$header_map['competition_level']])
+                : '';
+            $kd_keyword_used = isset($header_map['kd_keyword_used'], $row[$header_map['kd_keyword_used']])
+                ? (string) $row[$header_map['kd_keyword_used']]
+                : '';
+            $kd_source_csv = isset($header_map['kd_source'], $row[$header_map['kd_source']])
+                ? strtolower(trim((string) $row[$header_map['kd_source']]))
+                : '';
 
             $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
+            if ($competition_level !== '') {
+                $competition = Keyword_Difficulty_Proxy::normalize_competition($competition_level);
+            }
             $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
             $normalized_kd = KD_Filter::normalize_kd_value($tmw_kd_raw);
             $kd_source     = $normalized_kd === null ? 'missing' : 'provided';
 
             if ($normalized_kd === null) {
-                $missing_kd++;
-                $tmw_kd = Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+                if ($kd_source_csv === 'unknown') {
+                    $tmw_kd = null;
+                    $kd_source = 'unknown';
+                } else {
+                    $missing_kd++;
+                    $tmw_kd = Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+                    $kd_source = $kd_source_csv !== '' ? $kd_source_csv : 'proxy';
+                }
             } else {
                 $valid_kd++;
                 $tmw_kd = $normalized_kd;
 
-                // When tmw_kd_raw is provided alongside default competition/cpc values, re-run Keyword_Difficulty_Proxy::score()
-                // so the Proxy's default-handling heuristics (brand detection and word-count adjustments) produce the canonical
-                // difficulty score for the raw_keyword. This ensures tmw_kd reflects the Proxy's DEFAULT_* handling rather than
-                // the raw import value when competition === DEFAULT_COMPETITION and cpc === DEFAULT_CPC.
                 if ($competition === Keyword_Difficulty_Proxy::DEFAULT_COMPETITION && abs($cpc - Keyword_Difficulty_Proxy::DEFAULT_CPC) < 0.00001) {
                     $tmw_kd = Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
                 }
 
+                $kd_source = $kd_source_csv !== '' ? $kd_source_csv : 'provided';
                 $min_kd = $min_kd === null ? $tmw_kd : min($min_kd, $tmw_kd);
                 $max_kd = $max_kd === null ? $tmw_kd : max($max_kd, $tmw_kd);
             }
@@ -515,8 +545,11 @@ class Keyword_Library {
                 'keyword'     => $raw_keyword,
                 'competition' => $competition,
                 'cpc'         => $cpc,
-                'tmw_kd'      => max(0, min(100, $tmw_kd)),
+                'tmw_kd'      => $tmw_kd === null ? null : max(0, min(100, $tmw_kd)),
                 'tmw_kd_source' => $kd_source,
+                'search_volume' => $search_volume,
+                'competition_level' => $competition_level !== '' ? $competition_level : $competition,
+                'kd_keyword_used' => $kd_keyword_used !== '' ? $kd_keyword_used : $raw_keyword,
             ];
         }
 

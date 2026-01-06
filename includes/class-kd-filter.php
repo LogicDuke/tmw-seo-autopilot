@@ -61,7 +61,12 @@ class KD_Filter {
         $min = $min_kd ?? $settings['min'];
 
         return array_filter($keywords, function ($kw) use ($min, $max) {
-            $kd = is_array($kw) ? (int) ($kw['tmw_kd'] ?? 50) : 50;
+            $kd = is_array($kw)
+                ? self::normalize_kd_value($kw['tmw_kd'] ?? null)
+                : self::normalize_kd_value($kw);
+            if ($kd === null) {
+                return false;
+            }
             return $kd >= $min && $kd <= $max;
         });
     }
@@ -75,8 +80,10 @@ class KD_Filter {
      */
     public static function sort_by_kd(array $keywords, string $order = 'asc'): array {
         usort($keywords, function ($a, $b) use ($order) {
-            $kd_a = is_array($a) ? (int) ($a['tmw_kd'] ?? 50) : 50;
-            $kd_b = is_array($b) ? (int) ($b['tmw_kd'] ?? 50) : 50;
+            $kd_a = is_array($a) ? self::normalize_kd_value($a['tmw_kd'] ?? null) : self::normalize_kd_value($a);
+            $kd_b = is_array($b) ? self::normalize_kd_value($b['tmw_kd'] ?? null) : self::normalize_kd_value($b);
+            $kd_a = $kd_a === null ? PHP_INT_MAX : $kd_a;
+            $kd_b = $kd_b === null ? PHP_INT_MAX : $kd_b;
             return $order === 'asc' ? $kd_a - $kd_b : $kd_b - $kd_a;
         });
 
@@ -102,13 +109,13 @@ class KD_Filter {
 
         // Split into low and other
         $low_kd = array_filter($keywords, function ($kw) {
-            $kd = is_array($kw) ? (int) ($kw['tmw_kd'] ?? 50) : 50;
-            return $kd <= 30;
+            $kd = is_array($kw) ? self::normalize_kd_value($kw['tmw_kd'] ?? null) : self::normalize_kd_value($kw);
+            return $kd !== null && $kd <= 30;
         });
 
         $other = array_filter($keywords, function ($kw) {
-            $kd = is_array($kw) ? (int) ($kw['tmw_kd'] ?? 50) : 50;
-            return $kd > 30;
+            $kd = is_array($kw) ? self::normalize_kd_value($kw['tmw_kd'] ?? null) : self::normalize_kd_value($kw);
+            return $kd === null || $kd > 30;
         });
 
         // Sort both by KD
