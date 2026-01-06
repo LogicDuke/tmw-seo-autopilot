@@ -180,17 +180,29 @@ class KD_Filter {
     public static function get_distribution_stats(array $keywords): array {
         $stats = [
             'total' => count($keywords),
-            'very_easy' => 0,  // 0-20
-            'easy' => 0,       // 21-30
-            'medium' => 0,     // 31-50
-            'hard' => 0,       // 51-70
-            'very_hard' => 0,  // 71-100
+            'very_easy' => 0,   // 0-20
+            'easy' => 0,        // 21-30
+            'medium' => 0,      // 31-50
+            'hard' => 0,        // 51-70
+            'very_hard' => 0,   // 71-100
+            'unscored' => 0,    // Missing KD
         ];
 
         foreach ($keywords as $kw) {
-            $kd = is_array($kw) ? (int) ($kw['tmw_kd'] ?? 50) : 50;
+            $kd_source = is_array($kw) ? ($kw['tmw_kd_source'] ?? 'provided') : 'provided';
+            $kd_value  = is_array($kw) ? ($kw['tmw_kd'] ?? null) : $kw;
 
-            if ($kd <= 20) {
+            // If the CSV lacked KD, treat as unscored even if we estimated later.
+            if ($kd_source === 'missing') {
+                $stats['unscored']++;
+                continue;
+            }
+
+            $kd = self::normalize_kd_value($kd_value);
+
+            if ($kd === null) {
+                $stats['unscored']++;
+            } elseif ($kd <= 20) {
                 $stats['very_easy']++;
             } elseif ($kd <= 30) {
                 $stats['easy']++;
@@ -204,5 +216,34 @@ class KD_Filter {
         }
 
         return $stats;
+    }
+
+    /**
+     * Normalize KD values from CSV or database into a 0-100 integer.
+     *
+     * @param mixed $value Raw KD value.
+     * @return int|null
+     */
+    public static function normalize_kd_value($value): ?int {
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return null;
+            }
+            if (substr($value, -1) === '%') {
+                $value = substr($value, 0, -1);
+            }
+        }
+
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        $numeric = (float) $value;
+        if ($numeric >= 0 && $numeric <= 1) {
+            $numeric *= 100;
+        }
+
+        return (int) round(max(0, min(100, $numeric)));
     }
 }

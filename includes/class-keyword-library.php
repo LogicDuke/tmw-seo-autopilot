@@ -250,7 +250,7 @@ class Keyword_Library {
      * @param string $type
      * @return array
      */
-    public static function load_rows(string $category, string $type): array {
+    public static function load_rows(string $category, string $type, bool $log_stats = false): array {
         $category = sanitize_key($category);
         $type     = sanitize_key($type);
 
@@ -259,7 +259,7 @@ class Keyword_Library {
 
         $path = file_exists($uploads_path) ? $uploads_path : $plugin_path;
 
-        return self::parse_csv_rows($path);
+        return self::parse_csv_rows($path, $category, $type, $log_stats);
     }
 
     /**
@@ -414,7 +414,7 @@ class Keyword_Library {
      * @param string $path
      * @return array
      */
-    protected static function parse_csv_rows(string $path): array {
+    protected static function parse_csv_rows(string $path, ?string $category = null, ?string $type = null, bool $log_stats = false): array {
         $rows = [];
         if (!file_exists($path)) {
             return $rows;
@@ -428,6 +428,10 @@ class Keyword_Library {
         $header_map = [];
         $first_row  = fgetcsv($fh);
         $data_rows  = [];
+        $valid_kd   = 0;
+        $missing_kd = 0;
+        $min_kd     = null;
+        $max_kd     = null;
 
         // Allow legacy single-column CSVs while supporting extended metadata headers.
         if ($first_row !== false && is_array($first_row)) {
@@ -485,13 +489,26 @@ class Keyword_Library {
 
             $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
             $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
-            $tmw_kd      = $tmw_kd_raw !== '' ? (int) round((float) $tmw_kd_raw) : Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
-            // When tmw_kd_raw is provided alongside default competition/cpc values, re-run Keyword_Difficulty_Proxy::score()
-            // so the Proxy's default-handling heuristics (brand detection and word-count adjustments) produce the canonical
-            // difficulty score for the raw_keyword. This ensures tmw_kd reflects the Proxy's DEFAULT_* handling rather than
-            // the raw import value when competition === DEFAULT_COMPETITION and cpc === DEFAULT_CPC.
-            if ($tmw_kd_raw !== '' && $competition === Keyword_Difficulty_Proxy::DEFAULT_COMPETITION && abs($cpc - Keyword_Difficulty_Proxy::DEFAULT_CPC) < 0.00001) {
+            $normalized_kd = KD_Filter::normalize_kd_value($tmw_kd_raw);
+            $kd_source     = $normalized_kd === null ? 'missing' : 'provided';
+
+            if ($normalized_kd === null) {
+                $missing_kd++;
                 $tmw_kd = Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+            } else {
+                $valid_kd++;
+                $tmw_kd = $normalized_kd;
+
+                // When tmw_kd_raw is provided alongside default competition/cpc values, re-run Keyword_Difficulty_Proxy::score()
+                // so the Proxy's default-handling heuristics (brand detection and word-count adjustments) produce the canonical
+                // difficulty score for the raw_keyword. This ensures tmw_kd reflects the Proxy's DEFAULT_* handling rather than
+                // the raw import value when competition === DEFAULT_COMPETITION and cpc === DEFAULT_CPC.
+                if ($competition === Keyword_Difficulty_Proxy::DEFAULT_COMPETITION && abs($cpc - Keyword_Difficulty_Proxy::DEFAULT_CPC) < 0.00001) {
+                    $tmw_kd = Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+                }
+
+                $min_kd = $min_kd === null ? $tmw_kd : min($min_kd, $tmw_kd);
+                $max_kd = $max_kd === null ? $tmw_kd : max($max_kd, $tmw_kd);
             }
 
             $rows[] = [
@@ -499,7 +516,21 @@ class Keyword_Library {
                 'competition' => $competition,
                 'cpc'         => $cpc,
                 'tmw_kd'      => max(0, min(100, $tmw_kd)),
+                'tmw_kd_source' => $kd_source,
             ];
+        }
+
+        if ($log_stats) {
+            $label = $category && $type ? "{$category}/{$type}" : basename($path);
+            error_log(sprintf(
+                '[TMWSEO-KEYWORD-HEALTH] %s: rows=%d, with_kd=%d, missing_kd=%d, min_kd=%s, max_kd=%s',
+                $label,
+                count($data_rows),
+                $valid_kd,
+                $missing_kd,
+                $min_kd === null ? 'n/a' : $min_kd,
+                $max_kd === null ? 'n/a' : $max_kd
+            ));
         }
 
         return $rows;

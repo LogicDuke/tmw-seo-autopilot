@@ -3072,6 +3072,11 @@ class Admin {
                         <td><strong style="color: #dc3545;"><?php echo $stats['very_hard']; ?></strong></td>
                         <td><?php echo $stats['total'] > 0 ? round($stats['very_hard'] / $stats['total'] * 100) : 0; ?>%</td>
                     </tr>
+                    <tr>
+                        <td>Unscored (no KD)</td>
+                        <td><strong><?php echo $stats['unscored']; ?></strong></td>
+                        <td><?php echo $stats['total'] > 0 ? round($stats['unscored'] / $stats['total'] * 100) : 0; ?>%</td>
+                    </tr>
                 </table>
                 <p style="margin-top: 10px;">
                     <strong>Current Mode:</strong> <?php echo ucfirst(str_replace('_', ' ', get_option('tmwseo_kd_mode', 'balanced'))); ?><br>
@@ -3319,21 +3324,35 @@ class Admin {
      * Helper: Get all used keywords for stats
      */
     protected static function get_all_used_keywords(): array {
-        // Load from keyword usage table
-        global $wpdb;
-        $table = $wpdb->prefix . 'tmwseo_keyword_usage';
-        
-        $rows = $wpdb->get_results(
-            "SELECT keyword_text, used_count FROM {$table} ORDER BY used_count DESC LIMIT 1000",
-            ARRAY_A
-        );
-        
-        // Add estimated KD based on keyword length/complexity
-        foreach ($rows as &$row) {
-            $row['tmw_kd'] = \TMW_SEO\Keyword_Difficulty_Proxy::score($row['keyword_text']);
+        $categories = \TMW_SEO\Keyword_Library::categories();
+        $types      = ['extra', 'longtail', 'competitor'];
+        $all_rows   = [];
+        $csv_files  = 0;
+
+        foreach ($categories as $category) {
+            foreach ($types as $type) {
+                $uploads_path = trailingslashit(\TMW_SEO\Keyword_Library::uploads_base_dir()) . "{$category}/{$type}.csv";
+                $plugin_path  = trailingslashit(\TMW_SEO\Keyword_Library::plugin_base_dir()) . "{$category}/{$type}.csv";
+                $path         = file_exists($uploads_path) ? $uploads_path : $plugin_path;
+
+                if (!file_exists($path)) {
+                    continue;
+                }
+
+                $csv_files++;
+                $rows = \TMW_SEO\Keyword_Library::load_rows($category, $type, true);
+
+                foreach ($rows as $row) {
+                    $row['category'] = $category;
+                    $row['type']     = $type;
+                    $all_rows[]      = $row;
+                }
+            }
         }
-        
-        return $rows;
+
+        error_log(sprintf('[TMWSEO-KEYWORD-HEALTH] Found %d CSV files with %d total keyword rows for stats.', $csv_files, count($all_rows)));
+
+        return $all_rows;
     }
 
     /**
