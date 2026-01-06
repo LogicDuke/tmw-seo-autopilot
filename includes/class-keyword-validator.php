@@ -19,9 +19,11 @@ class Keyword_Validator {
     protected static $anchor_terms = null;
 
     /**
+     * Cached blacklist terms.
+     *
      * @var array|null
      */
-    protected static $blacklist = null;
+    private static ?array $blacklist = null;
 
     /**
      * Load anchor terms from data file
@@ -35,6 +37,15 @@ class Keyword_Validator {
         }
 
         return self::$anchor_terms;
+    }
+
+    /**
+     * Get anchor terms list.
+     *
+     * @return array
+     */
+    public static function get_anchor_terms(): array {
+        return self::load_anchors();
     }
 
     /**
@@ -64,9 +75,13 @@ class Keyword_Validator {
      */
     public static function is_blacklisted(string $keyword): bool {
         $keyword_lower = strtolower(trim($keyword));
-        $blacklist = Keyword_Pack_Builder::blacklist();
+        
+        // Lazy-load and cache blacklist
+        if (self::$blacklist === null) {
+            self::$blacklist = Keyword_Pack_Builder::blacklist();
+        }
 
-        foreach ($blacklist as $term) {
+        foreach (self::$blacklist as $term) {
             if (strpos($keyword_lower, strtolower($term)) !== false) {
                 return true;
             }
@@ -82,7 +97,19 @@ class Keyword_Validator {
      * @return bool
      */
     public static function is_valid_industry_keyword(string $keyword): bool {
-        if (strlen(trim($keyword)) < 5) {
+        $keyword = trim($keyword);
+        
+        // Allow short keywords if they're exact anchor matches (e.g., "cam4")
+        $anchors = self::get_anchor_terms();
+        $keyword_lower = strtolower($keyword);
+        
+        // If keyword IS an anchor term, it's always valid regardless of length
+        if (in_array($keyword_lower, array_map('strtolower', $anchors), true)) {
+            return !self::is_blacklisted($keyword);
+        }
+        
+        // For non-anchor keywords, require minimum 5 characters
+        if (strlen($keyword) < 5) {
             return false;
         }
 

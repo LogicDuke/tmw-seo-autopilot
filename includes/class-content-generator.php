@@ -376,7 +376,7 @@ class Content_Generator {
     protected static function livejasmin_vs_others(string $name, array $other_platforms): string {
         $comparisons = [];
         
-        foreach ($other_platforms as $slug => $platform) {
+        foreach ($other_platforms as $platform) {
             $comparisons[] = self::get_platform_comparison_text($platform['name']);
         }
         

@@ -110,21 +110,45 @@ class KD_Filter {
         $low_kd = self::sort_by_kd(array_values($low_kd), 'asc');
         $other = self::sort_by_kd(array_values($other), 'asc');
 
-        // Calculate distribution
-        $low_count = (int) ceil($count * $low_priority);
+        // Select proportionally
+        $low_count  = (int) ceil($count * $low_priority);
         $other_count = $count - $low_count;
 
-        // Select from each pool
-        $selected = array_merge(
-            array_slice($low_kd, 0, $low_count),
-            array_slice($other, 0, $other_count)
-        );
+        // Track selected keywords by their actual keyword string to avoid duplicates
+        $selected = [];
+        $selected_keywords = [];
+        
+        // Select from low KD pool
+        foreach (array_slice($low_kd, 0, $low_count) as $kw) {
+            $keyword_str = $kw['keyword'] ?? '';
+            if (!isset($selected_keywords[$keyword_str])) {
+                $selected[] = $kw;
+                $selected_keywords[$keyword_str] = true;
+            }
+        }
+        
+        // Select from other pool
+        foreach (array_slice($other, 0, $other_count) as $kw) {
+            $keyword_str = $kw['keyword'] ?? '';
+            if (!isset($selected_keywords[$keyword_str])) {
+                $selected[] = $kw;
+                $selected_keywords[$keyword_str] = true;
+            }
+        }
 
-        // If not enough, fill from whatever is available
+        // If not enough, fill from whatever is available (avoiding duplicates)
         if (count($selected) < $count) {
             $remaining = array_merge($low_kd, $other);
-            $remaining = array_diff_key($remaining, $selected);
-            $selected = array_merge($selected, array_slice($remaining, 0, $count - count($selected)));
+            foreach ($remaining as $kw) {
+                if (count($selected) >= $count) {
+                    break;
+                }
+                $keyword_str = $kw['keyword'] ?? '';
+                if (!isset($selected_keywords[$keyword_str])) {
+                    $selected[] = $kw;
+                    $selected_keywords[$keyword_str] = true;
+                }
+            }
         }
 
         return array_slice($selected, 0, $count);

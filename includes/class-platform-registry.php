@@ -149,7 +149,8 @@ class Platform_Registry {
             }
         }
 
-        return $platforms['livejasmin'];
+        // Fallback: try livejasmin first, then first available platform
+        return $platforms['livejasmin'] ?? reset($platforms) ?: [];
     }
 
     /**
