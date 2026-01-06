@@ -612,7 +612,7 @@ class Core {
         if (!$post) {
             return ['ok' => false, 'message' => 'Post not found'];
         }
-        $type = in_array($post->post_type, self::video_post_types(), true) ? 'VIDEO' : 'MODEL';
+        $type = self::is_video_post_type($post->post_type) ? 'VIDEO' : 'MODEL';
         $prev = get_post_meta($post_id, "_tmwseo_prev_{$type}", true);
         if (!$prev && $type === 'MODEL') {
             $prev = get_post_meta($post_id, '_tmwseo_prev', true);

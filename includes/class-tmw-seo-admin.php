@@ -73,11 +73,15 @@ class Admin {
      * @return void
      */
     public static function render_box($post) {
-        wp_nonce_field('tmw_seo_box', 'tmw_seo_nonce');
+        $nonce = wp_create_nonce('tmwseo_actions');
         $openai_enabled = \TMW_SEO\Providers\OpenAI::is_enabled();
         $default_strategy = $openai_enabled ? 'openai' : 'template';
         $template_selected = $default_strategy === 'template' ? 'selected' : '';
         $openai_selected = $default_strategy === 'openai' ? 'selected' : '';
+        $has_prev = (bool) get_post_meta($post->ID, '_tmwseo_prev_MODEL', true);
+        if (!$has_prev) {
+            $has_prev = (bool) get_post_meta($post->ID, '_tmwseo_prev', true);
+        }
 
         echo '<p>Generate RankMath fields + intro/bio/FAQ for this model.</p>';
         echo '<p><label><input type="checkbox" id="tmw_seo_insert" checked> Insert content block</label></p>';
@@ -85,33 +89,70 @@ class Admin {
         echo '<option value="template" ' . $template_selected . '>Template</option>';
         echo '<option value="openai" ' . $openai_selected . '>OpenAI (if configured)</option>';
         echo '</select></p>';
-        echo '<p><button type="button" class="button button-primary" id="tmw_seo_generate_btn">Generate</button> <button type="button" class="button" id="tmw_seo_rollback_btn">Rollback</button></p>';
+        echo '<p><button type="button" class="button button-primary" id="tmw_seo_generate_btn">Generate</button> <button type="button" class="button" id="tmw_seo_rollback_btn"' . (!$has_prev ? ' disabled' : '') . '>Rollback</button>' . (!$has_prev ? ' <em style="display:block;margin-top:4px;">No rollback snapshot yet</em>' : '') . '</p>';
         ?>
         <script>
         (function($){
             $('#tmw_seo_generate_btn').on('click', function(){
+                var $btn = $(this);
+                var $rollback = $('#tmw_seo_rollback_btn');
                 var data = {
                     action: 'tmw_seo_generate',
-                    nonce: '<?php echo wp_create_nonce('tmw_seo_nonce'); ?>',
+                    nonce: '<?php echo esc_js($nonce); ?>',
                     post_id: <?php echo (int)$post->ID; ?>,
                     insert: $('#tmw_seo_insert').is(':checked') ? 1 : 0,
                     strategy: $('#tmw_seo_strategy').val()
                 };
-                $(this).prop('disabled', true).text('Generating…');
+                $btn.prop('disabled', true).text('Generating…');
                 $.post(ajaxurl, data, function(resp){
+                    if (!resp || typeof resp !== 'object') {
+                        alert('Nonce failed or you are logged out. Refresh and try again.');
+                        return;
+                    }
                     alert(resp.data && resp.data.message ? resp.data.message : (resp.success ? 'Done' : 'Failed'));
+                    if (resp && resp.success) {
+                        $rollback.prop('disabled', false);
+                    }
                     location.reload();
+                }).fail(function(xhr){
+                    var message = 'Request failed. Please try again.';
+                    if (xhr && xhr.responseText && xhr.responseText.trim() === '-1') {
+                        message = 'Nonce failed or you are logged out. Refresh and try again.';
+                    }
+                    alert(message);
+                }).always(function(){
+                    $btn.prop('disabled', false).text('Generate');
                 });
             });
             $('#tmw_seo_rollback_btn').on('click', function(){
+                var $btn = $(this);
                 var data = {
                     action: 'tmw_seo_rollback',
-                    nonce: '<?php echo wp_create_nonce('tmw_seo_nonce'); ?>',
+                    nonce: '<?php echo esc_js($nonce); ?>',
                     post_id: <?php echo (int)$post->ID; ?>
                 };
+                $btn.prop('disabled', true).text('Rolling back…');
                 $.post(ajaxurl, data, function(resp){
-                    alert(resp.success ? 'Rollback complete' : 'Nothing to rollback');
+                    var message = 'Nothing to rollback';
+                    if (resp && typeof resp === 'object') {
+                        if (resp.success) {
+                            message = 'Rollback complete';
+                        } else if (resp.data && resp.data.message) {
+                            message = resp.data.message;
+                        }
+                    } else if (resp === '-1' || resp === null) {
+                        message = 'Nonce failed or you are logged out. Refresh and try again.';
+                    }
+                    alert(message);
                     location.reload();
+                }).fail(function(xhr){
+                    var message = 'Request failed. Please try again.';
+                    if (xhr && xhr.responseText && xhr.responseText.trim() === '-1') {
+                        message = 'Nonce failed or you are logged out. Refresh and try again.';
+                    }
+                    alert(message);
+                }).always(function(){
+                    $btn.prop('disabled', false).text('Rollback');
                 });
             });
         })(jQuery);
@@ -238,7 +279,13 @@ class Admin {
      * @return void
      */
     public static function ajax_generate() {
-        check_ajax_referer('tmw_seo_nonce', 'nonce');
+        $nonce_ok = check_ajax_referer('tmwseo_actions', 'nonce', false);
+        if (!$nonce_ok) {
+            $nonce_ok = check_ajax_referer('tmw_seo_nonce', 'nonce', false);
+        }
+        if (!$nonce_ok) {
+            wp_send_json_error(['message' => 'Invalid nonce. Please refresh and try again.'], 403);
+        }
         if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'No permission']);
         $post_id = (int)($_POST['post_id'] ?? 0);
         $default_strategy = \TMW_SEO\Providers\OpenAI::is_enabled() ? 'openai' : 'template';
@@ -255,11 +302,17 @@ class Admin {
      * @return void
      */
     public static function ajax_rollback() {
-        check_ajax_referer('tmw_seo_nonce', 'nonce');
-        if (!current_user_can('edit_posts')) wp_send_json_error();
+        $nonce_ok = check_ajax_referer('tmwseo_actions', 'nonce', false);
+        if (!$nonce_ok) {
+            $nonce_ok = check_ajax_referer('tmw_seo_nonce', 'nonce', false);
+        }
+        if (!$nonce_ok) {
+            wp_send_json_error(['message' => 'Invalid nonce. Please refresh and try again.'], 403);
+        }
+        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'No permission']);
         $post_id = (int)($_POST['post_id'] ?? 0);
         $res = Core::rollback($post_id);
-        $res['ok'] ? wp_send_json_success() : wp_send_json_error();
+        $res['ok'] ? wp_send_json_success(['message' => 'Rollback complete']) : wp_send_json_error(['message' => $res['message'] ?? 'Nothing to rollback']);
     }
 
     /**
@@ -2708,14 +2761,61 @@ class Admin {
      * @return void
      */
     public static function render_video_box($post) {
+        $nonce = wp_create_nonce('tmwseo_actions');
         wp_nonce_field('tmwseo_box', 'tmwseo_box_nonce');
         $override = get_post_meta($post->ID, 'tmwseo_model_name', true);
         $last = get_post_meta($post->ID, '_tmwseo_last_message', true);
+        $has_prev = (bool) get_post_meta($post->ID, '_tmwseo_prev_VIDEO', true);
         echo '<p><label><strong>Model Name (override)</strong></label>';
         echo '<input type="text" class="widefat" name="tmwseo_model_name" value="' . esc_attr($override) . '" placeholder="e.g., Abby Murray"></p>';
         $url = wp_nonce_url(admin_url('admin-post.php?action=tmwseo_generate_now&post_id=' . $post->ID), 'tmwseo_generate_now_' . $post->ID);
-        echo '<p><a href="' . esc_url($url) . '" class="button button-primary" style="width:100%;">Generate Now</a></p>';
+        echo '<p><a href="' . esc_url($url) . '" class="button button-primary" id="tmw_seo_video_generate_btn" style="width:100%;">Generate Now</a></p>';
+        echo '<p><button type="button" class="button" id="tmw_seo_video_rollback_btn" style="width:100%; margin-top:4px;"' . (!$has_prev ? ' disabled' : '') . '>Rollback</button>' . (!$has_prev ? ' <em style="display:block;margin-top:4px;">No rollback snapshot yet</em>' : '') . '</p>';
         if ($last) echo '<p><em>Last run:</em> ' . esc_html($last) . '</p>';
+        ?>
+        <script>
+        (function($){
+            $('#tmw_seo_video_generate_btn').on('click', function(e){
+                var $btn = $(this);
+                $btn.text('Generating…');
+                setTimeout(function(){
+                    $btn.text('Generate Now');
+                }, 3000);
+            });
+            $('#tmw_seo_video_rollback_btn').on('click', function(){
+                var $btn = $(this);
+                var data = {
+                    action: 'tmw_seo_rollback',
+                    nonce: '<?php echo esc_js($nonce); ?>',
+                    post_id: <?php echo (int) $post->ID; ?>
+                };
+                $btn.prop('disabled', true).text('Rolling back…');
+                $.post(ajaxurl, data, function(resp){
+                    var message = 'Nothing to rollback';
+                    if (resp && typeof resp === 'object') {
+                        if (resp.success) {
+                            message = 'Rollback complete';
+                        } else if (resp.data && resp.data.message) {
+                            message = resp.data.message;
+                        }
+                    } else if (resp === '-1' || resp === null) {
+                        message = 'Nonce failed or you are logged out. Refresh and try again.';
+                    }
+                    alert(message);
+                    location.reload();
+                }).fail(function(xhr){
+                    var message = 'Request failed. Please try again.';
+                    if (xhr && xhr.responseText && xhr.responseText.trim() === '-1') {
+                        message = 'Nonce failed or you are logged out. Refresh and try again.';
+                    }
+                    alert(message);
+                }).always(function(){
+                    $btn.prop('disabled', false).text('Rollback');
+                });
+            });
+        })(jQuery);
+        </script>
+        <?php
     }
 
     /**

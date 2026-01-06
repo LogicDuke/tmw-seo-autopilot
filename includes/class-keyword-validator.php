@@ -58,8 +58,14 @@ class Keyword_Validator {
         $keyword_lower = strtolower(trim($keyword));
         $anchors = self::load_anchors();
 
+        if (preg_match('/\b(cam|cams|webcam|webcams|camgirl|camgirls|livecam|livecams|cam2cam)\b/i', $keyword_lower)) {
+            return true;
+        }
+
         foreach ($anchors as $anchor) {
-            if (strpos($keyword_lower, strtolower($anchor)) !== false) {
+            $anchor_lower = strtolower($anchor);
+            $pattern = '/\b' . preg_quote($anchor_lower, '/') . '\b/i';
+            if (preg_match($pattern, $keyword_lower) || strpos($keyword_lower, $anchor_lower) !== false) {
                 return true;
             }
         }

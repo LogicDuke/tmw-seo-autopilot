@@ -71,6 +71,29 @@ class Keyword_Difficulty_Proxy {
     public static function score(string $keyword, $competition = null, $cpc = null): int {
         $competition = self::normalize_competition($competition);
         $cpc         = self::normalize_cpc($cpc);
+        $using_defaults = ($competition === self::DEFAULT_COMPETITION) && (abs($cpc - self::DEFAULT_CPC) < 0.00001);
+
+        if ($using_defaults) {
+            $word_count = str_word_count($keyword);
+            $brands = ['livejasmin', 'chaturbate', 'stripchat', 'bongacams', 'camsoda', 'myfreecams', 'cam4', 'imlive', 'streamate', 'flirt4free'];
+            $lower = strtolower($keyword);
+            foreach ($brands as $brand) {
+                if (strpos($lower, $brand) !== false) {
+                    $competition = 'medium';
+                    break;
+                }
+            }
+
+            if ($competition === self::DEFAULT_COMPETITION) {
+                if ($word_count >= 4) {
+                    $competition = 'low';
+                } elseif ($word_count <= 2) {
+                    $competition = 'medium';
+                } else {
+                    $competition = 'medium';
+                }
+            }
+        }
 
         $provider = apply_filters('tmwseo_kd_provider', 'proxy', $keyword);
         if ($provider !== 'proxy') {
