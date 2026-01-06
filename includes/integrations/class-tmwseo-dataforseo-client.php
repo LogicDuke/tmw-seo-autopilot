@@ -580,11 +580,12 @@ class DataForSEO_Client {
             return [];
         }
 
-        if (!isset($response[0]['result'][0]['items'])) {
+        $tasks = $response['tasks'] ?? [];
+        if (empty($tasks) || !isset($tasks[0]['result'][0]['items'])) {
             return [];
         }
 
-        return (array) ($response[0]['result'][0]['items'] ?? []);
+        return (array) ($tasks[0]['result'][0]['items'] ?? []);
     }
 
     /**
