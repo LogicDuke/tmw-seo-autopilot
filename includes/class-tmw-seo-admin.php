@@ -40,6 +40,7 @@ class Admin {
         add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
+        add_action('wp_ajax_tmwseo_dataforseo_test', [__CLASS__, 'ajax_dataforseo_test']);
         add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
         add_action('wp_ajax_tmwseo_autofill_google_keywords', [__CLASS__, 'ajax_autofill_google_keywords']);
         add_action('admin_post_tmwseo_save_kd_settings', [__CLASS__, 'handle_save_kd_settings']);
@@ -343,6 +344,42 @@ class Admin {
         wp_send_json_success([
             'message'  => 'Success',
             'keywords' => array_slice($keywords, 0, 5),
+        ]);
+    }
+
+    /**
+     * Handles the `wp_ajax_tmwseo_dataforseo_test` hook.
+     *
+     * @return void
+     */
+    public static function ajax_dataforseo_test() {
+        check_ajax_referer('tmwseo_dataforseo_test', 'nonce');
+        if (!current_user_can(self::CAP)) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+
+        if (!\TMW_SEO\DataForSEO_Client::is_configured()) {
+            wp_send_json_error(['message' => 'Missing login or password']);
+        }
+
+        $location_code = (int) get_option('tmwseo_dataforseo_location_code', 2840);
+        $language_code = (string) get_option('tmwseo_dataforseo_language_code', 'en');
+
+        $result = \TMW_SEO\DataForSEO_Client::bulk_keyword_difficulty(['tmw seo autopilot'], $location_code, $language_code);
+        if (is_wp_error($result)) {
+            wp_send_json_error(['message' => $result->get_error_message()]);
+        }
+
+        $first = reset($result);
+        $kd = is_array($first) && isset($first['kd']) ? (int) $first['kd'] : null;
+
+        if ($kd === null) {
+            wp_send_json_error(['message' => 'No KD returned']);
+        }
+
+        wp_send_json_success([
+            'message' => 'Success',
+            'kd'      => $kd,
         ]);
     }
 
@@ -978,15 +1015,23 @@ class Admin {
 
         $semrush_key = (string) get_option('tmwseo_semrush_api_key', '');
 
+        $dataforseo_login         = (string) get_option('tmwseo_dataforseo_login', '');
+        $dataforseo_location_code = (int) get_option('tmwseo_dataforseo_location_code', 2840);
+        $dataforseo_language_code = (string) get_option('tmwseo_dataforseo_language_code', 'en');
+        $dataforseo_password      = (string) get_option('tmwseo_dataforseo_password', '');
+
         $serper_connected  = $serper_key !== '';
         $openai_connected  = $openai_active_key !== '';
         $semrush_connected = $semrush_key !== '';
+        $dataforseo_connected = \TMW_SEO\DataForSEO_Client::is_configured();
 
         $serper_mask  = $serper_connected ? self::mask_secret($serper_key) : '';
         $openai_mask  = $openai_connected ? self::mask_secret($openai_active_key) : '';
         $semrush_mask = $semrush_connected ? self::mask_secret($semrush_key) : '';
+        $dataforseo_mask = $dataforseo_connected ? self::mask_secret($dataforseo_password) : '';
 
         $serper_nonce = wp_create_nonce('tmwseo_serper_test');
+        $dataforseo_nonce = wp_create_nonce('tmwseo_dataforseo_test');
         ?>
         <?php Admin_UI::render_header('tmw-seo-integrations', 'Integrations', 'Connect keyword and content providers securely.'); ?>
 
@@ -999,6 +1044,17 @@ class Admin {
                     </span>
                     <div class="tmwseo-provider-actions">
                         <a class="button" href="#tmwseo-provider-serper">Configure</a>
+                    </div>
+                </div>
+
+                <div class="tmwseo-card">
+                    <h3>DataForSEO (KD%)</h3>
+                    <p>Fetch real keyword difficulty scores (0-100) for your keywords.</p>
+                    <span class="tmwseo-status-badge <?php echo $dataforseo_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                        <?php echo $dataforseo_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                    </span>
+                    <div class="tmwseo-provider-actions">
+                        <a class="button" href="#tmwseo-provider-dataforseo">Configure</a>
                     </div>
                 </div>
 
@@ -1070,6 +1126,59 @@ class Admin {
                             <button type="submit" class="button" name="tmwseo_disconnect" value="1">Disconnect</button>
                         <?php endif; ?>
                         <span id="tmwseo-serper-result" style="margin-left:10px;"></span>
+                    </p>
+                </form>
+            </div>
+
+            <div class="tmwseo-card tmwseo-inline-form" id="tmwseo-provider-dataforseo">
+                <h3>DataForSEO (KD%)</h3>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('tmwseo_integrations', 'tmwseo_integrations_nonce'); ?>
+                    <input type="hidden" name="action" value="tmwseo_save_integrations">
+                    <input type="hidden" name="provider" value="dataforseo">
+                    <p>
+                        <span class="tmwseo-status-badge <?php echo $dataforseo_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                            <?php echo $dataforseo_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                        </span>
+                        <?php if ($dataforseo_connected) : ?>
+                            <span class="tmwseo-masked"><?php echo esc_html($dataforseo_mask); ?></span>
+                        <?php endif; ?>
+                    </p>
+                    <?php if ($dataforseo_connected) : ?>
+                        <button type="button" class="button tmwseo-change-key" data-target="tmwseo-dataforseo-key-field">Change credentials</button>
+                    <?php endif; ?>
+                    <div id="tmwseo-dataforseo-key-field" class="<?php echo $dataforseo_connected ? 'tmwseo-hidden' : ''; ?>">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row"><label for="tmwseo_dataforseo_login">API Login (email)</label></th>
+                                <td><input type="text" name="tmwseo_dataforseo_login" id="tmwseo_dataforseo_login" class="regular-text" value="<?php echo esc_attr($dataforseo_login); ?>" autocomplete="username"></td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="tmwseo_dataforseo_password">API Password</label></th>
+                                <td>
+                                    <input type="password" name="tmwseo_dataforseo_password" id="tmwseo_dataforseo_password" class="regular-text" value="" autocomplete="new-password">
+                                    <label><input type="checkbox" class="tmwseo-reveal" data-target="tmwseo_dataforseo_password"> Reveal</label>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><label for="tmwseo_dataforseo_location_code">Location code</label></th>
+                            <td><input type="number" name="tmwseo_dataforseo_location_code" id="tmwseo_dataforseo_location_code" value="<?php echo esc_attr((int) $dataforseo_location_code); ?>" class="regular-text" min="1" placeholder="2840"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="tmwseo_dataforseo_language_code">Language code</label></th>
+                            <td><input type="text" name="tmwseo_dataforseo_language_code" id="tmwseo_dataforseo_language_code" value="<?php echo esc_attr($dataforseo_language_code); ?>" class="regular-text" placeholder="en"></td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary">Save Settings</button>
+                        <button type="button" class="button" id="tmwseo-dataforseo-test" data-nonce="<?php echo esc_attr($dataforseo_nonce); ?>">Test Connection</button>
+                        <?php if ($dataforseo_connected) : ?>
+                            <button type="submit" class="button" name="tmwseo_disconnect" value="1">Disconnect</button>
+                        <?php endif; ?>
+                        <span id="tmwseo-dataforseo-result" style="margin-left:10px;"></span>
                     </p>
                 </form>
             </div>
@@ -1177,6 +1286,26 @@ class Admin {
                         if (resp && resp.success) {
                             var preview = resp.data && resp.data.keywords ? resp.data.keywords.join(', ') : 'Success';
                             $out.text('Success: ' + preview);
+                        } else {
+                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
+                            $out.text('Error: ' + message);
+                        }
+                    }).fail(function(){
+                        $out.text('Error: request failed');
+                    }).always(function(){
+                        $btn.prop('disabled', false);
+                    });
+                });
+
+                $('#tmwseo-dataforseo-test').on('click', function(){
+                    var $btn = $(this);
+                    var $out = $('#tmwseo-dataforseo-result');
+                    $btn.prop('disabled', true);
+                    $out.text('Testing…');
+                    $.post(ajaxurl, {action: 'tmwseo_dataforseo_test', nonce: $btn.data('nonce')}, function(resp){
+                        if (resp && resp.success) {
+                            var kd = resp.data && resp.data.kd ? resp.data.kd : 'Success';
+                            $out.text('Success: KD ' + kd);
                         } else {
                             var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
                             $out.text('Error: ' + message);
@@ -2982,6 +3111,35 @@ class Admin {
                 if ($api_key !== '') {
                     self::update_option_noautoload('tmwseo_semrush_api_key', $api_key);
                 }
+            }
+        }
+
+        if ($provider === 'dataforseo') {
+            if ($disconnect) {
+                delete_option('tmwseo_dataforseo_login');
+                delete_option('tmwseo_dataforseo_password');
+                delete_option('tmwseo_dataforseo_location_code');
+                delete_option('tmwseo_dataforseo_language_code');
+            } else {
+                $login = sanitize_text_field((string) ($_POST['tmwseo_dataforseo_login'] ?? get_option('tmwseo_dataforseo_login', '')));
+                if ($login !== '') {
+                    self::update_option_noautoload('tmwseo_dataforseo_login', $login);
+                }
+
+                $password = self::sanitize_secret($_POST['tmwseo_dataforseo_password'] ?? '');
+                if ($password !== '') {
+                    self::update_option_noautoload('tmwseo_dataforseo_password', $password);
+                }
+
+                $location_code = isset($_POST['tmwseo_dataforseo_location_code']) ? (int) $_POST['tmwseo_dataforseo_location_code'] : 2840;
+                if ($location_code <= 0) {
+                    $location_code = 2840;
+                }
+                self::update_option_noautoload('tmwseo_dataforseo_location_code', $location_code);
+
+                $language_code = sanitize_text_field((string) ($_POST['tmwseo_dataforseo_language_code'] ?? 'en'));
+                $language_code = $language_code !== '' ? $language_code : 'en';
+                self::update_option_noautoload('tmwseo_dataforseo_language_code', $language_code);
             }
         }
 

@@ -40,6 +40,7 @@ require_once TMW_SEO_PATH . 'includes/class-keyword-pack-builder.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-validator.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-pool.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-usage.php';
+require_once TMW_SEO_PATH . 'includes/integrations/class-dataforseo-client.php';
 require_once TMW_SEO_PATH . 'includes/class-platform-registry.php';
 require_once TMW_SEO_PATH . 'includes/class-kd-filter.php';
 require_once TMW_SEO_PATH . 'includes/admin/class-model-platforms-metabox.php';
