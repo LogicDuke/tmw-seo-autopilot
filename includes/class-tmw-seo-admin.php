@@ -365,7 +365,7 @@ class Admin {
         $run_state = [
             'max_calls' => 25,
         ];
-        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed, $provider, $run_state);
+        $build = Keyword_Pack_Builder::generate($category, $seeds, $gl, $hl, $per_seed, $run_state);
         if (is_wp_error($build)) {
             delete_transient($lock_key);
             $data = (array) $build->get_error_data();
@@ -397,7 +397,7 @@ class Admin {
 
             if ($include_comp) {
                 $comp_seeds = apply_filters('tmwseo_competitor_seeds', ['livejasmin vs chaturbate', 'livejasmin vs stripchat']);
-                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed, $provider, $run_state);
+                $comp_build = Keyword_Pack_Builder::generate($category, (array) $comp_seeds, $gl, $hl, $per_seed, $run_state);
                 if (is_wp_error($comp_build)) {
                     delete_transient($lock_key);
                     $data = (array) $comp_build->get_error_data();

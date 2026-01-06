@@ -44,46 +44,52 @@ class Keyword_Expander {
     /**
      * Expand a single seed into multiple keyword variations.
      *
-     * @param string $seed     The seed phrase.
-     * @param string $category The category for context.
-     * @param int    $limit    Maximum variations to generate.
+     * @param string $seed  The seed phrase.
+     * @param int    $limit Maximum variations to generate.
      * @return array Array of expanded keywords.
      */
-    public static function expand_seed(string $seed, string $category = '', int $limit = 20): array {
+    public static function expand_seed(string $seed, int $limit = 20): array {
         $keywords = [];
-        $seed = strtolower(trim($seed));
+        $seen     = [];
+        $seed     = strtolower(trim($seed));
+
+        // Helper to add keyword if not seen
+        $add_keyword = function (string $kw) use (&$keywords, &$seen, $limit): bool {
+            if (count($keywords) >= $limit) {
+                return false;
+            }
+
+            $key = strtolower($kw);
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $keywords[] = $kw;
+            }
+
+            return true;
+        };
 
         // 1. The seed itself is a keyword
-        $keywords[] = $seed;
+        $add_keyword($seed);
 
         // 2. Add prefix variations
         foreach (self::$prefixes as $prefix) {
             if (count($keywords) >= $limit) break;
-            $variant = $prefix . ' ' . $seed;
-            if (!in_array($variant, $keywords, true)) {
-                $keywords[] = $variant;
-            }
+            $add_keyword($prefix . ' ' . $seed);
         }
 
         // 3. Add suffix variations
         foreach (self::$suffixes as $suffix) {
             if (count($keywords) >= $limit) break;
             // Skip if seed already ends with similar term
-            if (str_contains($seed, $suffix)) continue;
-            $variant = $seed . ' ' . $suffix;
-            if (!in_array($variant, $keywords, true)) {
-                $keywords[] = $variant;
-            }
+            if (strpos($seed, $suffix) !== false) continue;
+            $add_keyword($seed . ' ' . $suffix);
         }
 
         // 4. Add platform-specific variations (high value for SEO)
         foreach (self::$platform_suffixes as $platform) {
             if (count($keywords) >= $limit) break;
-            if (str_contains($seed, $platform)) continue;
-            $variant = $seed . ' ' . $platform;
-            if (!in_array($variant, $keywords, true)) {
-                $keywords[] = $variant;
-            }
+            if (strpos($seed, $platform) !== false) continue;
+            $add_keyword($seed . ' ' . $platform);
         }
 
         // 5. Combination variations (prefix + seed + platform)
@@ -92,11 +98,8 @@ class Keyword_Expander {
         foreach ($priority_prefixes as $prefix) {
             foreach ($priority_platforms as $platform) {
                 if (count($keywords) >= $limit) break 2;
-                if (str_contains($seed, $platform)) continue;
-                $variant = $prefix . ' ' . $seed . ' ' . $platform;
-                if (!in_array($variant, $keywords, true)) {
-                    $keywords[] = $variant;
-                }
+                if (strpos($seed, $platform) !== false) continue;
+                $add_keyword($prefix . ' ' . $seed . ' ' . $platform);
             }
         }
 
@@ -115,7 +118,7 @@ class Keyword_Expander {
         $all_keywords = [];
 
         foreach ($seeds as $seed) {
-            $expanded = self::expand_seed($seed, $category, $per_seed);
+            $expanded = self::expand_seed($seed, $per_seed);
             $all_keywords = array_merge($all_keywords, $expanded);
         }
 

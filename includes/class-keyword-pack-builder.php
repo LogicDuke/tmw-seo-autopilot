@@ -549,11 +549,10 @@ class Keyword_Pack_Builder {
      * @param string $gl
      * @param string $hl
      * @param int $per_seed
-     * @param string $provider
      * @param array $run_state
      * @return mixed
      */
-    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, string $provider = '', ?array &$run_state = null) {
+    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, ?array &$run_state = null) {
         if (!is_array($run_state)) {
             $run_state = [];
         }
@@ -713,7 +712,7 @@ class Keyword_Pack_Builder {
         ];
 
         foreach ($trust_indicators as $indicator) {
-            if (str_contains($keyword_lower, $indicator)) {
+            if (strpos($keyword_lower, $indicator) !== false) {
                 return !Keyword_Validator::is_blacklisted($keyword);
             }
         }
@@ -786,12 +785,15 @@ class Keyword_Pack_Builder {
     private static function estimate_difficulty(string $keyword): int {
         $word_count = str_word_count($keyword);
 
-        if ($word_count >= 5) return rand(10, 25);
-        if ($word_count >= 4) return rand(20, 35);
-        if ($word_count >= 3) return rand(25, 45);
-        if ($word_count >= 2) return rand(35, 55);
+        $hash = crc32($keyword);
+        $variation = abs($hash % 15); // 0-14 variation
 
-        return rand(50, 70);
+        if ($word_count >= 5) return 10 + $variation;      // 10-24
+        if ($word_count >= 4) return 20 + $variation;      // 20-34
+        if ($word_count >= 3) return 30 + $variation;      // 30-44
+        if ($word_count >= 2) return 40 + $variation;      // 40-54
+
+        return 55 + $variation; // 55-69
     }
 
     /**
