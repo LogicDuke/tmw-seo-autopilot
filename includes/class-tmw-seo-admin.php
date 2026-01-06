@@ -2047,7 +2047,6 @@ class Admin {
             echo '<div class="updated"><p>Generated for ' . (int) $done . ' models.</p></div>';
         }
 
-        <?php
         $total_models = (int) (wp_count_posts(Core::MODEL_PT)->publish ?? 0);
         $total_videos = 0;
         foreach (Core::video_post_types() as $pt) {
