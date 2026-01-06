@@ -54,60 +54,142 @@ class Keyword_Pack_Builder {
      */
     public static function blacklist(): array {
         $list = [
-            'leak',
-            'torrent',
-            'download',
-            'nude',
-            'free videos',
-            'onlyfans leak',
-            'mega',
-            'rapidgator',
-            'pornhub download',
-            'insecam',
-            'cctv',
-            'security camera',
-            'home cameras',
-            'street cameras',
-            'earthcam',
-            'traffic camera',
-            'video conferencing',
-            'streaming 4k',
-            'best webcam',
-            'best webcam for',
-            'webcam for',
+            // Existing blacklist items...
+
+            // Hardware/Tech (NOT adult industry)
             'webcam review',
-            'webcam mic',
+            'webcam for streaming',
+            'webcam for gaming',
+            'webcam for pc',
+            'webcam for laptop',
+            'webcam for zoom',
+            'webcam settings',
+            'webcam driver',
+            'webcam software',
+            'webcam test',
+            'webcam quality',
+            'webcam 4k',
+            'webcam 1080p',
+            'webcam hd',
+            'webcam usb',
+            'webcam with microphone',
             'webcam light',
             'webcam mount',
-            '4k webcam',
+            'webcam stand',
+            'webcam cover',
             'logitech',
-            'brio',
-            'microsoft modern webcam',
-            'streaming webcam',
-            'webcam under',
-            'webcam with light',
+            'razer',
+            'elgato',
+            'microsoft webcam',
+            'camera model canon',
+            'camera model nikon',
+            'camera model sony',
+            'dslr',
+
+            // Security/Surveillance
+            'security camera',
             'ip camera',
-            'dash cam',
+            'cctv',
+            'surveillance',
             'baby monitor',
+            'nanny cam',
             'doorbell camera',
-            'pornhub',
-            'xvideos',
-            'xhamster',
-            'redtube',
-            'xnxx',
-            'indexxx',
+            'dash cam',
+            'dashcam',
+            'body cam',
+            'spy camera',
+            'hidden camera',
+            'trail cam',
+            'game camera',
+            'wildlife camera',
+
+            // Travel/Tourism cams
+            'live cam beach',
+            'live cam airport',
+            'live cam traffic',
+            'live cam weather',
+            'live cam city',
+            'live cam zoo',
+            'live cam aquarium',
+            'earthcam',
+            'webcam beach',
+            'webcam ski',
+            'webcam mountain',
+            'webcam resort',
+            'aruba',
+            'hawaii cam',
+            'florida cam',
+            'times square cam',
+
+            // Entertainment (wrong context)
+            'movie cast',
+            'film cast',
+            'tv show',
+            'netflix',
+            'actress',
+            'actor',
+            'celebrity',
+            'influencer',
+            'youtuber',
+            'twitch streamer',
+            'gaming stream',
+
+            // Animals
+            'camel',
+            'animal cam',
+            'pet cam',
+            'dog cam',
+            'cat cam',
+            'bird cam',
+            'puppy cam',
+            'kitten cam',
+
+            // Random video chat (not adult)
+            'omegle',
+            'chatroulette',
+            'chatrandom',
             'camsurf',
-            'joingy',
-            'monkey',
-            'roulette',
-            'random video chat',
+            'monkey app',
+            'random chat',
             'stranger chat',
-            'login',
-            'model center',
-            'help center',
+            'video call',
+            'video conference',
+
+            // Job/Career (wrong context)
+            'model agency',
+            'modeling agency',
+            'fashion model',
+            'runway model',
+            'model portfolio',
+            'model casting',
+            'model audition',
+            'become a model',
+            'modeling tips',
+            'model photography',
+
+            // Piracy/Illegal
+            'leak',
+            'leaked',
+            'torrent',
+            'download free',
+            'hack',
+            'cracked',
+            'free premium',
+            'bypass',
+            'free tokens',
+            'token generator',
+            'token hack',
+
+            // Spam indicators
             'reddit',
             'r/',
-            'search |',
+            'forum',
+            'discord',
+            'telegram group',
+            'login',
+            'sign up free',
+            'no credit card',
+            'free trial',
         ];
 
         return apply_filters('tmwseo_keyword_builder_blacklist', $list);
@@ -166,19 +248,8 @@ class Keyword_Pack_Builder {
      * @return bool
      */
     public static function is_allowed(string $normalized, string $display): bool {
-        if ($normalized === '' || strlen($normalized) < 3) {
-            return false;
-        }
-
-        if (self::is_blacklisted($normalized)) {
-            return false;
-        }
-
-        if (self::matches_offtopic_patterns($normalized)) {
-            return false;
-        }
-
-        return self::has_adult_intent($normalized);
+        // Use new validator
+        return Keyword_Validator::is_valid_industry_keyword($display);
     }
 
     /**

@@ -35,7 +35,7 @@ class Content_Generator {
         $intro      = Template_Engine::render(Template_Engine::pick('model-intros', $seed), $base);
         $bio        = Template_Engine::render(Template_Engine::pick('model-bios', $seed, 1), $base);
         $focus_block = self::render_focus_blocks($base, $name);
-        $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), $base);
+        $comparison = self::build_platform_comparison($model_id, $name);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 5);
         $faqs_html  = self::render_faqs($faqs_tpl, $base, $base['longtail_keywords']);
         $longtail_block = self::render_longtail_section($base['longtail_keywords'], $name);
@@ -87,7 +87,7 @@ class Content_Generator {
 
         $intro      = Template_Engine::render(Template_Engine::pick('video-templates', $seed), $base);
         $details    = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 1), $base);
-        $comparison = Template_Engine::render(Template_Engine::pick('model-comparisons', $seed), $base);
+        $comparison = self::build_platform_comparison((int) ($context['model_id'] ?? 0), $name);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 4);
         $faqs_html  = self::render_faqs($faqs_tpl, $base, $base['longtail_keywords']);
 
@@ -296,6 +296,122 @@ class Content_Generator {
         }
 
         return $out;
+    }
+
+    /**
+     * Build platform comparison text based on model's actual platforms
+     */
+    public static function build_platform_comparison(int $model_id, string $name): string {
+        $platforms = \TMW_SEO\Admin\Model_Platforms_Metabox::get_model_platforms($model_id);
+        
+        if (empty($platforms)) {
+            // Default: only mention LiveJasmin as primary
+            return self::default_livejasmin_pitch($name);
+        }
+        
+        $primary = Platform_Registry::get_primary_platform();
+        $primary_slug = $primary['slug'];
+        
+        // Check if model is on LiveJasmin (our primary)
+        $is_on_primary = isset($platforms[$primary_slug]);
+        
+        if (!$is_on_primary) {
+            // Model not on LiveJasmin - just describe where she IS
+            return self::describe_active_platforms($name, $platforms);
+        }
+        
+        // Model is on LiveJasmin - compare with her other platforms
+        $other_platforms = array_filter($platforms, function ($slug) use ($primary_slug) {
+            return $slug !== $primary_slug;
+        }, ARRAY_FILTER_USE_KEY);
+        
+        if (empty($other_platforms)) {
+            return self::livejasmin_exclusive_pitch($name);
+        }
+        
+        return self::livejasmin_vs_others($name, $other_platforms);
+    }
+
+    protected static function default_livejasmin_pitch(string $name): string {
+        return sprintf(
+            '<h2>Watch %s on LiveJasmin</h2>' .
+            '<p>%s performs live on LiveJasmin, the premium cam site known for HD quality streams and professional models. ' .
+            'LiveJasmin offers private shows, cam2cam features, and a clean, ad-free viewing experience.</p>',
+            esc_html($name),
+            esc_html($name)
+        );
+    }
+
+    protected static function livejasmin_exclusive_pitch(string $name): string {
+        return sprintf(
+            '<h2>%s - Exclusive on LiveJasmin</h2>' .
+            '<p>You can find %s exclusively on LiveJasmin. She chose this platform for its premium quality, ' .
+            'professional environment, and engaged audience. Experience her shows in crystal-clear HD with ' .
+            'interactive features like private chat and cam2cam.</p>',
+            esc_html($name),
+            esc_html($name)
+        );
+    }
+
+    protected static function describe_active_platforms(string $name, array $platforms): string {
+        $platform_names = array_map(function ($p) {
+            return $p['name'];
+        }, $platforms);
+        $list = implode(', ', array_slice($platform_names, 0, -1));
+        if (count($platform_names) > 1) {
+            $list .= ' and ' . end($platform_names);
+        } else {
+            $list = $platform_names[0] ?? 'various platforms';
+        }
+        
+        return sprintf(
+            '<h2>Where to Find %s</h2>' .
+            '<p>%s is active on %s. Check her schedule on each platform to catch her live shows.</p>',
+            esc_html($name),
+            esc_html($name),
+            esc_html($list)
+        );
+    }
+
+    protected static function livejasmin_vs_others(string $name, array $other_platforms): string {
+        $comparisons = [];
+        
+        foreach ($other_platforms as $slug => $platform) {
+            $comparisons[] = self::get_platform_comparison_text($platform['name']);
+        }
+        
+        $other_names = array_map(function ($p) {
+            return $p['name'];
+        }, $other_platforms);
+        $others_list = implode(', ', $other_names);
+        
+        $comparison_text = implode(' ', array_slice($comparisons, 0, 2));
+        
+        return sprintf(
+            '<h2>Why Watch %s on LiveJasmin vs %s</h2>' .
+            '<p>While %s also performs on %s, her LiveJasmin shows offer the best experience. %s</p>' .
+            '<p>LiveJasmin\'s premium features include HD streaming up to 1080p, minimal ads, ' .
+            'and professional moderation that keeps chat respectful and focused on the performer.</p>',
+            esc_html($name),
+            esc_html($others_list),
+            esc_html($name),
+            esc_html($others_list),
+            $comparison_text
+        );
+    }
+
+    protected static function get_platform_comparison_text(string $platform_name): string {
+        $comparisons = [
+            'Chaturbate' => 'Chaturbate\'s public rooms can be chaotic with tip spam, while LiveJasmin keeps the focus on intimate interaction.',
+            'Stripchat' => 'Stripchat offers free shows but with more distractions; LiveJasmin\'s private shows deliver undivided attention.',
+            'BongaCams' => 'BongaCams has a large model selection, but LiveJasmin\'s curation means higher quality performers.',
+            'CamSoda' => 'CamSoda is budget-friendly but LiveJasmin\'s HD quality and stable streams are worth the premium.',
+            'MyFreeCams' => 'MyFreeCams focuses on American models; LiveJasmin offers a more international, diverse selection.',
+            'OnlyFans' => 'OnlyFans provides on-demand content, but LiveJasmin delivers real-time interaction you can\'t get from pre-recorded clips.',
+            'Fansly' => 'Fansly is great for subscription content; LiveJasmin excels at live, interactive experiences.',
+        ];
+        
+        return $comparisons[$platform_name] ?? 'LiveJasmin offers a premium experience with HD quality and professional performers.';
     }
 
     /**
