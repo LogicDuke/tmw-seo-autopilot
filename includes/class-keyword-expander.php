@@ -122,7 +122,7 @@ class Keyword_Expander {
                 'livejasmin cam models',
                 'livejasmin private show',
                 'livejasmin live cams',
-                'livejasmin ' . $category,
+                'livejasmin cam girls',
             ];
 
             $seeds = array_merge($seeds, $livejasmin_seeds);
