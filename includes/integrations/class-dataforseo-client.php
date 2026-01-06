@@ -143,6 +143,14 @@ class DataForSEO_Client {
                             $kd = (float) $item['keyword_difficulty_index'];
                         }
                         if ($kd === null) {
+                            // Cache a negative result to avoid repeatedly requesting missing KD values.
+                            $normalized = [
+                                'kd' => null,
+                                'competition_level' => null,
+                                'last_updated' => time(),
+                            ];
+                            $results[$keyword] = $normalized;
+                            set_transient(self::cache_key($keyword, $location_code, $language_code), $normalized, self::CACHE_TTL);
                             continue;
                         }
                         $normalized = [
