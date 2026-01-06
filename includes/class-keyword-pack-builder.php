@@ -16,6 +16,100 @@ class Keyword_Pack_Builder {
     protected static $google_suggest_client;
 
     /**
+     * Determine keyword type based on brand detection and length.
+     *
+     * @param string $keyword
+     * @param string $category
+     * @param int    $word_count
+     * @return string
+     */
+    private static function determine_type(string $keyword, string $category, int $word_count): string {
+        $primary = self::get_primary_brand_for_category($category);
+        $brand   = self::find_brand($keyword);
+
+        if ($brand !== '' && ($primary === '' || $brand !== $primary)) {
+            return 'competitor';
+        }
+
+        return $word_count >= 5 ? 'longtail' : 'extra';
+    }
+
+    /**
+     * Get minimum targets per category and type.
+     *
+     * @param string $category
+     * @return array
+     */
+    private static function get_minimum_targets(string $category): array {
+        $defaults = [
+            'extra'      => 120,
+            'longtail'   => 25,
+            'competitor' => 60,
+        ];
+
+        if ($category === 'livejasmin') {
+            return [
+                'extra'      => 120,
+                'longtail'   => 40,
+                'competitor' => 120,
+            ];
+        }
+
+        if (in_array($category, ['big-boobs', 'big-butt'], true)) {
+            return [
+                'extra'      => 80,
+                'longtail'   => 40,
+                'competitor' => 60,
+            ];
+        }
+
+        return $defaults;
+    }
+
+    /**
+     * Get list of platform brands.
+     *
+     * @return array
+     */
+    private static function get_platform_brands(): array {
+        return [
+            'livejasmin', 'chaturbate', 'stripchat', 'bongacams', 'camsoda', 'myfreecams', 'cam4', 'imlive',
+            'streamate', 'flirt4free', 'jerkmate', 'cams.com',
+        ];
+    }
+
+    /**
+     * Get the primary brand for a category.
+     *
+     * @param string $category
+     * @return string
+     */
+    private static function get_primary_brand_for_category(string $category): string {
+        if ($category === 'livejasmin') {
+            return 'livejasmin';
+        }
+
+        return '';
+    }
+
+    /**
+     * Detect if a keyword mentions a platform brand.
+     *
+     * @param string $keyword
+     * @return string
+     */
+    private static function find_brand(string $keyword): string {
+        $keyword = strtolower($keyword);
+        foreach (self::get_platform_brands() as $brand) {
+            if (preg_match('/\b' . preg_quote($brand, '/') . '\b/i', $keyword)) {
+                return $brand;
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Handles google suggest client.
      * @return Google_Suggest_Client
      */
@@ -377,21 +471,25 @@ class Keyword_Pack_Builder {
 
         foreach ($keywords as $kw) {
             $keyword_text = is_array($kw) ? (string) ($kw['keyword'] ?? '') : (string) $kw;
-            $words = preg_split('/\s+/', trim($keyword_text));
-            $count = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
+            $category     = is_array($kw) ? sanitize_key((string) ($kw['category'] ?? '')) : '';
+            $words        = preg_split('/\s+/', trim($keyword_text));
+            $count        = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
             ['normalized' => $normalized] = self::normalize_keyword($keyword_text);
             if ($normalized === '') {
                 continue;
             }
-            if ($count >= 5) {
-                $buckets['longtail'][$normalized] = $kw;
+
+            $type = self::determine_type($keyword_text, $category, $count);
+            if ($type === 'competitor') {
+                $buckets['competitor'][$normalized] = $kw;
             } elseif ($count >= 2) {
-                $buckets['extra'][$normalized] = $kw;
+                $buckets[$type][$normalized] = $kw;
             }
         }
 
-        $buckets['extra']    = array_values($buckets['extra']);
-        $buckets['longtail'] = array_values($buckets['longtail']);
+        $buckets['extra']      = array_values($buckets['extra']);
+        $buckets['longtail']   = array_values($buckets['longtail']);
+        $buckets['competitor'] = array_values($buckets['competitor'] ?? []);
 
         return $buckets;
     }
@@ -854,8 +952,6 @@ class Keyword_Pack_Builder {
         $fallbacks = Keyword_Expander::get_fallback_keywords($category);
         $pool      = array_merge($internal, $fallbacks);
 
-        $brands = ['livejasmin', 'chaturbate', 'stripchat', 'bongacams', 'camsoda', 'myfreecams', 'cam4', 'imlive', 'streamate', 'flirt4free'];
-
         foreach ($pool as $kw) {
             ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword((string) $kw);
             if ($display === '' || Keyword_Validator::is_blacklisted($display)) {
@@ -867,17 +963,7 @@ class Keyword_Pack_Builder {
             }
 
             $word_count = self::keyword_word_count($display);
-            $type       = 'extra';
-            foreach ($brands as $brand) {
-                if (stripos($display, $brand) !== false) {
-                    $type = 'competitor';
-                    break;
-                }
-            }
-
-            if ($type === 'extra') {
-                $type = $word_count >= 5 ? 'longtail' : 'extra';
-            }
+            $type       = self::determine_type($display, $category, $word_count);
 
             $row = [
                 'keyword'     => $display,
@@ -914,6 +1000,97 @@ class Keyword_Pack_Builder {
         Core::debug_log(sprintf('[TMW-KEYPACKS] %s: Google suggestions too low (%d). Filled with internal+fallback to reach targets.', $category, $initial_total));
         if (count($rows_by_type['competitor'] ?? []) < $targets['competitor']) {
             Core::debug_log(sprintf('[TMW-KEYPACKS] %s: competitor keywords still below target (%d/%d).', $category, count($rows_by_type['competitor'] ?? []), $targets['competitor']));
+        }
+    }
+
+    /**
+     * Ensure minimum targets for each type using internal expansion and fallbacks.
+     *
+     * @param string $category
+     * @param array  $seeds
+     * @param array  $rows_by_type
+     * @param array  $keyword_map
+     * @return void
+     */
+    private static function ensure_minimum_type_targets(string $category, array $seeds, array &$rows_by_type, array &$keyword_map): void {
+        $targets = self::get_minimum_targets($category);
+        $current = [
+            'extra'      => count($rows_by_type['extra'] ?? []),
+            'longtail'   => count($rows_by_type['longtail'] ?? []),
+            'competitor' => count($rows_by_type['competitor'] ?? []),
+        ];
+
+        $needs_more = false;
+        foreach ($targets as $type => $min) {
+            if ($current[$type] < $min) {
+                $needs_more = true;
+                break;
+            }
+        }
+
+        if (!$needs_more) {
+            return;
+        }
+
+        if ($category === 'livejasmin' && !in_array('livejasmin', array_map('strtolower', $seeds), true)) {
+            $seeds[] = 'livejasmin';
+        }
+
+        $seeds     = array_values(array_unique(array_filter(array_map('trim', $seeds), 'strlen')));
+        $internal  = Keyword_Expander::expand_category($seeds, $category, 1200);
+        $fallbacks = Keyword_Expander::get_fallback_keywords($category);
+        $pool      = array_merge($internal, $fallbacks);
+
+        foreach ($pool as $kw) {
+            ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword((string) $kw);
+            if ($display === '' || Keyword_Validator::is_blacklisted($display)) {
+                continue;
+            }
+
+            if ($normalized !== '' && isset($keyword_map[$normalized])) {
+                continue;
+            }
+
+            if (!self::is_allowed($normalized, $display)) {
+                continue;
+            }
+
+            $word_count = self::keyword_word_count($display);
+            $type       = self::determine_type($display, $category, $word_count);
+
+            if ($current[$type] >= $targets[$type]) {
+                continue;
+            }
+
+            $row = [
+                'keyword'     => $display,
+                'word_count'  => $word_count,
+                'type'        => $type,
+                'source_seed' => '',
+                'category'    => $category,
+                'timestamp'   => current_time('mysql'),
+                'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                'tmw_kd'      => Keyword_Difficulty_Proxy::score($display, Keyword_Difficulty_Proxy::DEFAULT_COMPETITION, Keyword_Difficulty_Proxy::DEFAULT_CPC),
+            ];
+
+            $rows_by_type[$type][] = $row;
+            if ($normalized !== '') {
+                $keyword_map[$normalized] = $row;
+            }
+            $current[$type]++;
+
+            $all_met = true;
+            foreach ($targets as $target_type => $min) {
+                if ($current[$target_type] < $min) {
+                    $all_met = false;
+                    break;
+                }
+            }
+
+            if ($all_met) {
+                break;
+            }
         }
     }
 
@@ -1047,6 +1224,10 @@ class Keyword_Pack_Builder {
                     $existing_before[$value] = $existing[$value];
                 }
             }
+        }
+
+        if (empty($keywords) && !empty($existing)) {
+            return count($existing);
         }
 
         $existing_count = count($existing);
@@ -1427,7 +1608,6 @@ class Keyword_Pack_Builder {
         $rate_limit_ms = (int) ($options['rate_limit_ms'] ?? 200);
         $accept_language = sanitize_text_field((string) ($options['accept_language'] ?? 'en-US,en;q=0.9'));
 
-        $brands = ['livejasmin', 'chaturbate', 'stripchat'];
         $priority = ['extra' => 1, 'longtail' => 2, 'competitor' => 3];
 
         $summary = [
@@ -1468,17 +1648,7 @@ class Keyword_Pack_Builder {
                         continue;
                     }
 
-                    $type = null;
-                    foreach ($brands as $brand) {
-                        if (stripos($display, $brand) !== false) {
-                            $type = 'competitor';
-                            break;
-                        }
-                    }
-
-                    if (!$type) {
-                        $type = $word_count >= 5 ? 'longtail' : 'extra';
-                    }
+                    $type = self::determine_type($display, $category, $word_count);
 
                     // Build full CSV row with KD proxy metadata.
                     $row = [
@@ -1511,6 +1681,7 @@ class Keyword_Pack_Builder {
             $found_count = count($keyword_map);
             $initial_total = $found_count;
             self::ensure_minimum_google_rows($category, $rows_by_type, $keyword_map, $initial_total);
+            self::ensure_minimum_type_targets($category, $seeds, $rows_by_type, $keyword_map);
             $found_count = count($keyword_map);
             $summary['total_keywords'] += $found_count;
 
@@ -1628,7 +1799,6 @@ class Keyword_Pack_Builder {
         $last_call = 0.0;
         $keyword_map = [];
 
-        $brands = ['livejasmin', 'chaturbate', 'stripchat'];
         $priority = ['extra' => 1, 'longtail' => 2, 'competitor' => 3];
 
         foreach ($seed_slice as $seed) {
@@ -1649,17 +1819,7 @@ class Keyword_Pack_Builder {
                     continue;
                 }
 
-                $type = null;
-                foreach ($brands as $brand) {
-                    if (stripos($display, $brand) !== false) {
-                        $type = 'competitor';
-                        break;
-                    }
-                }
-
-                if (!$type) {
-                    $type = $word_count >= 5 ? 'longtail' : 'extra';
-                }
+                $type = self::determine_type($display, $category, $word_count);
 
                 $row = [
                     'keyword'     => $display,
@@ -1691,6 +1851,7 @@ class Keyword_Pack_Builder {
         $found_count = count($keyword_map);
         $initial_total = $found_count;
         self::ensure_minimum_google_rows($category, $rows_by_type, $keyword_map, $initial_total);
+        self::ensure_minimum_type_targets($category, $seeds, $rows_by_type, $keyword_map);
         $found_count = count($keyword_map);
         $summary['batch_keywords'] = $found_count;
 
