@@ -486,6 +486,9 @@ class Keyword_Library {
             $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
             $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
             $tmw_kd      = $tmw_kd_raw !== '' ? (int) round((float) $tmw_kd_raw) : Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+            if ($tmw_kd_raw !== '' && $competition === Keyword_Difficulty_Proxy::DEFAULT_COMPETITION && abs($cpc - Keyword_Difficulty_Proxy::DEFAULT_CPC) < 0.00001) {
+                $tmw_kd = Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+            }
 
             $rows[] = [
                 'keyword'     => $raw_keyword,

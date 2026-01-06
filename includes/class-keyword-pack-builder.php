@@ -822,6 +822,102 @@ class Keyword_Pack_Builder {
     }
 
     /**
+     * Ensure minimum coverage for autocomplete packs using internal expansions.
+     *
+     * @param string $category
+     * @param array  $rows_by_type
+     * @param array  $keyword_map
+     * @param int    $initial_total
+     * @return void
+     */
+    private static function ensure_minimum_google_rows(string $category, array &$rows_by_type, array &$keyword_map, int $initial_total): void {
+        $targets = [
+            'extra'      => 25,
+            'longtail'   => 15,
+            'competitor' => 5,
+        ];
+
+        $needs_fallback = false;
+        foreach ($targets as $type => $min) {
+            if (count($rows_by_type[$type] ?? []) < $min) {
+                $needs_fallback = true;
+                break;
+            }
+        }
+
+        if (!$needs_fallback) {
+            return;
+        }
+
+        $seeds     = self::get_seeds_for_category($category, []);
+        $internal  = Keyword_Expander::expand_category($seeds, $category, 200);
+        $fallbacks = Keyword_Expander::get_fallback_keywords($category);
+        $pool      = array_merge($internal, $fallbacks);
+
+        $brands = ['livejasmin', 'chaturbate', 'stripchat', 'bongacams', 'camsoda', 'myfreecams', 'cam4', 'imlive', 'streamate', 'flirt4free'];
+
+        foreach ($pool as $kw) {
+            ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword((string) $kw);
+            if ($display === '' || Keyword_Validator::is_blacklisted($display)) {
+                continue;
+            }
+
+            if ($normalized !== '' && isset($keyword_map[$normalized])) {
+                continue;
+            }
+
+            $word_count = self::keyword_word_count($display);
+            $type       = 'extra';
+            foreach ($brands as $brand) {
+                if (stripos($display, $brand) !== false) {
+                    $type = 'competitor';
+                    break;
+                }
+            }
+
+            if ($type === 'extra') {
+                $type = $word_count >= 5 ? 'longtail' : 'extra';
+            }
+
+            $row = [
+                'keyword'     => $display,
+                'word_count'  => $word_count,
+                'type'        => $type,
+                'source_seed' => '',
+                'category'    => $category,
+                'timestamp'   => current_time('mysql'),
+                'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                'tmw_kd'      => Keyword_Difficulty_Proxy::score($display, Keyword_Difficulty_Proxy::DEFAULT_COMPETITION, Keyword_Difficulty_Proxy::DEFAULT_CPC),
+            ];
+
+            if (!isset($rows_by_type[$type])) {
+                $rows_by_type[$type] = [];
+            }
+            $rows_by_type[$type][] = $row;
+            if ($normalized !== '') {
+                $keyword_map[$normalized] = $row;
+            }
+
+            $all_met = true;
+            foreach ($targets as $t => $min) {
+                if (count($rows_by_type[$t] ?? []) < $min && $t !== 'competitor') {
+                    $all_met = false;
+                    break;
+                }
+            }
+            if ($all_met && count($rows_by_type['competitor'] ?? []) >= $targets['competitor']) {
+                break;
+            }
+        }
+
+        Core::debug_log(sprintf('[TMW-KEYPACKS] %s: Google suggestions too low (%d). Filled with internal+fallback to reach targets.', $category, $initial_total));
+        if (count($rows_by_type['competitor'] ?? []) < $targets['competitor']) {
+            Core::debug_log(sprintf('[TMW-KEYPACKS] %s: competitor keywords still below target (%d/%d).', $category, count($rows_by_type['competitor'] ?? []), $targets['competitor']));
+        }
+    }
+
+    /**
      * Handles merge write csv.
      *
      * @param string $category
@@ -951,6 +1047,11 @@ class Keyword_Pack_Builder {
                     $existing_before[$value] = $existing[$value];
                 }
             }
+        }
+
+        $existing_count = count($existing);
+        if (empty($keywords) && $existing_count > 0 && !$append) {
+            return $existing_count;
         }
 
         // Merge new keywords with defaults for competition/CPC and extended metadata.
@@ -1408,6 +1509,9 @@ class Keyword_Pack_Builder {
             }
 
             $found_count = count($keyword_map);
+            $initial_total = $found_count;
+            self::ensure_minimum_google_rows($category, $rows_by_type, $keyword_map, $initial_total);
+            $found_count = count($keyword_map);
             $summary['total_keywords'] += $found_count;
 
             $category_entry = [
@@ -1423,9 +1527,13 @@ class Keyword_Pack_Builder {
             if (!$dry_run) {
                 $new_counts = [];
                 foreach ($rows_by_type as $type => $rows) {
-                    $before = count(Keyword_Library::load($category, $type));
-                    $after = self::merge_write_csv($category, $type, $rows, false);
-                    $new_counts[$type] = max(0, $after - $before);
+                    if (!empty($rows)) {
+                        $before = count(Keyword_Library::load($category, $type));
+                        $after = self::merge_write_csv($category, $type, $rows, false);
+                        $new_counts[$type] = max(0, $after - $before);
+                    } else {
+                        $new_counts[$type] = 0;
+                    }
                 }
                 $category_entry['new_counts'] = $new_counts;
                 Core::debug_log(sprintf('[TMW-AUTOFILL] %s: %d keywords processed.', $category, $found_count));
@@ -1581,6 +1689,9 @@ class Keyword_Pack_Builder {
         }
 
         $found_count = count($keyword_map);
+        $initial_total = $found_count;
+        self::ensure_minimum_google_rows($category, $rows_by_type, $keyword_map, $initial_total);
+        $found_count = count($keyword_map);
         $summary['batch_keywords'] = $found_count;
 
         $category_entry = [
@@ -1599,9 +1710,13 @@ class Keyword_Pack_Builder {
         if (!$dry_run) {
             $new_counts = [];
             foreach ($rows_by_type as $type => $rows) {
-                $before = count(Keyword_Library::load($category, $type));
-                $after = self::merge_write_csv($category, $type, $rows, false);
-                $new_counts[$type] = max(0, $after - $before);
+                if (!empty($rows)) {
+                    $before = count(Keyword_Library::load($category, $type));
+                    $after = self::merge_write_csv($category, $type, $rows, false);
+                    $new_counts[$type] = max(0, $after - $before);
+                } else {
+                    $new_counts[$type] = 0;
+                }
             }
             $category_entry['new_counts'] = $new_counts;
             Core::debug_log(sprintf('[TMW-KEYPACKS] %s: %d keywords processed (seed %d/%d).', $category, $found_count, $category_entry['seed_offset'], $category_entry['seed_total']));
