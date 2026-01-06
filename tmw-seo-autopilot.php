@@ -43,6 +43,8 @@ require_once TMW_SEO_PATH . 'includes/class-keyword-pool.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-usage.php';
 require_once TMW_SEO_PATH . 'includes/class-platform-registry.php';
 require_once TMW_SEO_PATH . 'includes/class-kd-filter.php';
+require_once TMW_SEO_PATH . 'includes/class-keyword-scheduler.php';
+require_once TMW_SEO_PATH . 'includes/class-dashboard-stats.php';
 require_once TMW_SEO_PATH . 'includes/admin/class-model-platforms-metabox.php';
 require_once TMW_SEO_PATH . 'includes/class-content-generator.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-manager.php';
@@ -63,6 +65,19 @@ add_action('plugins_loaded', function () {
     \TMW_SEO\Image_Meta::boot();
     \TMW_SEO\Media::boot();
     \TMW_SEO\Admin\Model_Platforms_Metabox::boot();
+    \TMW_SEO\Keyword_Scheduler::boot();
+});
+
+add_filter('cron_schedules', function($schedules) {
+    $schedules['tmwseo_weekly'] = [
+        'interval' => 604800,
+        'display' => 'Weekly'
+    ];
+    $schedules['tmwseo_monthly'] = [
+        'interval' => 2592000,
+        'display' => 'Monthly'
+    ];
+    return $schedules;
 });
 
 register_activation_hook(__FILE__, function () {
@@ -72,4 +87,15 @@ register_activation_hook(__FILE__, function () {
     add_option('tmwseo_used_video_seo_title_hashes', [], '', 'no');
     add_option('tmwseo_used_video_focus_keyword_hashes', [], '', 'no');
     add_option('tmwseo_used_video_title_focus_hashes', [], '', 'no');
+    if (!wp_next_scheduled('tmwseo_refresh_keyword_metrics')) {
+        wp_schedule_event(time(), 'tmwseo_monthly', 'tmwseo_refresh_keyword_metrics');
+    }
+    if (!wp_next_scheduled('tmwseo_discover_new_keywords')) {
+        wp_schedule_event(time(), 'tmwseo_weekly', 'tmwseo_discover_new_keywords');
+    }
+});
+
+register_deactivation_hook(__FILE__, function() {
+    wp_clear_scheduled_hook('tmwseo_refresh_keyword_metrics');
+    wp_clear_scheduled_hook('tmwseo_discover_new_keywords');
 });

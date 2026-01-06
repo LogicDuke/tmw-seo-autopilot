@@ -45,6 +45,10 @@ class Admin {
         add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
         add_action('wp_ajax_tmwseo_autofill_google_keywords', [__CLASS__, 'ajax_autofill_google_keywords']);
         add_action('admin_post_tmwseo_save_kd_settings', [__CLASS__, 'handle_save_kd_settings']);
+        add_action('wp_ajax_tmwseo_autofill_keywords', [__CLASS__, 'ajax_autofill_keywords']);
+        add_action('wp_ajax_tmwseo_analyze_competitor', [__CLASS__, 'ajax_analyze_competitor']);
+        add_action('wp_ajax_tmwseo_refresh_metrics', [__CLASS__, 'ajax_refresh_metrics']);
+        add_action('wp_ajax_tmwseo_export_keywords', [__CLASS__, 'ajax_export_keywords']);
     }
 
     /**
@@ -700,6 +704,22 @@ class Admin {
             self::CAP,
             'tmw-seo-codex-reports',
             [__CLASS__, 'render_codex_reports']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'Keyword Autofill',
+            'Keyword Autofill',
+            self::CAP,
+            'tmw-seo-keyword-autofill',
+            [__CLASS__, 'render_keyword_autofill']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'Competitor Analysis',
+            'Competitor Analysis',
+            self::CAP,
+            'tmw-seo-competitor-analysis',
+            [__CLASS__, 'render_competitor_analysis']
         );
         add_submenu_page(
             'tmw-seo-autopilot',
@@ -3669,5 +3689,94 @@ class Admin {
         $msg = get_post_meta($post_id, '_tmwseo_last_message', true);
         if (!$msg) return;
         echo '<div class="notice notice-info is-dismissible"><p><strong>TMW SEO:</strong> ' . esc_html($msg) . '</p></div>';
+    }
+
+    /**
+     * Render keyword autofill page.
+     */
+    public static function render_keyword_autofill() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+        include TMW_SEO_PATH . 'includes/admin/views/keyword-autofill.php';
+    }
+
+    /**
+     * Render competitor analysis page.
+     */
+    public static function render_competitor_analysis() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+        include TMW_SEO_PATH . 'includes/admin/views/competitor-analysis.php';
+    }
+
+    /**
+     * AJAX handler for keyword autofill.
+     */
+    public static function ajax_autofill_keywords() {
+        check_ajax_referer('tmwseo_autofill_keywords', 'nonce');
+        if (!current_user_can(self::CAP)) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+        $category = sanitize_text_field($_POST['category'] ?? 'all');
+        $type = sanitize_text_field($_POST['type'] ?? 'all');
+        $limit = (int) ($_POST['limit'] ?? 200);
+        $enrich = !empty($_POST['enrich']);
+        $dry = !empty($_POST['dry_run']);
+        $result = Keyword_Pack_Builder::autofill_category_keywords($category, $type, $limit, $enrich, $dry);
+        wp_send_json_success($result);
+    }
+
+    /**
+     * AJAX handler for competitor analysis.
+     */
+    public static function ajax_analyze_competitor() {
+        check_ajax_referer('tmwseo_competitor_analysis', 'nonce');
+        if (!current_user_can(self::CAP)) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+        $domain = sanitize_text_field($_POST['domain'] ?? '');
+        $limit = (int) ($_POST['limit'] ?? 500);
+        $client = new \TMW_SEO\DataForSEO_Client();
+        $items = $client->get_competitor_keywords($domain, $limit);
+        wp_send_json_success(['items' => $items]);
+    }
+
+    /**
+     * AJAX handler to refresh metrics on demand.
+     */
+    public static function ajax_refresh_metrics() {
+        check_ajax_referer('tmwseo_autofill_keywords', 'nonce');
+        if (!current_user_can(self::CAP)) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+        Keyword_Scheduler::refresh_keyword_metrics();
+        wp_send_json_success(['message' => 'Metrics refreshed']);
+    }
+
+    /**
+     * AJAX handler to export all keywords.
+     */
+    public static function ajax_export_keywords() {
+        check_ajax_referer('tmwseo_autofill_keywords', 'nonce');
+        if (!current_user_can(self::CAP)) {
+            wp_send_json_error(['message' => 'No permission']);
+        }
+        $keywords = \TMW_SEO\Dashboard_Stats::build()['top_opportunities'] ?? [];
+        $fh = fopen('php://output', 'w');
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="tmwseo-keywords.csv"');
+        $columns = Keyword_Pack_Builder::csv_columns();
+        fputcsv($fh, $columns);
+        foreach ($keywords as $row) {
+            $ordered = [];
+            foreach ($columns as $col) {
+                $ordered[] = $row[$col] ?? '';
+            }
+            fputcsv($fh, $ordered);
+        }
+        fclose($fh);
+        exit;
     }
 }
