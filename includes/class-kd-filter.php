@@ -84,8 +84,13 @@ class KD_Filter {
     }
 
     /**
-     * Select keywords with proper KD distribution
-     * Returns a mix based on low_priority setting
+     * Select keywords with KD-based distribution.
+     *
+     * Selects a mix of low-KD and higher-KD keywords based on configured
+     * priority settings. Low-KD keywords are prioritized for newer sites.
+     *
+     * @since 1.2.0
+     * @todo Integrate into keyword assignment workflow in class-keyword-assigner.php
      *
      * @param array $keywords Keywords to select from.
      * @param int   $count    Desired count.
@@ -117,10 +122,14 @@ class KD_Filter {
         // Track selected keywords by their actual keyword string to avoid duplicates
         $selected = [];
         $selected_keywords = [];
-        
+
         // Select from low KD pool
         foreach (array_slice($low_kd, 0, $low_count) as $kw) {
             $keyword_str = $kw['keyword'] ?? '';
+            // Skip malformed entries with empty keyword
+            if ($keyword_str === '') {
+                continue;
+            }
             if (!isset($selected_keywords[$keyword_str])) {
                 $selected[] = $kw;
                 $selected_keywords[$keyword_str] = true;
@@ -130,6 +139,10 @@ class KD_Filter {
         // Select from other pool
         foreach (array_slice($other, 0, $other_count) as $kw) {
             $keyword_str = $kw['keyword'] ?? '';
+            // Skip malformed entries with empty keyword
+            if ($keyword_str === '') {
+                continue;
+            }
             if (!isset($selected_keywords[$keyword_str])) {
                 $selected[] = $kw;
                 $selected_keywords[$keyword_str] = true;
@@ -144,6 +157,10 @@ class KD_Filter {
                     break;
                 }
                 $keyword_str = $kw['keyword'] ?? '';
+                // Skip malformed entries with empty keyword
+                if ($keyword_str === '') {
+                    continue;
+                }
                 if (!isset($selected_keywords[$keyword_str])) {
                     $selected[] = $kw;
                     $selected_keywords[$keyword_str] = true;
