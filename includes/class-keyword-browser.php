@@ -52,15 +52,15 @@ class Keyword_Browser {
      */
     public static function get_keywords_by_kd_bucket(string $bucket, int $limit = 20, int $offset = 0): array {
         $ranges = [
-            'very-easy' => [0, 20],
+            'very_easy' => [0, 20],
             'easy'      => [21, 30],
             'medium'    => [31, 50],
             'hard'      => [51, 70],
-            'very-hard' => [71, 100],
+            'very_hard' => [71, 100],
             'unscored'  => null,
         ];
 
-        $bucket_key = strtolower(sanitize_key($bucket));
+        $bucket_key = str_replace('-', '_', strtolower(sanitize_key($bucket)));
         $range = $ranges[$bucket_key] ?? null;
 
         $filters = [];
