@@ -88,6 +88,7 @@ class Keyword_Library {
             'dominant',
             'fitness',
             'outdoor',
+            'chat',
             'uniforms',
             'couples',
             'fetish-lite',
