@@ -117,9 +117,35 @@ class Keyword_Expander {
     public static function expand_category(array $seeds, string $category, int $per_seed = 15): array {
         $all_keywords = [];
 
+        if ($category === 'livejasmin') {
+            $livejasmin_seeds = [
+                'livejasmin cam models',
+                'livejasmin private show',
+                'livejasmin live cams',
+                'livejasmin ' . $category,
+            ];
+
+            $seeds = array_merge($seeds, $livejasmin_seeds);
+        }
+
+        $seeds = array_values(array_unique(array_filter(array_map('trim', $seeds), 'strlen')));
+
         foreach ($seeds as $seed) {
             $expanded = self::expand_seed($seed, $per_seed);
             $all_keywords = array_merge($all_keywords, $expanded);
+
+            if ($category === 'livejasmin') {
+                $templates = [
+                    'best %s on livejasmin',
+                    '%s livejasmin private chat',
+                    '%s livejasmin tips',
+                    '%s livejasmin reviews',
+                ];
+
+                foreach ($templates as $template) {
+                    $all_keywords[] = sprintf($template, $seed);
+                }
+            }
         }
 
         // Remove duplicates
