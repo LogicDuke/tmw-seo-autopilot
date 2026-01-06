@@ -553,321 +553,245 @@ class Keyword_Pack_Builder {
      * @param array $run_state
      * @return mixed
      */
-    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, string $provider = '', array &$run_state = null) {
-        $provider = sanitize_text_field($provider ?: (string) get_option('tmwseo_keyword_provider', 'serper'));
-        $allowed_providers = ['serper', 'google_suggest'];
-        if (!in_array($provider, $allowed_providers, true)) {
-            $provider = 'serper';
-        }
-
-        $api_key = '';
-        if ($provider === 'serper') {
-            $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
-            if ($api_key === '') {
-                return new \WP_Error('tmwseo_serper_missing', 'Serper API key missing', ['provider' => $provider]);
-            }
-        }
-
+    public static function generate(string $category, array $seeds, string $gl, string $hl, int $per_seed = 10, string $provider = '', ?array &$run_state = null) {
         if (!is_array($run_state)) {
             $run_state = [];
         }
-        if (!isset($run_state['total_calls'])) {
-            $run_state['total_calls'] = 0;
-        }
-        if (!isset($run_state['max_calls'])) {
-            $run_state['max_calls'] = 25;
-        }
-        if (!isset($run_state['errors']) || !is_array($run_state['errors'])) {
-            $run_state['errors'] = [];
+
+        $category = sanitize_key($category);
+        $seeds    = self::get_seeds_for_category($category, $seeds);
+        if (empty($seeds)) {
+            return [];
         }
 
         $per_seed = max(1, min(50, $per_seed));
-        $gl = sanitize_text_field($gl ?: 'us');
-        $hl = sanitize_text_field($hl ?: 'en');
-        $debug_enabled = (defined('TMWSEO_SERPER_DEBUG') && TMWSEO_SERPER_DEBUG)
-            || (defined('TMWSEO_KW_DEBUG') && TMWSEO_KW_DEBUG);
-        $max_calls = (int) $run_state['max_calls'];
+        $gl       = sanitize_text_field($gl ?: 'us');
+        $hl       = sanitize_text_field($hl ?: 'en');
+        $target   = max($per_seed * max(1, count($seeds)), 50);
 
-        if (!isset($run_state['quality_report']) || !is_array($run_state['quality_report'])) {
-            $run_state['quality_report'] = [
-                'accepted' => ['count' => 0, 'samples' => []],
-                'rejected_blacklist' => ['count' => 0, 'samples' => []],
-                'rejected_offtopic_pattern' => ['count' => 0, 'samples' => []],
-                'rejected_missing_adult_intent' => ['count' => 0, 'samples' => []],
-                'rejected_question_intent' => ['count' => 0, 'samples' => []],
-            ];
+        $all_keywords    = [];
+        $validated_count = 0;
+
+        // SOURCE 1: Internal pattern expansion (trusted)
+        $expanded = Keyword_Expander::expand_category($seeds, $category, 15);
+        foreach ($expanded as $keyword) {
+            if ($validated_count >= $target) {
+                break;
+            }
+
+            if (self::is_trusted_expansion($keyword)) {
+                $all_keywords[] = self::build_keyword_entry($keyword, $category, 'internal');
+                $validated_count++;
+            }
         }
-        $quality_report = &$run_state['quality_report'];
 
-        $keywords = [];
-        $seed_groups = self::make_indirect_seeds($category, $seeds);
-        $seed_target = max(1, $per_seed);
+        // SOURCE 2: Google Autocomplete (bonus)
+        if ($validated_count < $target) {
+            $remaining = $target - $validated_count;
+            $autocomplete_keywords = self::fetch_autocomplete_keywords($seeds, $remaining, $hl, $gl);
 
-        $track_quality = function (string $bucket, string $keyword) use (&$quality_report): void {
-            if (!isset($quality_report[$bucket])) {
-                return;
+            foreach ($autocomplete_keywords as $keyword) {
+                if ($validated_count >= $target) {
+                    break;
+                }
+
+                if (Keyword_Validator::is_valid_industry_keyword($keyword) && !self::keyword_exists($keyword, $all_keywords)) {
+                    $all_keywords[] = self::build_keyword_entry($keyword, $category, 'autocomplete');
+                    $validated_count++;
+                }
             }
-            $quality_report[$bucket]['count']++;
-            if (count($quality_report[$bucket]['samples']) < 10) {
-                $quality_report[$bucket]['samples'][] = $keyword;
-            }
-        };
+        }
 
-        foreach ($seed_groups as $group) {
-            $seed = trim((string) ($group['seed'] ?? ''));
-            $indirect_seeds = (array) ($group['indirect'] ?? []);
-            if ($seed === '' || empty($indirect_seeds)) {
+        // SOURCE 3: Category modifier combinations (fallback)
+        if ($validated_count < $target) {
+            $modifiers  = Keyword_Expander::get_category_modifiers($category);
+            $base_terms = ['cam girl', 'webcam model', 'live cam', 'cam show'];
+
+            foreach ($modifiers as $modifier) {
+                foreach ($base_terms as $base) {
+                    if ($validated_count >= $target) {
+                        break 2;
+                    }
+
+                    $keyword = $modifier . ' ' . $base;
+                    if (!self::keyword_exists($keyword, $all_keywords)) {
+                        $all_keywords[] = self::build_keyword_entry($keyword, $category, 'modifier');
+                        $validated_count++;
+                    }
+                }
+            }
+        }
+
+        $all_keywords = self::deduplicate_keywords($all_keywords);
+        $all_keywords = array_slice($all_keywords, 0, $target);
+
+        $run_state['quality_report'] = [
+            'accepted' => [
+                'count'   => count($all_keywords),
+                'samples' => array_slice(array_column($all_keywords, 'keyword'), 0, 10),
+            ],
+        ];
+
+        return self::split_types($all_keywords);
+    }
+
+    /**
+     * Merge curated and provided seeds for a category.
+     *
+     * @param string $category Category key.
+     * @param array  $seeds    Provided seeds.
+     * @return array Combined seeds.
+     */
+    protected static function get_seeds_for_category(string $category, array $seeds): array {
+        $curated_file = TMW_SEO_PATH . 'data/curated-seeds.php';
+        $curated      = file_exists($curated_file) ? (array) require $curated_file : [];
+        $category_seeds = $curated[$category] ?? [];
+
+        $merged = array_merge($seeds, (array) $category_seeds);
+
+        return array_values(array_unique(array_filter(array_map(function ($seed) {
+            return trim(sanitize_text_field((string) $seed));
+        }, $merged), 'strlen')));
+    }
+
+    /**
+     * Fetch Google autocomplete keywords for a set of seeds.
+     *
+     * @param array  $seeds   Seeds to query.
+     * @param int    $limit   Maximum keywords to return.
+     * @param string $hl      Language code.
+     * @param string $gl      Geo code.
+     * @return array Keyword suggestions.
+     */
+    private static function fetch_autocomplete_keywords(array $seeds, int $limit, string $hl, string $gl): array {
+        $client = self::google_suggest_client();
+        $results = [];
+        $seen = [];
+        $per_seed = max(1, (int) ceil($limit / max(1, count($seeds))));
+
+        foreach ($seeds as $seed) {
+            $suggestions = $client->fetch($seed, $hl, $gl);
+            if (is_wp_error($suggestions)) {
                 continue;
             }
 
-            $seed_suggestions_count = 0;
-            $seed_accepted = 0;
-            $seed_accepted_extra = 0;
-            $seed_accepted_longtail = 0;
-            $rejected_blacklist = 0;
-            $rejected_offtopic = 0;
-            $rejected_intent = 0;
-            $accepted_samples = [];
-            $seed_seen = [];
-            $used_queries = [];
-            $seed_complete = false;
-            foreach ($indirect_seeds as $indirect_seed) {
-                $queries = self::build_efficient_queries($indirect_seed);
-                $queries = array_values(array_unique(array_filter(array_map('trim', $queries), 'strlen')));
-                if (empty($queries)) {
+            foreach (array_slice((array) $suggestions, 0, $per_seed) as $suggestion) {
+                $normalized = trim((string) $suggestion);
+                if ($normalized === '') {
                     continue;
                 }
 
-                $per_query = max(3, (int) ceil($per_seed / max(1, count($queries))));
-                $fetch_count = min(20, $per_query * 2);
-
-                foreach ($queries as $query) {
-                    $used_queries[] = $query;
-                    $suggestions = [];
-                    $used_external_call = false;
-                    if ($provider === 'google_suggest') {
-                        $cache_key = Google_Suggest_Client::cache_key($query, $hl, $gl);
-                        $cache_hit = get_transient($cache_key);
-                        if ($cache_hit === false && $run_state['total_calls'] >= $max_calls) {
-                            return new \WP_Error(
-                                'tmwseo_call_cap',
-                                'Too many external requests in one run. Reduce seeds or Suggestions-per-seed.',
-                                ['provider' => $provider, 'query' => $query]
-                            );
-                        }
-                        $client = self::google_suggest_client();
-                        $result = $client->fetch($query, $hl, $gl);
-                        if (is_wp_error($result)) {
-                            return new \WP_Error(
-                                'tmwseo_provider_failed',
-                                'Provider request failed',
-                                [
-                                    'provider' => $provider,
-                                    'query'    => $query,
-                                    'details'  => $result->get_error_message(),
-                                ]
-                            );
-                        }
-                        $suggestions = array_slice($result, 0, $fetch_count);
-                        $used_external_call = !$client->was_last_cached();
-                    } else {
-                        if ($run_state['total_calls'] >= $max_calls) {
-                            return new \WP_Error(
-                                'tmwseo_call_cap',
-                                'Too many external requests in one run. Reduce seeds or Suggestions-per-seed.',
-                                ['provider' => $provider, 'query' => $query]
-                            );
-                        }
-                        $used_external_call = true;
-                        try {
-                            $result = Serper_Client::search($api_key, $query, $gl, $hl, $fetch_count);
-                        } catch (\Exception $e) {
-                            Core::debug_log('[TMW-SERPER-ERROR] ' . $e->getMessage());
-                            $errors = get_option('tmwseo_serper_error_log', []);
-                            $errors[] = [
-                                'time' => current_time('mysql'),
-                                'query' => $query,
-                                'error' => $e->getMessage(),
-                            ];
-                            update_option('tmwseo_serper_error_log', array_slice($errors, -20));
-                            return new \WP_Error(
-                                'tmwseo_provider_failed',
-                                'Provider request failed',
-                                [
-                                    'provider' => $provider,
-                                    'query'    => $query,
-                                    'details'  => $e->getMessage(),
-                                ]
-                            );
-                        }
-                        if (!empty($result['error'])) {
-                            $http_code = (int) ($result['http_code'] ?? 0);
-                            $error_message = (string) ($result['error_message'] ?? $result['error']);
-                            return new \WP_Error(
-                                'tmwseo_provider_failed',
-                                'Provider request failed',
-                                [
-                                    'provider'   => $provider,
-                                    'query'      => $query,
-                                    'details'    => $error_message,
-                                    'http_code'  => $http_code,
-                                ]
-                            );
-                        }
-
-                        $data = $result['data'] ?? [];
-                        $suggestions = Serper_Client::extract_suggestions($data);
-                        $suggestions = array_slice($suggestions, 0, $fetch_count);
-                    }
-
-                    if ($used_external_call) {
-                        $run_state['total_calls']++;
-                    }
-                    $seed_suggestions_count += count($suggestions);
-
-                    foreach ($suggestions as $suggestion) {
-                        ['display' => $display] = self::normalize_keyword($suggestion);
-                        if ($display === '') {
-                            continue;
-                        }
-
-                        $contextual = self::contextualize_keyword($seed, $display);
-                        ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($contextual);
-                        if ($normalized === '') {
-                            continue;
-                        }
-
-                        if (self::is_blacklisted($normalized)) {
-                            $rejected_blacklist++;
-                            if ($debug_enabled) {
-                                $track_quality('rejected_blacklist', $display);
-                            }
-                            continue;
-                        }
-
-                        if (self::matches_offtopic_patterns($normalized)) {
-                            $rejected_offtopic++;
-                            if ($debug_enabled) {
-                                $track_quality('rejected_offtopic_pattern', $display);
-                            }
-                            continue;
-                        }
-
-                        if (!self::has_adult_intent($normalized)) {
-                            $rejected_intent++;
-                            if ($debug_enabled) {
-                                $track_quality('rejected_missing_adult_intent', $display);
-                            }
-                            continue;
-                        }
-
-                        if (!isset($seed_seen[$normalized])) {
-                            $seed_seen[$normalized] = true;
-                            $seed_accepted++;
-                            $words = preg_split('/\s+/', trim($display));
-                            $word_count = is_array($words) ? count(array_filter($words, 'strlen')) : 0;
-                            if ($word_count >= 5) {
-                                $seed_accepted_longtail++;
-                            } elseif ($word_count >= 2) {
-                                $seed_accepted_extra++;
-                            }
-
-                            if (count($accepted_samples) < 5) {
-                                $accepted_samples[] = $display;
-                            }
-
-                            if ($debug_enabled) {
-                                $track_quality('accepted', $display);
-                            }
-                        }
-
-                        if (!isset($keywords[$normalized])) {
-                            $keywords[$normalized] = [
-                                'keyword' => $display,
-                                'source_seed' => $seed,
-                            ];
-                        }
-
-                        if ($seed_accepted_extra >= $per_seed && $seed_accepted_longtail >= $per_seed) {
-                            $seed_complete = true;
-                            break;
-                        }
-                    }
-
-                    if ($seed_accepted >= $seed_target) {
-                        $seed_complete = true;
-                    }
-
-                    if ($seed_complete) {
-                        break;
-                    }
+                $key = strtolower($normalized);
+                if (!isset($seen[$key])) {
+                    $seen[$key] = true;
+                    $results[] = $normalized;
                 }
 
-                if ($seed_complete) {
-                    break;
+                if (count($results) >= $limit) {
+                    break 2;
                 }
-            }
-
-            if ($seed_accepted < 10) {
-                $manual_keywords = self::generate_manual_keywords($seed);
-                foreach ($manual_keywords as $manual_keyword) {
-                    ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($manual_keyword);
-                    if ($normalized === '') {
-                        continue;
-                    }
-
-                    if (self::is_blacklisted($normalized)) {
-                        if ($debug_enabled) {
-                            $track_quality('rejected_blacklist', $display);
-                        }
-                        continue;
-                    }
-
-                    if (self::matches_offtopic_patterns($normalized)) {
-                        if ($debug_enabled) {
-                            $track_quality('rejected_offtopic_pattern', $display);
-                        }
-                        continue;
-                    }
-
-                    if (!self::has_adult_intent($normalized)) {
-                        if ($debug_enabled) {
-                            $track_quality('rejected_missing_adult_intent', $display);
-                        }
-                        continue;
-                    }
-
-                    if (!isset($seed_seen[$normalized])) {
-                        $seed_seen[$normalized] = true;
-                        $seed_accepted++;
-                        if ($debug_enabled) {
-                            $track_quality('accepted', $display);
-                        }
-                    }
-
-                    if (!isset($keywords[$normalized])) {
-                        $keywords[$normalized] = [
-                            'keyword' => $display,
-                            'source_seed' => $seed,
-                        ];
-                    }
-                }
-            }
-
-            if ($debug_enabled) {
-                error_log('[TMW-KW] Provider: ' . $provider . ' Seed: ' . $seed);
-                error_log('[TMW-KW] Queries: ' . wp_json_encode($used_queries));
-                error_log('[TMW-KW] Raw suggestions: ' . $seed_suggestions_count);
-                error_log('[TMW-KW] Accepted: ' . $seed_accepted . ' Samples: ' . wp_json_encode($accepted_samples));
-                error_log('[TMW-KW] Rejected blacklist: ' . $rejected_blacklist . ' Rejected offtopic: ' . $rejected_offtopic . ' Rejected adult-intent: ' . $rejected_intent);
             }
         }
 
-        if ($debug_enabled) {
-            error_log('[TMW-KW-QUALITY] ' . wp_json_encode($quality_report));
+        return $results;
+    }
+
+    /**
+     * Check if keyword is a trusted internal expansion.
+     *
+     * @param string $keyword The keyword to check.
+     * @return bool True if trusted.
+     */
+    private static function is_trusted_expansion(string $keyword): bool {
+        $keyword_lower = strtolower($keyword);
+
+        $trust_indicators = [
+            'livejasmin', 'chaturbate', 'stripchat', 'bongacams',
+            'camsoda', 'myfreecams', 'flirt4free', 'cam4',
+            'cam girl', 'cam model', 'webcam', 'live cam', 'cam show',
+            'private show', 'live show', 'camgirl', 'webcam model',
+        ];
+
+        foreach ($trust_indicators as $indicator) {
+            if (str_contains($keyword_lower, $indicator)) {
+                return !Keyword_Validator::is_blacklisted($keyword);
+            }
         }
 
-        return self::split_types(array_values($keywords));
+        return false;
+    }
+
+    /**
+     * Build a keyword entry array.
+     *
+     * @param string $keyword  The keyword.
+     * @param string $category The category.
+     * @param string $source   The source (internal/autocomplete/modifier).
+     * @return array Keyword entry.
+     */
+    private static function build_keyword_entry(string $keyword, string $category, string $source): array {
+        return [
+            'keyword'  => $keyword,
+            'category' => $category,
+            'source'   => $source,
+            'tmw_kd'   => self::estimate_difficulty($keyword),
+        ];
+    }
+
+    /**
+     * Check if keyword already exists in array.
+     *
+     * @param string $keyword  Keyword to check.
+     * @param array  $keywords Existing keywords.
+     * @return bool True if exists.
+     */
+    private static function keyword_exists(string $keyword, array $keywords): bool {
+        $keyword_lower = strtolower($keyword);
+        foreach ($keywords as $kw) {
+            if (strtolower($kw['keyword'] ?? '') === $keyword_lower) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Remove duplicate keywords.
+     *
+     * @param array $keywords Keywords array.
+     * @return array Deduplicated array.
+     */
+    private static function deduplicate_keywords(array $keywords): array {
+        $seen = [];
+        $unique = [];
+
+        foreach ($keywords as $kw) {
+            $key = strtolower($kw['keyword'] ?? '');
+            if ($key && !isset($seen[$key])) {
+                $seen[$key] = true;
+                $unique[] = $kw;
+            }
+        }
+
+        return $unique;
+    }
+
+    /**
+     * Estimate keyword difficulty (placeholder - integrate with KD API later).
+     *
+     * @param string $keyword The keyword.
+     * @return int Estimated KD 0-100.
+     */
+    private static function estimate_difficulty(string $keyword): int {
+        $word_count = str_word_count($keyword);
+
+        if ($word_count >= 5) return rand(10, 25);
+        if ($word_count >= 4) return rand(20, 35);
+        if ($word_count >= 3) return rand(25, 45);
+        if ($word_count >= 2) return rand(35, 55);
+
+        return rand(50, 70);
     }
 
     /**

@@ -35,6 +35,7 @@ require_once TMW_SEO_PATH . 'includes/class-tmw-seo-image-meta.php';
 require_once TMW_SEO_PATH . 'includes/class-template-engine.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-difficulty-proxy.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-library.php';
+require_once TMW_SEO_PATH . 'includes/class-keyword-expander.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-pack-builder.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-validator.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-pool.php';
