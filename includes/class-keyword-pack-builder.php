@@ -1358,6 +1358,8 @@ class Keyword_Pack_Builder {
             fclose($fh);
         }
 
+        Keyword_Library::flush_cache();
+
         return count($final);
     }
 
