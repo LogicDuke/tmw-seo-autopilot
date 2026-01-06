@@ -127,7 +127,21 @@ class Keyword_Pack_Builder {
      */
     protected static function csv_columns(): array {
         // Extended keyword metadata columns for KD reporting + audit trail.
-        return ['keyword', 'word_count', 'type', 'source_seed', 'category', 'timestamp', 'competition', 'cpc', 'tmw_kd'];
+        return [
+            'keyword',
+            'word_count',
+            'type',
+            'source_seed',
+            'category',
+            'timestamp',
+            'competition',
+            'cpc',
+            'tmw_kd',
+            'search_volume',
+            'competition_level',
+            'kd_keyword_used',
+            'kd_source',
+        ];
     }
 
     /**
@@ -1160,6 +1174,18 @@ class Keyword_Pack_Builder {
                         if ($col === 'tmw_kd' || $col === 'tmw_kd%') {
                             $header_map['tmw_kd'] = $index;
                         }
+                        if ($col === 'search_volume') {
+                            $header_map['search_volume'] = $index;
+                        }
+                        if ($col === 'competition_level') {
+                            $header_map['competition_level'] = $index;
+                        }
+                        if ($col === 'kd_keyword_used') {
+                            $header_map['kd_keyword_used'] = $index;
+                        }
+                        if ($col === 'kd_source' || $col === 'tmw_kd_source') {
+                            $header_map['kd_source'] = $index;
+                        }
                     }
 
                     if (empty($header_map)) {
@@ -1205,11 +1231,37 @@ class Keyword_Pack_Builder {
                     $tmw_kd_raw = isset($header_map['tmw_kd'], $row[$header_map['tmw_kd']])
                         ? $row[$header_map['tmw_kd']]
                         : '';
+                    $search_volume = isset($header_map['search_volume'], $row[$header_map['search_volume']])
+                        ? (int) $row[$header_map['search_volume']]
+                        : null;
+                    $competition_level = isset($header_map['competition_level'], $row[$header_map['competition_level']])
+                        ? trim((string) $row[$header_map['competition_level']])
+                        : '';
+                    $kd_keyword_used = isset($header_map['kd_keyword_used'], $row[$header_map['kd_keyword_used']])
+                        ? (string) $row[$header_map['kd_keyword_used']]
+                        : '';
+                    $kd_source = isset($header_map['kd_source'], $row[$header_map['kd_source']])
+                        ? strtolower(trim((string) $row[$header_map['kd_source']]))
+                        : '';
 
                     $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
+                    if ($competition_level !== '') {
+                        $competition = Keyword_Difficulty_Proxy::normalize_competition($competition_level);
+                    }
                     $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
-                    $tmw_kd      = $tmw_kd_raw !== '' ? (int) round((float) $tmw_kd_raw) : Keyword_Difficulty_Proxy::score($display, $competition, $cpc);
-                    $tmw_kd      = max(0, min(100, $tmw_kd));
+                    $tmw_kd      = $tmw_kd_raw !== '' ? (int) round((float) $tmw_kd_raw) : null;
+
+                    if ($tmw_kd === null && $kd_source === 'unknown') {
+                        $tmw_kd = null;
+                    } elseif ($tmw_kd === null) {
+                        $tmw_kd = Keyword_Difficulty_Proxy::score($display, $competition, $cpc);
+                        $kd_source = $kd_source !== '' ? $kd_source : 'proxy';
+                    } else {
+                        $kd_source = $kd_source !== '' ? $kd_source : 'provided';
+                    }
+                    if ($tmw_kd !== null) {
+                        $tmw_kd = max(0, min(100, $tmw_kd));
+                    }
 
                     $existing[$value] = [
                         'keyword'     => $display,
@@ -1221,6 +1273,10 @@ class Keyword_Pack_Builder {
                         'competition' => $competition,
                         'cpc'         => $cpc,
                         'tmw_kd'      => $tmw_kd,
+                        'search_volume' => $search_volume,
+                        'competition_level' => $competition_level !== '' ? $competition_level : $competition,
+                        'kd_keyword_used' => $kd_keyword_used,
+                        'tmw_kd_source' => $kd_source !== '' ? $kd_source : 'provided',
                     ];
                     $existing_before[$value] = $existing[$value];
                 }
@@ -1234,6 +1290,10 @@ class Keyword_Pack_Builder {
         $existing_count = count($existing);
         if (empty($keywords) && $existing_count > 0 && !$append) {
             return $existing_count;
+        }
+
+        if (\TMW_SEO\DataForSEO_Client::is_enabled() && !empty($existing)) {
+            $existing = self::enrich_keywords_with_dataforseo($existing);
         }
 
         // Merge new keywords with defaults for competition/CPC and extended metadata.
@@ -1292,6 +1352,10 @@ class Keyword_Pack_Builder {
                         'competition' => $competition,
                         'cpc'         => $cpc,
                         'tmw_kd'      => Keyword_Difficulty_Proxy::score($display, $competition, $cpc),
+                        'search_volume' => null,
+                        'competition_level' => $competition,
+                        'kd_keyword_used' => $display,
+                        'tmw_kd_source' => 'proxy',
                     ];
                 }
             }
@@ -1316,9 +1380,24 @@ class Keyword_Pack_Builder {
                             'source_seed' => '',
                             'category'    => $category,
                             'timestamp'   => current_time('mysql'),
+                            'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                            'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                            'tmw_kd'      => null,
+                            'search_volume' => null,
+                            'competition_level' => '',
+                            'kd_keyword_used' => $row['keyword'],
+                            'tmw_kd_source' => '',
                         ],
                         $row
                     );
+                    $cpc_value = is_numeric($row['cpc']) ? number_format((float) $row['cpc'], 2, '.', '') : '';
+                    $tmw_kd_value = $row['tmw_kd'];
+                    $tmw_kd_csv = $tmw_kd_value === null ? '' : (int) $tmw_kd_value;
+                    $search_volume = $row['search_volume'];
+                    $search_volume_csv = $search_volume === null ? '' : (int) $search_volume;
+                    $competition_level = $row['competition_level'] !== '' ? $row['competition_level'] : $row['competition'];
+                    $kd_keyword_used = $row['kd_keyword_used'] !== '' ? $row['kd_keyword_used'] : $row['keyword'];
+                    $kd_source = $row['tmw_kd_source'] ?? '';
                     fputcsv($fh, [
                         $row['keyword'],
                         (int) $row['word_count'],
@@ -1327,8 +1406,12 @@ class Keyword_Pack_Builder {
                         $row['category'],
                         $row['timestamp'],
                         $row['competition'],
-                        number_format((float) $row['cpc'], 2, '.', ''),
-                        (int) $row['tmw_kd'],
+                        $cpc_value,
+                        $tmw_kd_csv,
+                        $search_volume_csv,
+                        $competition_level,
+                        $kd_keyword_used,
+                        $kd_source,
                     ]);
                 }
             } else {
@@ -1340,9 +1423,24 @@ class Keyword_Pack_Builder {
                             'source_seed' => '',
                             'category'    => $category,
                             'timestamp'   => current_time('mysql'),
+                            'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                            'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                            'tmw_kd'      => null,
+                            'search_volume' => null,
+                            'competition_level' => '',
+                            'kd_keyword_used' => $row['keyword'],
+                            'tmw_kd_source' => '',
                         ],
                         $row
                     );
+                    $cpc_value = is_numeric($row['cpc']) ? number_format((float) $row['cpc'], 2, '.', '') : '';
+                    $tmw_kd_value = $row['tmw_kd'];
+                    $tmw_kd_csv = $tmw_kd_value === null ? '' : (int) $tmw_kd_value;
+                    $search_volume = $row['search_volume'];
+                    $search_volume_csv = $search_volume === null ? '' : (int) $search_volume;
+                    $competition_level = $row['competition_level'] !== '' ? $row['competition_level'] : $row['competition'];
+                    $kd_keyword_used = $row['kd_keyword_used'] !== '' ? $row['kd_keyword_used'] : $row['keyword'];
+                    $kd_source = $row['tmw_kd_source'] ?? '';
                     fputcsv($fh, [
                         $row['keyword'],
                         (int) $row['word_count'],
@@ -1351,8 +1449,12 @@ class Keyword_Pack_Builder {
                         $row['category'],
                         $row['timestamp'],
                         $row['competition'],
-                        number_format((float) $row['cpc'], 2, '.', ''),
-                        (int) $row['tmw_kd'],
+                        $cpc_value,
+                        $tmw_kd_csv,
+                        $search_volume_csv,
+                        $competition_level,
+                        $kd_keyword_used,
+                        $kd_source,
                     ]);
                 }
             }
@@ -1909,5 +2011,54 @@ class Keyword_Pack_Builder {
         $summary['done'] = $summary['completed_categories'] >= $total_categories;
 
         return $summary;
+    }
+
+    /**
+     * Enrich keywords with DataForSEO metrics when enabled.
+     *
+     * @param array $keyword_map Associative array of keywords.
+     * @return array
+     */
+    protected static function enrich_keywords_with_dataforseo(array $keyword_map): array {
+        $client = new DataForSEO_Client();
+        $location_code = (int) get_option('tmwseo_dataforseo_location_code', 2840);
+        $language_code = (string) get_option('tmwseo_dataforseo_language_code', 'en');
+
+        $keywords = array_map(function ($row) {
+            return $row['keyword'] ?? '';
+        }, $keyword_map);
+
+        $volume_data = $client->search_volume($keywords, $location_code, $language_code);
+        $kd_data     = $client->resolve_keyword_difficulty($keywords, $location_code, $language_code);
+
+        foreach ($keyword_map as &$row) {
+            $keyword = $row['keyword'] ?? '';
+
+            if (isset($volume_data[$keyword])) {
+                $metrics = $volume_data[$keyword];
+                if (array_key_exists('search_volume', $metrics)) {
+                    $row['search_volume'] = $metrics['search_volume'];
+                }
+                if (isset($metrics['cpc']) && $metrics['cpc'] !== null) {
+                    $row['cpc'] = $metrics['cpc'];
+                }
+                if (!empty($metrics['competition_level'])) {
+                    $row['competition_level'] = $metrics['competition_level'];
+                    $row['competition'] = Keyword_Difficulty_Proxy::normalize_competition($metrics['competition_level']);
+                }
+            }
+
+            if (isset($kd_data[$keyword])) {
+                $kd_row = $kd_data[$keyword];
+                if (array_key_exists('kd', $kd_row)) {
+                    $row['tmw_kd'] = $kd_row['kd'];
+                }
+                $row['kd_keyword_used'] = $kd_row['kd_keyword_used'] ?? ($row['kd_keyword_used'] ?? $keyword);
+                $row['tmw_kd_source'] = $kd_row['kd_source'] ?? ($row['tmw_kd_source'] ?? 'dataforseo');
+            }
+        }
+        unset($row);
+
+        return $keyword_map;
     }
 }
