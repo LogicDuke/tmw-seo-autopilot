@@ -1101,9 +1101,10 @@ class Keyword_Pack_Builder {
      * @param string $type
      * @param array $keywords
      * @param bool $append
+     * @param bool $flush_cache
      * @return int
      */
-    public static function merge_write_csv(string $category, string $type, array $keywords, bool $append = false): int {
+    public static function merge_write_csv(string $category, string $type, array $keywords, bool $append = false, bool $flush_cache = true): int {
         $category = sanitize_key($category);
         $type     = sanitize_key($type);
 
@@ -1358,7 +1359,9 @@ class Keyword_Pack_Builder {
             fclose($fh);
         }
 
-        Keyword_Library::flush_cache();
+        if ($flush_cache) {
+            Keyword_Library::flush_cache();
+        }
 
         return count($final);
     }
@@ -1474,7 +1477,7 @@ class Keyword_Pack_Builder {
         fclose($fh);
 
         $before_count = count(Keyword_Library::load($category, $type));
-        $after_count  = self::merge_write_csv($category, $type, $rows, false);
+        $after_count  = self::merge_write_csv($category, $type, $rows, false, false);
         $result['imported'] = max(0, $after_count - $before_count);
         $result['skipped']  = max(0, $result['total'] - $result['imported']);
 
@@ -1702,7 +1705,7 @@ class Keyword_Pack_Builder {
                 foreach ($rows_by_type as $type => $rows) {
                     if (!empty($rows)) {
                         $before = count(Keyword_Library::load($category, $type));
-                        $after = self::merge_write_csv($category, $type, $rows, false);
+                        $after = self::merge_write_csv($category, $type, $rows, false, false);
                         $new_counts[$type] = max(0, $after - $before);
                     } else {
                         $new_counts[$type] = 0;
@@ -1875,7 +1878,7 @@ class Keyword_Pack_Builder {
             foreach ($rows_by_type as $type => $rows) {
                 if (!empty($rows)) {
                     $before = count(Keyword_Library::load($category, $type));
-                    $after = self::merge_write_csv($category, $type, $rows, false);
+                    $after = self::merge_write_csv($category, $type, $rows, false, false);
                     $new_counts[$type] = max(0, $after - $before);
                 } else {
                     $new_counts[$type] = 0;
