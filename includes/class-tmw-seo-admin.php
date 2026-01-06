@@ -24,6 +24,7 @@ class Admin {
         add_action('add_meta_boxes', [__CLASS__, 'meta_box']);
         add_action('add_meta_boxes', [__CLASS__, 'add_video_metabox']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'assets']);
+        add_action('admin_enqueue_scripts', [Admin_UI::class, 'enqueue_admin_assets']);
         add_action('wp_ajax_tmw_seo_generate', [__CLASS__, 'ajax_generate']);
         add_action('wp_ajax_tmw_seo_rollback', [__CLASS__, 'ajax_rollback']);
         add_action('wp_ajax_tmw_get_bulk_models', [__CLASS__, 'ajax_get_bulk_models']);
@@ -35,6 +36,7 @@ class Admin {
         add_action('save_post', [__CLASS__, 'save_video_metabox'], 10, 2);
         add_action('admin_post_tmwseo_generate_now', [__CLASS__, 'handle_generate_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'handle_save_settings']);
+        add_action('admin_post_tmwseo_save_integrations', [__CLASS__, 'handle_save_integrations']);
         add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
@@ -337,9 +339,13 @@ class Admin {
         }
 
         $provider = sanitize_text_field($_POST['provider'] ?? (string) get_option('tmwseo_keyword_provider', 'serper'));
-        $allowed_providers = ['serper', 'google_suggest'];
+        $allowed_providers = ['serper', 'google_suggest', 'semrush'];
         if (!in_array($provider, $allowed_providers, true)) {
             $provider = 'serper';
+        }
+
+        if ($provider === 'semrush') {
+            $fail('Semrush integration is coming soon.');
         }
 
         if ($provider === 'serper') {
@@ -600,6 +606,14 @@ class Admin {
         );
         add_submenu_page(
             'tmw-seo-autopilot',
+            'Integrations',
+            'Integrations',
+            self::CAP,
+            'tmw-seo-integrations',
+            [__CLASS__, 'render_integrations']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
             'OpenAI Integration',
             'OpenAI Integration',
             self::CAP,
@@ -608,6 +622,7 @@ class Admin {
         );
 
         remove_submenu_page('tmw-seo-autopilot', 'tmw-seo-autopilot');
+        remove_submenu_page('tmw-seo-autopilot', 'tmw-seo-openai');
     }
 
     /**
@@ -639,6 +654,7 @@ class Admin {
         }
 
         self::render_placeholder_page(
+            'tmw-seo-scheduled-actions',
             'Automations / Scheduled Actions',
             'Scheduled actions management will live here. Hook status, queue health, and automation schedules will be surfaced in this view.'
         );
@@ -655,6 +671,7 @@ class Admin {
         }
 
         self::render_placeholder_page(
+            'tmw-seo-codex-reports',
             'Codex Reports',
             'Reporting dashboards are coming soon. This page will host Codex performance and content analytics.'
         );
@@ -673,17 +690,255 @@ class Admin {
         $keyword_packs_url = admin_url('admin.php?page=tmw-seo-keyword-packs');
         $dashboard_url     = admin_url('admin.php?page=tmw-seo-autopilot');
         ?>
-        <div class="wrap">
-            <h1>TMW SEO Settings</h1>
-            <p>This space will consolidate provider and automation settings as new integrations arrive.</p>
-            <div class="card">
+        <?php Admin_UI::render_header('tmw-seo-settings', 'Settings', 'Configure global plugin preferences and defaults.'); ?>
+            <div class="tmwseo-card">
                 <h2>Current configuration</h2>
                 <ul>
-                    <li><a href="<?php echo esc_url($keyword_packs_url); ?>">Keyword provider settings</a></li>
-                    <li><a href="<?php echo esc_url($dashboard_url); ?>">Video post type controls</a></li>
+                    <li><a href="<?php echo esc_url($keyword_packs_url); ?>">Keyword provider selection</a></li>
+                    <li><a href="<?php echo esc_url($dashboard_url); ?>">Dashboard controls</a></li>
                 </ul>
             </div>
-        </div>
+        <?php Admin_UI::render_footer(); ?>
+        <?php
+    }
+
+    /**
+     * Renders the integrations admin page.
+     *
+     * @return void
+     */
+    public static function render_integrations() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+
+        $serper_key = (string) get_option('tmwseo_serper_api_key', '');
+        $serper_gl  = (string) get_option('tmwseo_serper_gl', 'us');
+        $serper_hl  = (string) get_option('tmwseo_serper_hl', 'en');
+
+        $openai_key_option = (string) get_option('tmwseo_openai_api_key', '');
+        $openai_constant   = defined('TMW_SEO_OPENAI') ? (string) TMW_SEO_OPENAI : (defined('OPENAI_API_KEY') ? (string) OPENAI_API_KEY : '');
+        $openai_active_key = $openai_key_option !== '' ? $openai_key_option : $openai_constant;
+
+        $semrush_key = (string) get_option('tmwseo_semrush_api_key', '');
+
+        $serper_connected  = $serper_key !== '';
+        $openai_connected  = $openai_active_key !== '';
+        $semrush_connected = $semrush_key !== '';
+
+        $serper_mask  = $serper_connected ? self::mask_secret($serper_key) : '';
+        $openai_mask  = $openai_connected ? self::mask_secret($openai_active_key) : '';
+        $semrush_mask = $semrush_connected ? self::mask_secret($semrush_key) : '';
+
+        $serper_nonce = wp_create_nonce('tmwseo_serper_test');
+        ?>
+        <?php Admin_UI::render_header('tmw-seo-integrations', 'Integrations', 'Connect keyword and content providers securely.'); ?>
+
+            <div class="tmwseo-integrations-grid">
+                <div class="tmwseo-card">
+                    <h3>Serper</h3>
+                    <p>Keyword provider for pack building and SERP signals.</p>
+                    <span class="tmwseo-status-badge <?php echo $serper_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                        <?php echo $serper_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                    </span>
+                    <div class="tmwseo-provider-actions">
+                        <a class="button" href="#tmwseo-provider-serper">Configure</a>
+                    </div>
+                </div>
+
+                <div class="tmwseo-card">
+                    <h3>OpenAI</h3>
+                    <p>Content provider for model and video generation.</p>
+                    <span class="tmwseo-status-badge <?php echo $openai_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                        <?php echo $openai_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                    </span>
+                    <div class="tmwseo-provider-actions">
+                        <a class="button" href="#tmwseo-provider-openai">Configure</a>
+                    </div>
+                </div>
+
+                <div class="tmwseo-card">
+                    <h3>Semrush</h3>
+                    <p>Future keyword provider for competitive insights.</p>
+                    <span class="tmwseo-status-badge <?php echo $semrush_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                        <?php echo $semrush_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                    </span>
+                    <div class="tmwseo-provider-actions">
+                        <a class="button" href="#tmwseo-provider-semrush">Configure</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tmwseo-card tmwseo-inline-form" id="tmwseo-provider-serper">
+                <h3>Serper Settings</h3>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('tmwseo_integrations', 'tmwseo_integrations_nonce'); ?>
+                    <input type="hidden" name="action" value="tmwseo_save_integrations">
+                    <input type="hidden" name="provider" value="serper">
+                    <p>
+                        <span class="tmwseo-status-badge <?php echo $serper_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                            <?php echo $serper_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                        </span>
+                        <?php if ($serper_connected) : ?>
+                            <span class="tmwseo-masked"><?php echo esc_html($serper_mask); ?></span>
+                        <?php endif; ?>
+                    </p>
+                    <?php if ($serper_connected) : ?>
+                        <button type="button" class="button tmwseo-change-key" data-target="tmwseo-serper-key-field">Change API key</button>
+                    <?php endif; ?>
+                    <div id="tmwseo-serper-key-field" class="<?php echo $serper_connected ? 'tmwseo-hidden' : ''; ?>">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row"><label for="tmwseo_serper_api_key">API Key</label></th>
+                                <td>
+                                    <input type="password" name="tmwseo_serper_api_key" id="tmwseo_serper_api_key" class="regular-text" value="" autocomplete="new-password">
+                                    <label><input type="checkbox" class="tmwseo-reveal" data-target="tmwseo_serper_api_key"> Reveal</label>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><label for="tmwseo_serper_gl">gl (country)</label></th>
+                            <td><input type="text" name="tmwseo_serper_gl" id="tmwseo_serper_gl" value="<?php echo esc_attr($serper_gl); ?>" class="regular-text" placeholder="us"></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="tmwseo_serper_hl">hl (language)</label></th>
+                            <td><input type="text" name="tmwseo_serper_hl" id="tmwseo_serper_hl" value="<?php echo esc_attr($serper_hl); ?>" class="regular-text" placeholder="en"></td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary">Save Settings</button>
+                        <button type="button" class="button" id="tmwseo-serper-test" data-nonce="<?php echo esc_attr($serper_nonce); ?>">Test Serper</button>
+                        <?php if ($serper_connected) : ?>
+                            <button type="submit" class="button" name="tmwseo_disconnect" value="1">Disconnect</button>
+                        <?php endif; ?>
+                        <span id="tmwseo-serper-result" style="margin-left:10px;"></span>
+                    </p>
+                </form>
+            </div>
+
+            <div class="tmwseo-card tmwseo-inline-form" id="tmwseo-provider-openai">
+                <h3>OpenAI Settings</h3>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('tmwseo_integrations', 'tmwseo_integrations_nonce'); ?>
+                    <input type="hidden" name="action" value="tmwseo_save_integrations">
+                    <input type="hidden" name="provider" value="openai">
+                    <p>
+                        <span class="tmwseo-status-badge <?php echo $openai_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                            <?php echo $openai_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                        </span>
+                        <?php if ($openai_connected) : ?>
+                            <span class="tmwseo-masked"><?php echo esc_html($openai_mask); ?></span>
+                        <?php endif; ?>
+                    </p>
+                    <?php if ($openai_connected) : ?>
+                        <button type="button" class="button tmwseo-change-key" data-target="tmwseo-openai-key-field">Change API key</button>
+                    <?php endif; ?>
+                    <div id="tmwseo-openai-key-field" class="<?php echo $openai_connected ? 'tmwseo-hidden' : ''; ?>">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row"><label for="tmwseo_openai_api_key">API Key</label></th>
+                                <td>
+                                    <input type="password" name="tmwseo_openai_api_key" id="tmwseo_openai_api_key" class="regular-text" value="" autocomplete="new-password">
+                                    <label><input type="checkbox" class="tmwseo-reveal" data-target="tmwseo_openai_api_key"> Reveal</label>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <?php if ($openai_constant !== '' && $openai_key_option === '') : ?>
+                        <p class="description">Currently configured via wp-config.php constant.</p>
+                    <?php endif; ?>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary">Save Settings</button>
+                        <?php if ($openai_key_option !== '') : ?>
+                            <button type="submit" class="button" name="tmwseo_disconnect" value="1">Disconnect</button>
+                        <?php endif; ?>
+                    </p>
+                </form>
+            </div>
+
+            <div class="tmwseo-card tmwseo-inline-form" id="tmwseo-provider-semrush">
+                <h3>Semrush Settings</h3>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('tmwseo_integrations', 'tmwseo_integrations_nonce'); ?>
+                    <input type="hidden" name="action" value="tmwseo_save_integrations">
+                    <input type="hidden" name="provider" value="semrush">
+                    <p>
+                        <span class="tmwseo-status-badge <?php echo $semrush_connected ? 'tmwseo-status-connected' : 'tmwseo-status-missing'; ?>">
+                            <?php echo $semrush_connected ? esc_html__('Connected', 'tmw-seo-autopilot') : esc_html__('Not configured', 'tmw-seo-autopilot'); ?>
+                        </span>
+                        <?php if ($semrush_connected) : ?>
+                            <span class="tmwseo-masked"><?php echo esc_html($semrush_mask); ?></span>
+                        <?php endif; ?>
+                    </p>
+                    <?php if ($semrush_connected) : ?>
+                        <button type="button" class="button tmwseo-change-key" data-target="tmwseo-semrush-key-field">Change API key</button>
+                    <?php endif; ?>
+                    <div id="tmwseo-semrush-key-field" class="<?php echo $semrush_connected ? 'tmwseo-hidden' : ''; ?>">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row"><label for="tmwseo_semrush_api_key">API Key</label></th>
+                                <td>
+                                    <input type="password" name="tmwseo_semrush_api_key" id="tmwseo_semrush_api_key" class="regular-text" value="" autocomplete="new-password">
+                                    <label><input type="checkbox" class="tmwseo-reveal" data-target="tmwseo_semrush_api_key"> Reveal</label>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <p class="submit">
+                        <button type="submit" class="button button-primary">Save Settings</button>
+                        <button type="button" class="button" id="tmwseo-semrush-test">Test connection</button>
+                        <?php if ($semrush_connected) : ?>
+                            <button type="submit" class="button" name="tmwseo_disconnect" value="1">Disconnect</button>
+                        <?php endif; ?>
+                        <span id="tmwseo-semrush-result" style="margin-left:10px;"></span>
+                    </p>
+                </form>
+            </div>
+
+            <script>
+            (function($){
+                $('.tmwseo-change-key').on('click', function(){
+                    var target = $(this).data('target');
+                    var $target = $('#' + target);
+                    $target.removeClass('tmwseo-hidden');
+                    $target.find('input[type="password"]').first().focus();
+                });
+
+                $('.tmwseo-reveal').on('change', function(){
+                    var target = $(this).data('target');
+                    var $input = $('#' + target);
+                    $input.attr('type', this.checked ? 'text' : 'password');
+                });
+
+                $('#tmwseo-serper-test').on('click', function(){
+                    var $btn = $(this);
+                    var $out = $('#tmwseo-serper-result');
+                    $btn.prop('disabled', true);
+                    $out.text('Testing…');
+                    $.post(ajaxurl, {action: 'tmwseo_serper_test', nonce: $btn.data('nonce')}, function(resp){
+                        if (resp && resp.success) {
+                            var preview = resp.data && resp.data.keywords ? resp.data.keywords.join(', ') : 'Success';
+                            $out.text('Success: ' + preview);
+                        } else {
+                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
+                            $out.text('Error: ' + message);
+                        }
+                    }).fail(function(){
+                        $out.text('Error: request failed');
+                    }).always(function(){
+                        $btn.prop('disabled', false);
+                    });
+                });
+
+                $('#tmwseo-semrush-test').on('click', function(){
+                    $('#tmwseo-semrush-result').text('Coming soon.');
+                });
+            })(jQuery);
+            </script>
+
+        <?php Admin_UI::render_footer(); ?>
         <?php
     }
 
@@ -696,26 +951,25 @@ class Admin {
         if (!current_user_can(self::CAP)) {
             return;
         }
-
-        self::render_placeholder_page(
-            'OpenAI Integration',
-            'Coming soon. Configure OpenAI providers, models, and guardrails here.'
-        );
+        wp_safe_redirect(admin_url('admin.php?page=tmw-seo-integrations'));
+        exit;
     }
 
     /**
      * Renders a placeholder admin page.
      *
+     * @param string $slug Page slug.
      * @param string $title Page title.
      * @param string $message Description text.
      * @return void
      */
-    protected static function render_placeholder_page(string $title, string $message) {
+    protected static function render_placeholder_page(string $slug, string $title, string $message) {
         ?>
-        <div class="wrap">
-            <h1><?php echo esc_html($title); ?></h1>
-            <p><?php echo esc_html($message); ?></p>
-        </div>
+        <?php Admin_UI::render_header($slug, $title); ?>
+            <div class="tmwseo-card">
+                <p><?php echo esc_html($message); ?></p>
+            </div>
+        <?php Admin_UI::render_footer(); ?>
         <?php
     }
 
@@ -854,8 +1108,7 @@ class Admin {
         $reset_success = !empty($_GET['reset']);
         $reset_error   = sanitize_text_field($_GET['reset_error'] ?? '');
         ?>
-        <div class="wrap">
-            <h1>TMW SEO Usage</h1>
+        <?php Admin_UI::render_header('tmw-seo-usage', 'Usage / CSV Stats', 'Monitor keyword usage health and CSV coverage.'); ?>
 
             <p style="max-width:760px;">This dashboard tracks how many video SEO titles and focus keywords from <code>data/video_seo_titles.csv</code> have been used. "Used" values come from the duplicate checker options and do not modify existing posts. Resetting only clears these trackers; it will <strong>not</strong> change post meta values like <code>_tmwseo_csv_video_title</code>.</p>
 
@@ -963,7 +1216,7 @@ class Admin {
                     </p>
                 </form>
             <?php endif; ?>
-        </div>
+        <?php Admin_UI::render_footer(); ?>
         <?php
     }
 
@@ -1083,11 +1336,10 @@ class Admin {
         $serper_gl      = (string) get_option('tmwseo_serper_gl', 'us');
         $serper_hl      = (string) get_option('tmwseo_serper_hl', 'en');
         $provider_value = (string) get_option('tmwseo_keyword_provider', 'serper');
-        $allowed_providers = ['serper', 'google_suggest'];
+        $allowed_providers = ['serper', 'google_suggest', 'semrush'];
         if (!in_array($provider_value, $allowed_providers, true)) {
             $provider_value = 'serper';
         }
-        $serper_nonce   = wp_create_nonce('tmwseo_serper_test');
         $build_nonce    = wp_create_nonce('tmwseo_build_keyword_pack');
         $autofill_nonce = wp_create_nonce('tmwseo_autofill_google_keywords');
         $default_per    = 10;
@@ -1109,14 +1361,29 @@ class Admin {
         }
 
         ?>
-        <div class="wrap">
-            <h1>TMW SEO Keyword Packs</h1>
+        <?php Admin_UI::render_header('tmw-seo-keyword-packs', 'Keyword Packs', 'Build, upload, and manage keyword packs.'); ?>
             <?php foreach ($notices as $notice) : ?>
                 <div class="<?php echo esc_attr($notice['type']); ?> notice"><p><?php echo esc_html($notice['text']); ?></p></div>
             <?php endforeach; ?>
 
+            <?php if ($provider_value === 'serper' && $serper_api_key === '') : ?>
+                <div class="notice notice-warning">
+                    <p>
+                        <?php echo esc_html__('Serper is selected but not configured. Configure it on the Integrations page.', 'tmw-seo-autopilot'); ?>
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=tmw-seo-integrations')); ?>"><?php echo esc_html__('Go to Integrations', 'tmw-seo-autopilot'); ?></a>
+                    </p>
+                </div>
+            <?php endif; ?>
+            <?php if ($provider_value === 'semrush') : ?>
+                <div class="notice notice-info">
+                    <p>
+                        <?php echo esc_html__('Semrush support is coming soon. Keyword generation will be unavailable until it is enabled.', 'tmw-seo-autopilot'); ?>
+                    </p>
+                </div>
+            <?php endif; ?>
+
             <h2 class="title">Keyword Provider</h2>
-            <p>Select which provider to use for keyword pack generation. Frontend rendering never calls the provider.</p>
+            <p>Select which provider to use for keyword pack generation. Provider credentials live under Integrations.</p>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="max-width:640px;">
                 <?php wp_nonce_field('tmwseo_save_settings', 'tmwseo_settings_nonce'); ?>
                 <input type="hidden" name="action" value="tmwseo_save_settings">
@@ -1128,26 +1395,13 @@ class Admin {
                             <select name="tmwseo_keyword_provider" id="tmwseo_keyword_provider">
                                 <option value="serper" <?php selected($provider_value, 'serper'); ?>>Serper</option>
                                 <option value="google_suggest" <?php selected($provider_value, 'google_suggest'); ?>>Google Suggest</option>
+                                <option value="semrush" <?php selected($provider_value, 'semrush'); ?>>Semrush (coming soon)</option>
                             </select>
                         </td>
                     </tr>
-                    <tr>
-                        <th scope="row"><label for="tmwseo_serper_api_key">API Key</label></th>
-                        <td><input type="text" name="tmwseo_serper_api_key" id="tmwseo_serper_api_key" value="<?php echo esc_attr($serper_api_key); ?>" class="regular-text"></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="tmwseo_serper_gl">gl (country)</label></th>
-                        <td><input type="text" name="tmwseo_serper_gl" id="tmwseo_serper_gl" value="<?php echo esc_attr($serper_gl); ?>" class="regular-text" placeholder="us"></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="tmwseo_serper_hl">hl (language)</label></th>
-                        <td><input type="text" name="tmwseo_serper_hl" id="tmwseo_serper_hl" value="<?php echo esc_attr($serper_hl); ?>" class="regular-text" placeholder="en"></td>
-                    </tr>
                 </table>
                 <p class="submit">
-                    <button type="submit" class="button button-primary">Save Serper Settings</button>
-                    <button type="button" class="button" id="tmwseo-serper-test" data-nonce="<?php echo esc_attr($serper_nonce); ?>">Test Serper</button>
-                    <span id="tmwseo-serper-result" style="margin-left:10px;"></span>
+                    <button type="submit" class="button button-primary">Save Provider Selection</button>
                 </p>
             </form>
 
@@ -1162,6 +1416,7 @@ class Admin {
                             <select id="tmwseo_build_provider">
                                 <option value="serper" <?php selected($provider_value, 'serper'); ?>>Serper</option>
                                 <option value="google_suggest" <?php selected($provider_value, 'google_suggest'); ?>>Google Suggest</option>
+                                <option value="semrush" <?php selected($provider_value, 'semrush'); ?>>Semrush (coming soon)</option>
                             </select>
                         </td>
                     </tr>
@@ -1181,14 +1436,6 @@ class Admin {
                             <textarea id="tmwseo_build_seeds" rows="5" class="large-text" placeholder="livejasmin tips&#10;best cam sites"></textarea>
                             <p class="description">Each seed triggers a Serper search; suggestions are sanitized and deduped.</p>
                         </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="tmwseo_build_gl">gl</label></th>
-                        <td><input type="text" id="tmwseo_build_gl" value="<?php echo esc_attr($serper_gl); ?>" class="regular-text" placeholder="us"></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="tmwseo_build_hl">hl</label></th>
-                        <td><input type="text" id="tmwseo_build_hl" value="<?php echo esc_attr($serper_hl); ?>" class="regular-text" placeholder="en"></td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="tmwseo_build_per_seed">Suggestions per seed</label></th>
@@ -1392,26 +1639,6 @@ class Admin {
             </form>
             <script>
             (function($){
-                $('#tmwseo-serper-test').on('click', function(){
-                    var $btn = $(this);
-                    var $out = $('#tmwseo-serper-result');
-                    $btn.prop('disabled', true);
-                    $out.text('Testing…');
-                    $.post(ajaxurl, {action: 'tmwseo_serper_test', nonce: $btn.data('nonce')}, function(resp){
-                        if (resp && resp.success) {
-                            var preview = resp.data && resp.data.keywords ? resp.data.keywords.join(', ') : 'Success';
-                            $out.text('Success: ' + preview);
-                        } else {
-                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
-                            $out.text('Error: ' + message);
-                        }
-                    }).fail(function(){
-                        $out.text('Error: request failed');
-                    }).always(function(){
-                        $btn.prop('disabled', false);
-                    });
-                });
-
                 function tmwseoRunBuild(dryRun){
                     var seeds = ($('#tmwseo_build_seeds').val() || '').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(function(s){ return s.length; });
                     var $out = $('#tmwseo-build-result');
@@ -1431,8 +1658,6 @@ class Admin {
                         category: $('#tmwseo_build_category').val(),
                         seeds: seeds,
                         provider: $('#tmwseo_build_provider').val(),
-                        gl: $('#tmwseo_build_gl').val(),
-                        hl: $('#tmwseo_build_hl').val(),
                         per_seed: $('#tmwseo_build_per_seed').val(),
                         competitor: $('#tmwseo_build_competitor').is(':checked') ? 1 : 0,
                         dry_run: dryRun ? 1 : 0
@@ -1652,7 +1877,7 @@ class Admin {
                 });
             })(jQuery);
             </script>
-        </div>
+        <?php Admin_UI::render_footer(); ?>
         <?php
     }
 
@@ -1724,8 +1949,7 @@ class Admin {
         ], admin_url('admin.php'));
 
         ?>
-        <div class="wrap">
-            <h1>TMW SEO Keyword Usage</h1>
+        <?php Admin_UI::render_header('tmw-seo-keyword-usage', 'Keyword Usage', 'Track keyword usage counts across packs.'); ?>
             <form method="get" style="margin-bottom:15px;">
                 <input type="hidden" name="page" value="tmw-seo-keyword-usage">
                 <table class="form-table">
@@ -1789,7 +2013,7 @@ class Admin {
                     <?php endif; ?>
                 </tbody>
             </table>
-        </div>
+        <?php Admin_UI::render_footer(); ?>
         <?php
     }
 
@@ -1823,18 +2047,33 @@ class Admin {
             echo '<div class="updated"><p>Generated for ' . (int) $done . ' models.</p></div>';
         }
 
-        ?>
-        <div class="wrap">
-            <h1>TMW SEO Autopilot - Dashboard</h1>
-            <?php
-            $total_models = (int) (wp_count_posts(Core::MODEL_PT)->publish ?? 0);
-            $total_videos = 0;
-            foreach (Core::video_post_types() as $pt) {
-                $total_videos += (int) (wp_count_posts($pt)->publish ?? 0);
-            }
+        <?php
+        $total_models = (int) (wp_count_posts(Core::MODEL_PT)->publish ?? 0);
+        $total_videos = 0;
+        foreach (Core::video_post_types() as $pt) {
+            $total_videos += (int) (wp_count_posts($pt)->publish ?? 0);
+        }
 
-            $models_with_content = get_posts([
-                'post_type'      => Core::MODEL_PT,
+        $models_with_content = get_posts([
+            'post_type'      => Core::MODEL_PT,
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'meta_query'     => [
+                [
+                    'key'     => 'rank_math_focus_keyword',
+                    'compare' => 'EXISTS',
+                ],
+            ],
+        ]);
+
+        $models_with_content_count   = count($models_with_content);
+        $models_with_content_percent = $total_models > 0 ? round(($models_with_content_count / $total_models) * 100) : 0;
+
+        $videos_with_content = 0;
+        foreach (Core::video_post_types() as $pt) {
+            $videos_with_content += count(get_posts([
+                'post_type'      => $pt,
                 'post_status'    => 'publish',
                 'posts_per_page' => -1,
                 'fields'         => 'ids',
@@ -1844,141 +2083,102 @@ class Admin {
                         'compare' => 'EXISTS',
                     ],
                 ],
-            ]);
+            ]));
+        }
+        $videos_with_content_percent = $total_videos > 0 ? round(($videos_with_content / $total_videos) * 100) : 0;
 
-            $models_with_content_count   = count($models_with_content);
-            $models_with_content_percent = $total_models > 0 ? round(($models_with_content_count / $total_models) * 100) : 0;
-
-            $videos_with_content = 0;
-            foreach (Core::video_post_types() as $pt) {
-                $videos_with_content += count(get_posts([
-                    'post_type'      => $pt,
-                    'post_status'    => 'publish',
-                    'posts_per_page' => -1,
-                    'fields'         => 'ids',
-                    'meta_query'     => [
-                        [
-                            'key'     => 'rank_math_focus_keyword',
-                            'compare' => 'EXISTS',
-                        ],
-                    ],
-                ]));
-            }
-            $videos_with_content_percent = $total_videos > 0 ? round(($videos_with_content / $total_videos) * 100) : 0;
-
-            $sample_models = get_posts([
-                'post_type'      => Core::MODEL_PT,
-                'post_status'    => 'publish',
-                'posts_per_page' => 50,
-                'orderby'        => 'rand',
-                'meta_query'     => [
-                    [
-                        'key'     => 'rank_math_focus_keyword',
-                        'compare' => 'EXISTS',
-                    ],
+        $sample_models = get_posts([
+            'post_type'      => Core::MODEL_PT,
+            'post_status'    => 'publish',
+            'posts_per_page' => 50,
+            'orderby'        => 'rand',
+            'meta_query'     => [
+                [
+                    'key'     => 'rank_math_focus_keyword',
+                    'compare' => 'EXISTS',
                 ],
-            ]);
+            ],
+        ]);
 
-            $word_counts       = [];
-            $onlyfans_counts   = [];
-            $livejasmin_counts = [];
+        $word_counts       = [];
+        $onlyfans_counts   = [];
+        $livejasmin_counts = [];
 
-            foreach ($sample_models as $model) {
-                $content     = get_post_field('post_content', $model->ID);
-                $word_count  = str_word_count(wp_strip_all_tags((string) $content));
-                $word_counts[] = $word_count;
+        foreach ($sample_models as $model) {
+            $content     = get_post_field('post_content', $model->ID);
+            $word_count  = str_word_count(wp_strip_all_tags((string) $content));
+            $word_counts[] = $word_count;
 
-                $content_lower     = strtolower((string) $content);
-                $onlyfans_counts[] = substr_count($content_lower, 'onlyfans');
-                $livejasmin_counts[] = substr_count($content_lower, 'livejasmin');
+            $content_lower     = strtolower((string) $content);
+            $onlyfans_counts[] = substr_count($content_lower, 'onlyfans');
+            $livejasmin_counts[] = substr_count($content_lower, 'livejasmin');
+        }
+
+        $avg_words      = !empty($word_counts) ? round(array_sum($word_counts) / count($word_counts)) : 0;
+        $avg_onlyfans   = !empty($onlyfans_counts) ? round(array_sum($onlyfans_counts) / count($onlyfans_counts), 1) : 0;
+        $avg_livejasmin = !empty($livejasmin_counts) ? round(array_sum($livejasmin_counts) / count($livejasmin_counts), 1) : 0;
+
+        $models_below_600 = 0;
+        foreach ($word_counts as $wc) {
+            if ($wc < 600) {
+                $models_below_600++;
             }
+        }
+        $models_below_600_percent = !empty($word_counts) ? round(($models_below_600 / count($word_counts)) * 100) : 0;
+        $models_missing_content = max(0, $total_models - $models_with_content_count);
+        $videos_missing_content = max(0, $total_videos - $videos_with_content);
+        $density_ok = ($avg_livejasmin >= 4 && $avg_livejasmin <= 6) && ($avg_onlyfans >= 3 && $avg_onlyfans <= 5);
+        ?>
 
-            $avg_words      = !empty($word_counts) ? round(array_sum($word_counts) / count($word_counts)) : 0;
-            $avg_onlyfans   = !empty($onlyfans_counts) ? round(array_sum($onlyfans_counts) / count($onlyfans_counts), 1) : 0;
-            $avg_livejasmin = !empty($livejasmin_counts) ? round(array_sum($livejasmin_counts) / count($livejasmin_counts), 1) : 0;
+        <?php Admin_UI::render_header('tmw-seo-autopilot', 'Dashboard', 'Monitor coverage, quality, and automation health at a glance.'); ?>
 
-            $models_below_600 = 0;
-            foreach ($word_counts as $wc) {
-                if ($wc < 600) {
-                    $models_below_600++;
-                }
-            }
-            $models_below_600_percent = !empty($word_counts) ? round(($models_below_600 / count($word_counts)) * 100) : 0;
-            ?>
-
-            <div class="tmw-dashboard" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:20px; margin:20px 0;">
-                <div class="tmw-stat-card" style="background:#fff; border:1px solid #ccd0d4; border-radius:4px; padding:20px;">
-                    <h3 style="margin:0 0 15px 0; font-size:14px; text-transform:uppercase; color:#646970;">Content Coverage</h3>
-                    <div style="font-size:36px; font-weight:600; color:#2271b1; margin-bottom:10px;">
-                        <?php echo (int) $models_with_content_percent; ?>%
-                    </div>
-                    <p style="margin:0; color:#646970;">
-                        <?php echo number_format_i18n($models_with_content_count); ?> of <?php echo number_format_i18n($total_models); ?> models have SEO content
-                    </p>
-                    <div style="background:#f0f0f1; height:8px; border-radius:4px; margin-top:10px; overflow:hidden;">
-                        <div style="background:#2271b1; height:100%; width:<?php echo (int) $models_with_content_percent; ?>%;"></div>
-                    </div>
+            <div class="tmwseo-card-grid">
+                <div class="tmwseo-card">
+                    <h3>Content Coverage</h3>
+                    <div class="tmwseo-kpi-value"><?php echo (int) $models_with_content_percent; ?>%</div>
+                    <p><?php echo number_format_i18n($models_with_content_count); ?> of <?php echo number_format_i18n($total_models); ?> models have SEO content.</p>
+                    <p><?php echo (int) $videos_with_content_percent; ?>% of videos have SEO content.</p>
+                    <div class="tmwseo-progress"><span style="width:<?php echo (int) $models_with_content_percent; ?>%;"></span></div>
                 </div>
 
-                <div class="tmw-stat-card" style="background:#fff; border:1px solid #ccd0d4; border-radius:4px; padding:20px;">
-                    <h3 style="margin:0 0 15px 0; font-size:14px; text-transform:uppercase; color:#646970;">Video Coverage</h3>
-                    <div style="font-size:36px; font-weight:600; color:#2271b1; margin-bottom:10px;">
-                        <?php echo (int) $videos_with_content_percent; ?>%
-                    </div>
-                    <p style="margin:0; color:#646970;">
-                        <?php echo number_format_i18n($videos_with_content); ?> of <?php echo number_format_i18n($total_videos); ?> videos have SEO content
-                    </p>
-                    <div style="background:#f0f0f1; height:8px; border-radius:4px; margin-top:10px; overflow:hidden;">
-                        <div style="background:#2271b1; height:100%; width:<?php echo (int) $videos_with_content_percent; ?>%;"></div>
-                    </div>
-                </div>
-
-                <div class="tmw-stat-card" style="background:#fff; border:1px solid #ccd0d4; border-radius:4px; padding:20px;">
-                    <h3 style="margin:0 0 15px 0; font-size:14px; text-transform:uppercase; color:#646970;">Average Word Count</h3>
-                    <div style="font-size:36px; font-weight:600; color:<?php echo $avg_words >= 600 ? '#00a32a' : '#d63638'; ?>; margin-bottom:10px;">
-                        <?php echo number_format_i18n($avg_words); ?>
-                    </div>
-                    <p style="margin:0; color:#646970;">
-                        Target: 600+ words (RankMath requirement)
-                    </p>
+                <div class="tmwseo-card">
+                    <h3>Average Word Count</h3>
+                    <div class="tmwseo-kpi-value"><?php echo number_format_i18n($avg_words); ?></div>
+                    <p>Target: 600+ words per model.</p>
                     <?php if ($models_below_600_percent > 0) : ?>
-                        <p style="margin:10px 0 0 0; color:#d63638; font-size:12px;">
-                            ⚠ <?php echo (int) $models_below_600_percent; ?>% of sampled models below 600 words
-                        </p>
+                        <p class="tmwseo-alert"><?php echo (int) $models_below_600_percent; ?>% of sampled models are below 600 words.</p>
                     <?php endif; ?>
                 </div>
 
-                <div class="tmw-stat-card" style="background:#fff; border:1px solid #ccd0d4; border-radius:4px; padding:20px;">
-                    <h3 style="margin:0 0 15px 0; font-size:14px; text-transform:uppercase; color:#646970;">Keyword Density</h3>
-                    <div style="margin-bottom:15px;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                            <span style="font-weight:600;">LiveJasmin:</span>
-                            <span style="color:<?php echo $avg_livejasmin >= 4 && $avg_livejasmin <= 6 ? '#00a32a' : '#d63638'; ?>;">
-                                <?php echo esc_html($avg_livejasmin); ?>x avg
-                            </span>
-                        </div>
-                        <div style="background:#f0f0f1; height:6px; border-radius:3px; overflow:hidden;">
-                            <div style="background:<?php echo $avg_livejasmin >= 4 && $avg_livejasmin <= 6 ? '#00a32a' : '#d63638'; ?>; height:100%; width:<?php echo min(100, ($avg_livejasmin / 6) * 100); ?>%;"></div>
-                        </div>
-                        <div style="font-size:11px; color:#646970; margin-top:3px;">Target: 4-6 mentions</div>
-                    </div>
-                    <div>
-                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                            <span style="font-weight:600;">OnlyFans:</span>
-                            <span style="color:<?php echo $avg_onlyfans >= 3 && $avg_onlyfans <= 5 ? '#00a32a' : '#d63638'; ?>;">
-                                <?php echo esc_html($avg_onlyfans); ?>x avg
-                            </span>
-                        </div>
-                        <div style="background:#f0f0f1; height:6px; border-radius:3px; overflow:hidden;">
-                            <div style="background:<?php echo $avg_onlyfans >= 3 && $avg_onlyfans <= 5 ? '#00a32a' : '#d63638'; ?>; height:100%; width:<?php echo min(100, ($avg_onlyfans / 5) * 100); ?>%;"></div>
-                        </div>
-                        <div style="font-size:11px; color:#646970; margin-top:3px;">Target: 3-5 mentions</div>
-                    </div>
+                <div class="tmwseo-card">
+                    <h3>Keyword Density</h3>
+                    <p>LiveJasmin avg: <strong><?php echo esc_html($avg_livejasmin); ?>x</strong></p>
+                    <p>OnlyFans avg: <strong><?php echo esc_html($avg_onlyfans); ?>x</strong></p>
+                    <p class="<?php echo $density_ok ? 'tmwseo-text-good' : 'tmwseo-text-bad'; ?>">
+                        <?php echo $density_ok ? esc_html__('Within target ranges.', 'tmw-seo-autopilot') : esc_html__('Warnings: density outside target range.', 'tmw-seo-autopilot'); ?>
+                    </p>
+                </div>
+
+                <div class="tmwseo-card">
+                    <h3>Automation Queue</h3>
+                    <div class="tmwseo-kpi-value"><?php echo (int) $models_missing_content; ?></div>
+                    <p><?php echo (int) $videos_missing_content; ?> videos missing SEO content.</p>
+                    <a class="button button-secondary" href="<?php echo esc_url(admin_url('admin.php?page=tmw-seo-scheduled-actions')); ?>">View automations</a>
                 </div>
             </div>
 
-            <div style="background:#fff; border:1px solid #ccd0d4; border-radius:4px; padding:20px; margin:20px 0;">
-                <h3 style="margin:0 0 15px 0;">Recent Activity (Last 7 Days)</h3>
+            <div class="tmwseo-card">
+                <h3>Quick Actions</h3>
+                <p>Jump into the most common workflows.</p>
+                <div class="tmwseo-quick-actions">
+                    <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=tmw-seo-keyword-packs')); ?>">Build Keyword Packs</a>
+                    <a class="button" href="#tmw-bulk-generator">Run Bulk Generation</a>
+                    <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=tmw-seo-integrations')); ?>">Open Integrations</a>
+                </div>
+            </div>
+
+            <div class="tmwseo-card">
+                <h3>Recent Activity (Last 7 Days)</h3>
                 <?php
                 $recent_models = get_posts([
                     'post_type'      => Core::MODEL_PT,
@@ -1998,16 +2198,16 @@ class Admin {
                 ]);
                 if (empty($recent_models)) :
                     ?>
-                    <p style="color:#646970;">No models generated in the last 7 days.</p>
+                    <p>No models generated in the last 7 days.</p>
                 <?php else : ?>
-                    <table class="widefull" style="width:100%;">
+                    <table class="widefat striped">
                         <thead>
                             <tr>
-                                <th style="text-align:left;">Model</th>
-                                <th style="text-align:left;">Date</th>
-                                <th style="text-align:center;">Words</th>
-                                <th style="text-align:center;">OnlyFans</th>
-                                <th style="text-align:center;">LiveJasmin</th>
+                                <th>Model</th>
+                                <th>Date</th>
+                                <th>Words</th>
+                                <th>OnlyFans</th>
+                                <th>LiveJasmin</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -2024,21 +2224,9 @@ class Admin {
                                         </a>
                                     </td>
                                     <td><?php echo esc_html(get_the_date('M j, Y', $model)); ?></td>
-                                    <td style="text-align:center;">
-                                        <span style="color:<?php echo $wc >= 600 ? '#00a32a' : '#d63638'; ?>;">
-                                            <?php echo (int) $wc; ?>
-                                        </span>
-                                    </td>
-                                    <td style="text-align:center;">
-                                        <span style="color:<?php echo $of >= 3 && $of <= 5 ? '#00a32a' : '#d63638'; ?>;">
-                                            <?php echo (int) $of; ?>x
-                                        </span>
-                                    </td>
-                                    <td style="text-align:center;">
-                                        <span style="color:<?php echo $lj >= 4 && $lj <= 6 ? '#00a32a' : '#d63638'; ?>;">
-                                            <?php echo (int) $lj; ?>x
-                                        </span>
-                                    </td>
+                                    <td><?php echo (int) $wc; ?></td>
+                                    <td><?php echo (int) $of; ?>x</td>
+                                    <td><?php echo (int) $lj; ?>x</td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -2047,8 +2235,8 @@ class Admin {
             </div>
 
             <hr>
-            <h2>Bulk Content Generator</h2>
-            <div id="tmw-bulk-generator">
+            <div class="tmwseo-card" id="tmw-bulk-generator">
+                <h3>Bulk Content Generator</h3>
                 <form id="tmw-bulk-form">
                     <?php wp_nonce_field('tmw_bulk_generate', 'tmw_bulk_nonce'); ?>
 
@@ -2253,38 +2441,48 @@ class Admin {
             });
             </script>
 
-            <hr>
-            <h2>Quick Backfill</h2>
-            <form method="post">
-                <?php wp_nonce_field('tmw_seo_tools'); ?>
-                <p>Run a quick backfill using Template provider.</p>
-                <p><label>Limit <input type="number" name="limit" value="25" min="1" max="500"></label></p>
-                <p><button class="button button-primary" name="tmw_seo_run" value="1">Run Now</button></p>
-                <hr>
-                <p>Optional OpenAI provider: define <code>OPENAI_API_KEY</code> in wp-config.php or set constant <code>TMW_SEO_OPENAI</code> with your key to enable.</p>
-            </form>
-            <?php
-            echo '<hr><h2>Integration Settings (read-only)</h2><table class="widefat"><tbody>';
-            echo '<tr><th>Brand order</th><td>' . esc_html(implode(' → ', \TMW_SEO\Core::brand_order())) . '</td></tr>';
-            echo '<tr><th>SUBAFF pattern</th><td>' . esc_html(\TMW_SEO\Core::subaff_pattern()) . '</td></tr>';
-            $og = \TMW_SEO\Core::default_og();
-            echo '<tr><th>Default OG image</th><td>' . ($og ? '<code>' . esc_url($og) . '</code>' : '<em>none</em>') . '</td></tr>';
-            echo '</tbody></table>';
-            $pts = \TMW_SEO\Core::video_post_types();
-            $all = get_post_types(['public' => true], 'objects');
-            echo '<hr><h2>Video Post Types</h2>';
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-            wp_nonce_field('tmwseo_save_settings', 'tmwseo_settings_nonce');
-            echo '<input type="hidden" name="action" value="tmwseo_save_settings" />';
-            echo '<table class="widefat"><thead><tr><th>Use</th><th>Slug</th><th>Label</th></tr></thead><tbody>';
-            foreach ($all as $slug => $obj) {
-                $label   = $obj->labels->name . ' (' . $obj->labels->singular_name . ')';
-                $checked = in_array($slug, $pts, true) ? 'checked' : '';
-                echo '<tr><td><input type="checkbox" name="tmwseo_video_pts[]" value="' . esc_attr($slug) . '" ' . $checked . '></td><td><code>' . esc_html($slug) . '</code></td><td>' . esc_html($label) . '</td></tr>';
-            }
-            echo '</tbody></table><p><button class="button button-primary">Save Video Post Types</button></p></form>';
-            ?>
-        </div>
+            <div class="tmwseo-card">
+                <h3>Quick Backfill</h3>
+                <form method="post">
+                    <?php wp_nonce_field('tmw_seo_tools'); ?>
+                    <p>Run a quick backfill using the Template provider.</p>
+                    <p><label>Limit <input type="number" name="limit" value="25" min="1" max="500"></label></p>
+                    <p><button class="button button-primary" name="tmw_seo_run" value="1">Run Now</button></p>
+                    <p>Optional OpenAI provider: define <code>OPENAI_API_KEY</code> in wp-config.php or set constant <code>TMW_SEO_OPENAI</code> with your key to enable.</p>
+                </form>
+            </div>
+
+            <div class="tmwseo-card">
+                <h3>Integration Settings (read-only)</h3>
+                <?php
+                echo '<table class="widefat"><tbody>';
+                echo '<tr><th>Brand order</th><td>' . esc_html(implode(' → ', \TMW_SEO\Core::brand_order())) . '</td></tr>';
+                echo '<tr><th>SUBAFF pattern</th><td>' . esc_html(\TMW_SEO\Core::subaff_pattern()) . '</td></tr>';
+                $og = \TMW_SEO\Core::default_og();
+                echo '<tr><th>Default OG image</th><td>' . ($og ? '<code>' . esc_url($og) . '</code>' : '<em>none</em>') . '</td></tr>';
+                echo '</tbody></table>';
+                ?>
+            </div>
+
+            <div class="tmwseo-card">
+                <h3>Video Post Types</h3>
+                <?php
+                $pts = \TMW_SEO\Core::video_post_types();
+                $all = get_post_types(['public' => true], 'objects');
+                echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+                wp_nonce_field('tmwseo_save_settings', 'tmwseo_settings_nonce');
+                echo '<input type="hidden" name="action" value="tmwseo_save_settings" />';
+                echo '<table class="widefat"><thead><tr><th>Use</th><th>Slug</th><th>Label</th></tr></thead><tbody>';
+                foreach ($all as $slug => $obj) {
+                    $label   = $obj->labels->name . ' (' . $obj->labels->singular_name . ')';
+                    $checked = in_array($slug, $pts, true) ? 'checked' : '';
+                    echo '<tr><td><input type="checkbox" name="tmwseo_video_pts[]" value="' . esc_attr($slug) . '" ' . $checked . '></td><td><code>' . esc_html($slug) . '</code></td><td>' . esc_html($label) . '</td></tr>';
+                }
+                echo '</tbody></table><p><button class="button button-primary">Save Video Post Types</button></p></form>';
+                ?>
+            </div>
+
+        <?php Admin_UI::render_footer(); ?>
         <?php
     }
 
@@ -2386,21 +2584,113 @@ class Admin {
         $pts = isset($_POST['tmwseo_video_pts']) ? (array) $_POST['tmwseo_video_pts'] : [];
         $pts = array_values(array_unique(array_map('sanitize_key', $pts)));
         update_option('tmwseo_video_pts', $pts, false);
-        $serper_api = isset($_POST['tmwseo_serper_api_key']) ? sanitize_text_field((string) $_POST['tmwseo_serper_api_key']) : '';
-        $serper_gl  = isset($_POST['tmwseo_serper_gl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_gl']) : 'us';
-        $serper_hl  = isset($_POST['tmwseo_serper_hl']) ? sanitize_text_field((string) $_POST['tmwseo_serper_hl']) : 'en';
         $provider   = isset($_POST['tmwseo_keyword_provider']) ? sanitize_text_field((string) $_POST['tmwseo_keyword_provider']) : 'serper';
-        $allowed_providers = ['serper', 'google_suggest'];
+        $allowed_providers = ['serper', 'google_suggest', 'semrush'];
         if (!in_array($provider, $allowed_providers, true)) {
             $provider = 'serper';
         }
-        update_option('tmwseo_serper_api_key', $serper_api, false);
-        update_option('tmwseo_serper_gl', $serper_gl, false);
-        update_option('tmwseo_serper_hl', $serper_hl, false);
         update_option('tmwseo_keyword_provider', $provider, false);
 
         wp_safe_redirect($redirect);
         exit;
+    }
+
+    /**
+     * Handles the `admin_post_tmwseo_save_integrations` hook.
+     *
+     * @return void
+     */
+    public static function handle_save_integrations() {
+        if (!current_user_can(self::CAP)) {
+            wp_die('No permission');
+        }
+        check_admin_referer('tmwseo_integrations', 'tmwseo_integrations_nonce');
+
+        $provider = sanitize_key($_POST['provider'] ?? '');
+        $redirect = admin_url('admin.php?page=tmw-seo-integrations');
+        $disconnect = !empty($_POST['tmwseo_disconnect']);
+
+        if ($provider === 'serper') {
+            if ($disconnect) {
+                delete_option('tmwseo_serper_api_key');
+            } else {
+                $api_key = self::sanitize_secret($_POST['tmwseo_serper_api_key'] ?? '');
+                if ($api_key !== '') {
+                    self::update_option_noautoload('tmwseo_serper_api_key', $api_key);
+                }
+            }
+            $serper_gl = sanitize_text_field((string) ($_POST['tmwseo_serper_gl'] ?? get_option('tmwseo_serper_gl', 'us')));
+            $serper_hl = sanitize_text_field((string) ($_POST['tmwseo_serper_hl'] ?? get_option('tmwseo_serper_hl', 'en')));
+            update_option('tmwseo_serper_gl', $serper_gl, false);
+            update_option('tmwseo_serper_hl', $serper_hl, false);
+        }
+
+        if ($provider === 'openai') {
+            if ($disconnect) {
+                delete_option('tmwseo_openai_api_key');
+            } else {
+                $api_key = self::sanitize_secret($_POST['tmwseo_openai_api_key'] ?? '');
+                if ($api_key !== '') {
+                    self::update_option_noautoload('tmwseo_openai_api_key', $api_key);
+                }
+            }
+        }
+
+        if ($provider === 'semrush') {
+            if ($disconnect) {
+                delete_option('tmwseo_semrush_api_key');
+            } else {
+                $api_key = self::sanitize_secret($_POST['tmwseo_semrush_api_key'] ?? '');
+                if ($api_key !== '') {
+                    self::update_option_noautoload('tmwseo_semrush_api_key', $api_key);
+                }
+            }
+        }
+
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
+    /**
+     * Masks a secret value for display.
+     *
+     * @param string $value Secret value.
+     * @return string
+     */
+    protected static function mask_secret(string $value): string {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '';
+        }
+        $last = substr($trimmed, -4);
+        $mask_len = max(8, strlen($trimmed) - 4);
+        return str_repeat('•', $mask_len) . ' (last 4: ' . $last . ')';
+    }
+
+    /**
+     * Sanitizes secret inputs without stripping printable characters.
+     *
+     * @param string $value Raw input.
+     * @return string
+     */
+    protected static function sanitize_secret(string $value): string {
+        $value = trim((string) wp_unslash($value));
+        return preg_replace('/[^\x20-\x7E]/', '', $value);
+    }
+
+    /**
+     * Updates an option with autoload disabled.
+     *
+     * @param string $key Option key.
+     * @param string $value Option value.
+     * @return void
+     */
+    protected static function update_option_noautoload(string $key, string $value): void {
+        if (get_option($key, null) === null) {
+            add_option($key, $value, '', 'no');
+            return;
+        }
+        update_option($key, $value, false);
     }
 
     /**

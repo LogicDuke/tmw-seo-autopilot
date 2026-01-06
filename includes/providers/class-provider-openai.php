@@ -20,14 +20,21 @@ class OpenAI {
      * @return bool
      */
     public static function is_enabled(): bool {
-        return defined('TMW_SEO_OPENAI') || defined('OPENAI_API_KEY');
+        $option_key = (string) get_option('tmwseo_openai_api_key', '');
+        return $option_key !== '' || defined('TMW_SEO_OPENAI') || defined('OPENAI_API_KEY');
     }
     /**
      * Handles api key.
      * @return string
      */
     private function api_key(): string {
-        return defined('TMW_SEO_OPENAI') ? TMW_SEO_OPENAI : (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '');
+        if (defined('TMW_SEO_OPENAI')) {
+            return TMW_SEO_OPENAI;
+        }
+        if (defined('OPENAI_API_KEY')) {
+            return OPENAI_API_KEY;
+        }
+        return (string) get_option('tmwseo_openai_api_key', '');
     }
 
     /**
