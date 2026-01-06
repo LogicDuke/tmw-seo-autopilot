@@ -445,8 +445,8 @@ class Admin {
 
         if (!$dry_run) {
             $counts = [];
-            $counts['extra']    = Keyword_Pack_Builder::merge_write_csv($category, 'extra', $build['extra'] ?? []);
-            $counts['longtail'] = Keyword_Pack_Builder::merge_write_csv($category, 'longtail', $build['longtail'] ?? []);
+            $counts['extra']    = Keyword_Pack_Builder::merge_write_csv($category, 'extra', $build['extra'] ?? [], false, false);
+            $counts['longtail'] = Keyword_Pack_Builder::merge_write_csv($category, 'longtail', $build['longtail'] ?? [], false, false);
 
             if ($include_comp) {
                 $comp_seeds = apply_filters('tmwseo_competitor_seeds', ['livejasmin vs chaturbate', 'livejasmin vs stripchat']);
@@ -465,7 +465,7 @@ class Admin {
                     );
                 }
                 $comp_kw    = array_merge($comp_build['extra'] ?? [], $comp_build['longtail'] ?? []);
-                $counts['competitor'] = Keyword_Pack_Builder::merge_write_csv($category, 'competitor', $comp_kw);
+                $counts['competitor'] = Keyword_Pack_Builder::merge_write_csv($category, 'competitor', $comp_kw, false, false);
             }
 
             Keyword_Library::flush_cache();
@@ -3328,6 +3328,7 @@ class Admin {
         $types      = ['extra', 'longtail', 'competitor'];
         $all_rows   = [];
         $csv_files  = 0;
+        $log_stats  = defined('TMWSEO_KW_DEBUG') && TMWSEO_KW_DEBUG;
 
         foreach ($categories as $category) {
             foreach ($types as $type) {
@@ -3340,7 +3341,7 @@ class Admin {
                 }
 
                 $csv_files++;
-                $rows = \TMW_SEO\Keyword_Library::load_rows($category, $type, true);
+                $rows = \TMW_SEO\Keyword_Library::load_rows($category, $type, $log_stats);
 
                 foreach ($rows as $row) {
                     $row['category'] = $category;
@@ -3350,7 +3351,9 @@ class Admin {
             }
         }
 
-        error_log(sprintf('[TMWSEO-KEYWORD-HEALTH] Found %d CSV files with %d total keyword rows for stats.', $csv_files, count($all_rows)));
+        if ($log_stats) {
+            error_log(sprintf('[TMWSEO-KEYWORD-HEALTH] Found %d CSV files with %d total keyword rows for stats.', $csv_files, count($all_rows)));
+        }
 
         return $all_rows;
     }
