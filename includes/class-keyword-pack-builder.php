@@ -125,7 +125,7 @@ class Keyword_Pack_Builder {
      * Handles csv columns.
      * @return array
      */
-    protected static function csv_columns(): array {
+    public static function csv_columns(): array {
         // Extended keyword metadata columns for KD reporting + audit trail.
         return [
             'keyword',
@@ -2055,5 +2055,162 @@ class Keyword_Pack_Builder {
         foreach ($rows as $row) {
             fputcsv($fh, self::prepare_csv_row($row, $type, $category));
         }
+    }
+
+    /**
+     * Autofill keywords for a category and type.
+     *
+     * @param string $category Category key.
+     * @param string $type Keyword type.
+     * @param int $limit Maximum keywords to add.
+     * @param bool $enrich Whether to enrich with DataForSEO metrics.
+     * @param bool $dry_run Do not persist when true.
+     * @return array Summary array.
+     */
+    public static function autofill_category_keywords(string $category, string $type, int $limit, bool $enrich, bool $dry_run): array {
+        $category = sanitize_key($category);
+        $type = $type === 'all' ? 'all' : sanitize_key($type);
+        $limit = max(1, min(1000, $limit));
+
+        $summary = [
+            'added'   => 0,
+            'skipped' => 0,
+            'errors'  => [],
+        ];
+
+        $categories = $category === 'all' ? Keyword_Library::categories() : [$category];
+        $seeds_curated = file_exists(TMW_SEO_PATH . 'data/curated-seeds.php') ? include TMW_SEO_PATH . 'data/curated-seeds.php' : [];
+        $seeds_google = file_exists(TMW_SEO_PATH . 'data/google-autocomplete-seeds.php') ? include TMW_SEO_PATH . 'data/google-autocomplete-seeds.php' : [];
+        $patterns = file_exists(TMW_SEO_PATH . 'data/category-seed-patterns.php') ? include TMW_SEO_PATH . 'data/category-seed-patterns.php' : [];
+
+        $google = self::google_suggest_client();
+        $keywords_to_add = [];
+
+        foreach ($categories as $cat) {
+            $cat_seeds = array_merge($seeds_curated[$cat] ?? [], $seeds_google[$cat] ?? []);
+            $pattern = $patterns[$cat] ?? ['seeds' => [], 'modifiers' => [], 'suffixes' => []];
+            foreach ($pattern['seeds'] as $seed_base) {
+                $cat_seeds[] = $seed_base;
+                foreach ($pattern['modifiers'] as $modifier) {
+                    foreach ($pattern['suffixes'] as $suffix) {
+                        $cat_seeds[] = trim($modifier . ' ' . $seed_base . ' ' . $suffix);
+                    }
+                }
+            }
+
+            $cat_seeds = array_values(array_unique(array_map('trim', $cat_seeds)));
+            foreach ($cat_seeds as $seed) {
+                $suggestions = $google->fetch($seed);
+                if (is_wp_error($suggestions)) {
+                    $summary['errors'][] = $suggestions->get_error_message();
+                    continue;
+                }
+
+                $suggested = is_array($suggestions) ? $suggestions : [];
+                $suggested[] = $seed;
+                foreach ($suggested as $kw) {
+                    $keywords_to_add[] = [
+                        'keyword'     => sanitize_text_field($kw),
+                        'source_seed' => $seed,
+                        'category'    => $cat,
+                    ];
+                }
+            }
+        }
+
+        $keywords_to_add = Keyword_Validator::filter_keywords($keywords_to_add);
+        $keywords_to_add = array_slice($keywords_to_add, 0, $limit);
+
+        $enriched_map = [];
+        if ($enrich && class_exists(DataForSEO_Client::class) && method_exists(DataForSEO_Client::class, 'is_enabled')) {
+            $client = new DataForSEO_Client();
+            if (method_exists($client, 'is_enabled') && $client->is_enabled()) {
+                $keyword_strings = array_map(function ($row) {
+                    return $row['keyword'];
+                }, $keywords_to_add);
+                $volumes = $client->search_volume($keyword_strings);
+                $difficulties = $client->resolve_keyword_difficulty($keyword_strings);
+
+                foreach ($keyword_strings as $idx => $kw) {
+                    $enriched_map[$kw] = [
+                        'search_volume' => $volumes[$idx]['search_volume'] ?? null,
+                        'tmw_kd'        => $difficulties[$idx]['tmw_kd'] ?? null,
+                        'competition'   => $volumes[$idx]['competition'] ?? '',
+                        'cpc'           => $volumes[$idx]['cpc'] ?? '',
+                    ];
+                }
+            }
+        }
+
+        $columns = self::csv_columns();
+        foreach ($keywords_to_add as $row) {
+            $kw = $row['keyword'];
+            $meta = $enriched_map[$kw] ?? [];
+            $prepared = [
+                'keyword'            => $kw,
+                'word_count'         => self::keyword_word_count($kw),
+                'type'               => $type === 'all' ? self::determine_type($kw, $row['category'], self::keyword_word_count($kw)) : $type,
+                'source_seed'        => $row['source_seed'],
+                'category'           => $row['category'],
+                'timestamp'          => current_time('mysql'),
+                'competition'        => $meta['competition'] ?? '',
+                'cpc'                => $meta['cpc'] ?? '',
+                'tmw_kd'             => $meta['tmw_kd'] ?? '',
+                'search_volume'      => $meta['search_volume'] ?? '',
+                'competition_level'  => '',
+                'kd_keyword_used'    => $kw,
+                'tmw_kd_source'      => isset($meta['tmw_kd']) ? 'dataforseo' : '',
+            ];
+
+            $keywords_to_add[$kw] = array_merge(array_fill_keys($columns, ''), $prepared);
+        }
+
+        $keywords_to_add = array_values($keywords_to_add);
+
+        if ($dry_run) {
+            $summary['added'] = count($keywords_to_add);
+            return $summary;
+        }
+
+        foreach ($categories as $cat) {
+            $target_rows = array_filter($keywords_to_add, function ($row) use ($cat) {
+                return $row['category'] === $cat;
+            });
+
+            $types = $type === 'all' ? ['extra', 'longtail', 'competitor'] : [$type];
+            foreach ($types as $csv_type) {
+                $file = trailingslashit(Keyword_Library::plugin_base_dir()) . $cat . '/' . $csv_type . '.csv';
+                $existing = [];
+                if (file_exists($file)) {
+                    $fh = fopen($file, 'r');
+                    if ($fh) {
+                        while (($line = fgetcsv($fh)) !== false) {
+                            if (isset($line[0]) && $line[0] !== 'keyword') {
+                                $existing[] = $line[0];
+                            }
+                        }
+                        fclose($fh);
+                    }
+                }
+
+                $fh = fopen($file, 'a');
+                if (!$fh) {
+                    $summary['errors'][] = sprintf('Unable to write to %s', $file);
+                    continue;
+                }
+
+                foreach ($target_rows as $row) {
+                    if (in_array($row['keyword'], $existing, true)) {
+                        $summary['skipped']++;
+                        continue;
+                    }
+                    fputcsv($fh, self::prepare_csv_row($row, $csv_type, $cat));
+                    $summary['added']++;
+                }
+                fclose($fh);
+            }
+        }
+
+        return $summary;
     }
 }

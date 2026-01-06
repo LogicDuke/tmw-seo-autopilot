@@ -548,6 +548,42 @@ class DataForSEO_Client {
     }
 
     /**
+     * Fetch competitor keywords using DataForSEO Labs Ranked Keywords endpoint.
+     *
+     * @param string $domain Target domain.
+     * @param int    $limit  Max keywords to fetch.
+     * @return array
+     */
+    public function get_competitor_keywords(string $domain, int $limit = 1000): array {
+        $domain = sanitize_text_field($domain);
+        $limit  = max(1, min(1000, $limit));
+
+        if (!$this->has_credentials()) {
+            return [];
+        }
+
+        $payload = [
+            [
+                'target'        => $domain,
+                'location_code' => 2840,
+                'language_code' => 'en',
+                'limit'         => $limit,
+                'filters'       => [
+                    ['ranked_serp_element.serp_item.rank_group', '<=', 20],
+                ],
+                'order_by' => ['keyword_data.keyword_info.search_volume,desc'],
+            ],
+        ];
+
+        $response = $this->request('https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live', $payload);
+        if (!$response || !isset($response[0]['result'][0]['items'])) {
+            return [];
+        }
+
+        return (array) ($response[0]['result'][0]['items'] ?? []);
+    }
+
+    /**
      * Whether credentials exist.
      *
      * @return bool

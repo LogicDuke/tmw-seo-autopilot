@@ -253,4 +253,24 @@ class KD_Filter {
 
         return (int) round(max(0, min(100, $numeric)));
     }
+
+    /**
+     * Calculate opportunity score for a keyword row.
+     *
+     * @param array $keyword Keyword data (expects search_volume, tmw_kd, and cpc).
+     * @return float
+     */
+    public static function calculate_opportunity_score(array $keyword): float {
+        $volume = (int) ($keyword['search_volume'] ?? 0);
+        $kd     = (float) ($keyword['tmw_kd'] ?? 0);
+        $cpc    = (float) ($keyword['cpc'] ?? 0);
+
+        $base_score = min(100, ($volume >= 10000 ? 100 : ($volume / 100)));
+        $kd_penalty = max(0, (100 - $kd) / 100);
+        $cpc_bonus  = min($cpc * 5, 20);
+
+        $opportunity = ($base_score * $kd_penalty) + $cpc_bonus;
+
+        return round(min(100, max(0, $opportunity)), 2);
+    }
 }
