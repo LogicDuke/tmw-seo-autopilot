@@ -575,8 +575,12 @@ class DataForSEO_Client {
             ],
         ];
 
-        $response = $this->request('https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live', $payload);
-        if (!$response || !isset($response[0]['result'][0]['items'])) {
+        $response = $this->post('https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live', $payload);
+        if (is_wp_error($response)) {
+            return [];
+        }
+
+        if (!isset($response[0]['result'][0]['items'])) {
             return [];
         }
 

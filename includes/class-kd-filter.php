@@ -13,6 +13,11 @@ if (!defined('ABSPATH')) {
 
 class KD_Filter {
 
+    private const MAX_VOLUME   = 10000;
+    private const VOLUME_SCALE = 100;
+    private const CPC_CAP      = 10.0;
+    private const CPC_WEIGHT   = 0.2;
+
     /**
      * Get current KD settings
      *
@@ -257,6 +262,15 @@ class KD_Filter {
     /**
      * Calculate opportunity score for a keyword row.
      *
+     * Expected inputs:
+     * - search_volume: integer 0 - MAX_VOLUME (values above are clamped)
+     * - tmw_kd: keyword difficulty 0 - 100 (lower is better)
+     * - cpc: cost-per-click in USD; capped at CPC_CAP to avoid outliers
+     *
+     * The formula scales volume to 0-100, applies a KD multiplier, and adds a
+     * lightweight CPC contribution so expensive keywords don't overwhelm the
+     * volume/KD relationship.
+     *
      * @param array $keyword Keyword data (expects search_volume, tmw_kd, and cpc).
      * @return float
      */
@@ -265,11 +279,12 @@ class KD_Filter {
         $kd     = (float) ($keyword['tmw_kd'] ?? 0);
         $cpc    = (float) ($keyword['cpc'] ?? 0);
 
-        $base_score = min(100, ($volume >= 10000 ? 100 : ($volume / 100)));
-        $kd_penalty = max(0, (100 - $kd) / 100);
-        $cpc_bonus  = min($cpc * 5, 20);
+        $scaled_volume = min(self::MAX_VOLUME, max(0, $volume)) / self::VOLUME_SCALE;
+        $kd_multiplier = max(0, (100 - $kd) / 100);
+        $cpc_normalized = min(self::CPC_CAP, max(0, $cpc)) / self::CPC_CAP;
+        $cpc_contribution = $cpc_normalized * (self::CPC_WEIGHT * 100);
 
-        $opportunity = ($base_score * $kd_penalty) + $cpc_bonus;
+        $opportunity = ($scaled_volume * $kd_multiplier) + $cpc_contribution;
 
         return round(min(100, max(0, $opportunity)), 2);
     }

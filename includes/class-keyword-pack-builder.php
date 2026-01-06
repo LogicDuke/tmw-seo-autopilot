@@ -2121,93 +2121,56 @@ class Keyword_Pack_Builder {
         $keywords_to_add = Keyword_Validator::filter_keywords($keywords_to_add);
         $keywords_to_add = array_slice($keywords_to_add, 0, $limit);
 
-        $enriched_map = [];
-        if ($enrich && class_exists(DataForSEO_Client::class) && method_exists(DataForSEO_Client::class, 'is_enabled')) {
-            $client = new DataForSEO_Client();
-            if (method_exists($client, 'is_enabled') && $client->is_enabled()) {
-                $keyword_strings = array_map(function ($row) {
-                    return $row['keyword'];
-                }, $keywords_to_add);
-                $volumes = $client->search_volume($keyword_strings);
-                $difficulties = $client->resolve_keyword_difficulty($keyword_strings);
-
-                foreach ($keyword_strings as $idx => $kw) {
-                    $enriched_map[$kw] = [
-                        'search_volume' => $volumes[$idx]['search_volume'] ?? null,
-                        'tmw_kd'        => $difficulties[$idx]['tmw_kd'] ?? null,
-                        'competition'   => $volumes[$idx]['competition'] ?? '',
-                        'cpc'           => $volumes[$idx]['cpc'] ?? '',
-                    ];
-                }
-            }
-        }
-
-        $columns = self::csv_columns();
+        $keyword_map = [];
         foreach ($keywords_to_add as $row) {
             $kw = $row['keyword'];
-            $meta = $enriched_map[$kw] ?? [];
-            $prepared = [
-                'keyword'            => $kw,
-                'word_count'         => self::keyword_word_count($kw),
-                'type'               => $type === 'all' ? self::determine_type($kw, $row['category'], self::keyword_word_count($kw)) : $type,
-                'source_seed'        => $row['source_seed'],
-                'category'           => $row['category'],
-                'timestamp'          => current_time('mysql'),
-                'competition'        => $meta['competition'] ?? '',
-                'cpc'                => $meta['cpc'] ?? '',
-                'tmw_kd'             => $meta['tmw_kd'] ?? '',
-                'search_volume'      => $meta['search_volume'] ?? '',
-                'competition_level'  => '',
-                'kd_keyword_used'    => $kw,
-                'tmw_kd_source'      => isset($meta['tmw_kd']) ? 'dataforseo' : '',
-            ];
+            $key = $row['category'] . '|' . $kw;
 
-            $keywords_to_add[$kw] = array_merge(array_fill_keys($columns, ''), $prepared);
+            if (isset($keyword_map[$key])) {
+                $summary['skipped']++;
+                continue;
+            }
+
+            $word_count = self::keyword_word_count($kw);
+            $resolved_type = $type === 'all' ? self::determine_type($kw, $row['category'], $word_count) : $type;
+
+            $keyword_map[$key] = [
+                'keyword'           => $kw,
+                'word_count'        => $word_count,
+                'type'              => $resolved_type,
+                'source_seed'       => $row['source_seed'],
+                'category'          => $row['category'],
+                'timestamp'         => current_time('mysql'),
+                'competition'       => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                'cpc'               => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                'tmw_kd'            => null,
+                'search_volume'     => null,
+                'competition_level' => '',
+                'kd_keyword_used'   => $kw,
+                'tmw_kd_source'     => '',
+            ];
         }
 
-        $keywords_to_add = array_values($keywords_to_add);
+        if ($enrich && class_exists(DataForSEO_Client::class) && DataForSEO_Client::is_enabled()) {
+            $keyword_map = self::enrich_keywords_with_dataforseo($keyword_map);
+        }
 
         if ($dry_run) {
-            $summary['added'] = count($keywords_to_add);
+            $summary['added'] = count($keyword_map);
             return $summary;
         }
 
-        foreach ($categories as $cat) {
-            $target_rows = array_filter($keywords_to_add, function ($row) use ($cat) {
-                return $row['category'] === $cat;
-            });
+        $grouped = [];
+        foreach ($keyword_map as $row) {
+            $grouped[$row['category']][$row['type']][] = $row;
+        }
 
-            $types = $type === 'all' ? ['extra', 'longtail', 'competitor'] : [$type];
-            foreach ($types as $csv_type) {
-                $file = trailingslashit(Keyword_Library::plugin_base_dir()) . $cat . '/' . $csv_type . '.csv';
-                $existing = [];
-                if (file_exists($file)) {
-                    $fh = fopen($file, 'r');
-                    if ($fh) {
-                        while (($line = fgetcsv($fh)) !== false) {
-                            if (isset($line[0]) && $line[0] !== 'keyword') {
-                                $existing[] = $line[0];
-                            }
-                        }
-                        fclose($fh);
-                    }
-                }
-
-                $fh = fopen($file, 'a');
-                if (!$fh) {
-                    $summary['errors'][] = sprintf('Unable to write to %s', $file);
-                    continue;
-                }
-
-                foreach ($target_rows as $row) {
-                    if (in_array($row['keyword'], $existing, true)) {
-                        $summary['skipped']++;
-                        continue;
-                    }
-                    fputcsv($fh, self::prepare_csv_row($row, $csv_type, $cat));
-                    $summary['added']++;
-                }
-                fclose($fh);
+        foreach ($grouped as $cat => $types_rows) {
+            foreach ($types_rows as $csv_type => $rows) {
+                $before = count(Keyword_Library::load($cat, $csv_type));
+                $after  = self::merge_write_csv($cat, $csv_type, $rows, false, true);
+                $summary['added'] += max(0, $after - $before);
+                $summary['skipped'] += max(0, count($rows) - max(0, $after - $before));
             }
         }
 
