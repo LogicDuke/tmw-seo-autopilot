@@ -486,6 +486,10 @@ class Keyword_Library {
             $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
             $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
             $tmw_kd      = $tmw_kd_raw !== '' ? (int) round((float) $tmw_kd_raw) : Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
+            // When tmw_kd_raw is provided alongside default competition/cpc values, re-run Keyword_Difficulty_Proxy::score()
+            // so the Proxy's default-handling heuristics (brand detection and word-count adjustments) produce the canonical
+            // difficulty score for the raw_keyword. This ensures tmw_kd reflects the Proxy's DEFAULT_* handling rather than
+            // the raw import value when competition === DEFAULT_COMPETITION and cpc === DEFAULT_CPC.
             if ($tmw_kd_raw !== '' && $competition === Keyword_Difficulty_Proxy::DEFAULT_COMPETITION && abs($cpc - Keyword_Difficulty_Proxy::DEFAULT_CPC) < 0.00001) {
                 $tmw_kd = Keyword_Difficulty_Proxy::score($raw_keyword, $competition, $cpc);
             }
