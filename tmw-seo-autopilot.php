@@ -36,8 +36,12 @@ require_once TMW_SEO_PATH . 'includes/class-template-engine.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-difficulty-proxy.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-library.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-pack-builder.php';
+require_once TMW_SEO_PATH . 'includes/class-keyword-validator.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-pool.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-usage.php';
+require_once TMW_SEO_PATH . 'includes/class-platform-registry.php';
+require_once TMW_SEO_PATH . 'includes/class-kd-filter.php';
+require_once TMW_SEO_PATH . 'includes/admin/class-model-platforms-metabox.php';
 require_once TMW_SEO_PATH . 'includes/class-content-generator.php';
 require_once TMW_SEO_PATH . 'includes/class-keyword-manager.php';
 require_once TMW_SEO_PATH . 'includes/class-serper-client.php';
@@ -56,6 +60,7 @@ add_action('plugins_loaded', function () {
     \TMW_SEO\Automations::boot();
     \TMW_SEO\Image_Meta::boot();
     \TMW_SEO\Media::boot();
+    \TMW_SEO\Admin\Model_Platforms_Metabox::boot();
 });
 
 register_activation_hook(__FILE__, function () {

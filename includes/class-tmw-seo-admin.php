@@ -42,6 +42,7 @@ class Admin {
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
         add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
         add_action('wp_ajax_tmwseo_autofill_google_keywords', [__CLASS__, 'ajax_autofill_google_keywords']);
+        add_action('admin_post_tmwseo_save_kd_settings', [__CLASS__, 'handle_save_kd_settings']);
     }
 
     /**
@@ -614,6 +615,14 @@ class Admin {
         );
         add_submenu_page(
             'tmw-seo-autopilot',
+            'Duplicate Checker',
+            'Duplicate Checker',
+            self::CAP,
+            'tmw-seo-duplicates',
+            [__CLASS__, 'render_duplicates_page']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
             'OpenAI Integration',
             'OpenAI Integration',
             self::CAP,
@@ -678,6 +687,80 @@ class Admin {
     }
 
     /**
+     * Render duplicate checker page.
+     */
+    public static function render_duplicates_page() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+
+        $duplicates = self::find_duplicates();
+        ?>
+        <?php Admin_UI::render_header('tmw-seo-duplicates', 'Duplicate Checker', 'Identify and resolve duplicate RankMath fields.'); ?>
+            <div class="tmwseo-card">
+                <h3>Duplicate Titles</h3>
+                <?php if (empty($duplicates['titles'])) : ?>
+                    <p>No duplicate titles found.</p>
+                <?php else : ?>
+                    <table class="widefat">
+                        <thead><tr><th>Title</th><th>Count</th><th>Posts</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($duplicates['titles'] as $row) : ?>
+                            <tr>
+                                <td><?php echo esc_html($row['value']); ?></td>
+                                <td><?php echo (int) $row['count']; ?></td>
+                                <td><?php echo esc_html(implode(', ', array_map('intval', $row['post_ids']))); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+
+            <div class="tmwseo-card">
+                <h3>Duplicate Descriptions</h3>
+                <?php if (empty($duplicates['descriptions'])) : ?>
+                    <p>No duplicate descriptions found.</p>
+                <?php else : ?>
+                    <table class="widefat">
+                        <thead><tr><th>Description</th><th>Count</th><th>Posts</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($duplicates['descriptions'] as $row) : ?>
+                            <tr>
+                                <td><?php echo esc_html(wp_trim_words($row['value'], 15, '…')); ?></td>
+                                <td><?php echo (int) $row['count']; ?></td>
+                                <td><?php echo esc_html(implode(', ', array_map('intval', $row['post_ids']))); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+
+            <div class="tmwseo-card">
+                <h3>Duplicate Focus Keywords</h3>
+                <?php if (empty($duplicates['focus_keywords'])) : ?>
+                    <p>No duplicate focus keywords found.</p>
+                <?php else : ?>
+                    <table class="widefat">
+                        <thead><tr><th>Focus Keyword</th><th>Count</th><th>Posts</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($duplicates['focus_keywords'] as $row) : ?>
+                            <tr>
+                                <td><?php echo esc_html($row['value']); ?></td>
+                                <td><?php echo (int) $row['count']; ?></td>
+                                <td><?php echo esc_html(implode(', ', array_map('intval', $row['post_ids']))); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+        <?php Admin_UI::render_footer(); ?>
+        <?php
+    }
+
+    /**
      * Renders the settings landing page.
      *
      * @return void
@@ -698,7 +781,127 @@ class Admin {
                     <li><a href="<?php echo esc_url($dashboard_url); ?>">Dashboard controls</a></li>
                 </ul>
             </div>
+            <?php self::render_kd_settings(); ?>
         <?php Admin_UI::render_footer(); ?>
+        <?php
+    }
+
+    /**
+     * Render KD% targeting settings
+     */
+    public static function render_kd_settings(): void {
+        $kd_mode = get_option('tmwseo_kd_mode', 'balanced');
+        $kd_max = get_option('tmwseo_kd_max', 40);
+        $kd_min = get_option('tmwseo_kd_min', 0);
+        $kd_priority_low = get_option('tmwseo_kd_priority_low', 70); // % of keywords should be low KD
+        ?>
+        <div class="tmwseo-card">
+            <h3>Keyword Difficulty Targeting</h3>
+            <p class="description">Configure how the plugin prioritizes keywords by difficulty. For new websites, focus on low KD% keywords first to build authority.</p>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <?php wp_nonce_field('tmwseo_kd_settings', 'tmwseo_kd_nonce'); ?>
+                <input type="hidden" name="action" value="tmwseo_save_kd_settings">
+
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">KD Strategy Mode</th>
+                        <td>
+                            <select name="tmwseo_kd_mode">
+                                <option value="low_only" <?php selected($kd_mode, 'low_only'); ?>>
+                                    Low KD Only (0-30%) - Best for new sites
+                                </option>
+                                <option value="low_priority" <?php selected($kd_mode, 'low_priority'); ?>>
+                                    Low Priority (70% low, 30% medium) - Growing sites
+                                </option>
+                                <option value="balanced" <?php selected($kd_mode, 'balanced'); ?>>
+                                    Balanced Mix - Established sites
+                                </option>
+                                <option value="custom" <?php selected($kd_mode, 'custom'); ?>>
+                                    Custom Range
+                                </option>
+                            </select>
+                            <p class="description">
+                                <strong>Recommended for new sites:</strong> Start with "Low KD Only" to target easy wins,
+                                then switch to "Low Priority" after 3-6 months.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr class="tmwseo-kd-custom" style="<?php echo $kd_mode !== 'custom' ? 'display:none;' : ''; ?>">
+                        <th scope="row">Custom KD Range</th>
+                        <td>
+                            <label>
+                                Min KD%: <input type="number" name="tmwseo_kd_min" value="<?php echo (int)$kd_min; ?>" min="0" max="100" style="width: 60px;">
+                            </label>
+                            <label style="margin-left: 20px;">
+                                Max KD%: <input type="number" name="tmwseo_kd_max" value="<?php echo (int)$kd_max; ?>" min="0" max="100" style="width: 60px;">
+                            </label>
+                        </td>
+                    </tr>
+                    <tr class="tmwseo-kd-custom" style="<?php echo $kd_mode !== 'custom' ? 'display:none;' : ''; ?>">
+                        <th scope="row">Low KD Priority %</th>
+                        <td>
+                            <input type="number" name="tmwseo_kd_priority_low" value="<?php echo (int)$kd_priority_low; ?>" min="0" max="100" style="width: 60px;">%
+                            <p class="description">Percentage of selected keywords that should be low KD (under 30%)</p>
+                        </td>
+                    </tr>
+                </table>
+
+                <h4>KD% Reference Guide</h4>
+                <table class="widefat" style="max-width: 500px;">
+                    <thead>
+                        <tr>
+                            <th>KD Range</th>
+                            <th>Difficulty</th>
+                            <th>Recommendation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background: #d4edda;">
+                            <td>0-20%</td>
+                            <td>Very Easy</td>
+                            <td>Target aggressively - quick wins</td>
+                        </tr>
+                        <tr style="background: #d4edda;">
+                            <td>21-30%</td>
+                            <td>Easy</td>
+                            <td>Good for new sites</td>
+                        </tr>
+                        <tr style="background: #fff3cd;">
+                            <td>31-50%</td>
+                            <td>Medium</td>
+                            <td>Mix in after initial authority</td>
+                        </tr>
+                        <tr style="background: #f8d7da;">
+                            <td>51-70%</td>
+                            <td>Hard</td>
+                            <td>Need established authority</td>
+                        </tr>
+                        <tr style="background: #f8d7da;">
+                            <td>71-100%</td>
+                            <td>Very Hard</td>
+                            <td>Only for authoritative sites</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p class="submit">
+                    <button type="submit" class="button button-primary">Save KD Settings</button>
+                </p>
+            </form>
+        </div>
+
+        <script>
+        jQuery(function($) {
+            $('select[name="tmwseo_kd_mode"]').on('change', function() {
+                if ($(this).val() === 'custom') {
+                    $('.tmwseo-kd-custom').show();
+                } else {
+                    $('.tmwseo-kd-custom').hide();
+                }
+            });
+        });
+        </script>
         <?php
     }
 
@@ -2131,6 +2334,8 @@ class Admin {
 
         <?php Admin_UI::render_header('tmw-seo-autopilot', 'Dashboard', 'Monitor coverage, quality, and automation health at a glance.'); ?>
 
+            <?php self::render_dashboard_widgets(); ?>
+
             <div class="tmwseo-card-grid">
                 <div class="tmwseo-card">
                     <h3>Content Coverage</h3>
@@ -2595,6 +2800,40 @@ class Admin {
     }
 
     /**
+     * Handle KD settings save.
+     *
+     * @return void
+     */
+    public static function handle_save_kd_settings() {
+        if (!current_user_can(self::CAP)) {
+            wp_die('No permission');
+        }
+
+        if (!isset($_POST['tmwseo_kd_nonce']) || !wp_verify_nonce($_POST['tmwseo_kd_nonce'], 'tmwseo_kd_settings')) {
+            wp_die('Bad nonce');
+        }
+
+        $mode = sanitize_key($_POST['tmwseo_kd_mode'] ?? 'balanced');
+        $allowed_modes = ['low_only', 'low_priority', 'balanced', 'custom'];
+        if (!in_array($mode, $allowed_modes, true)) {
+            $mode = 'balanced';
+        }
+
+        update_option('tmwseo_kd_mode', $mode, false);
+
+        $kd_min = isset($_POST['tmwseo_kd_min']) ? max(0, min(100, (int) $_POST['tmwseo_kd_min'])) : 0;
+        $kd_max = isset($_POST['tmwseo_kd_max']) ? max(0, min(100, (int) $_POST['tmwseo_kd_max'])) : 40;
+        $priority_low = isset($_POST['tmwseo_kd_priority_low']) ? max(0, min(100, (int) $_POST['tmwseo_kd_priority_low'])) : 70;
+
+        update_option('tmwseo_kd_min', $kd_min, false);
+        update_option('tmwseo_kd_max', $kd_max, false);
+        update_option('tmwseo_kd_priority_low', $priority_low, false);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmw-seo-settings&kd_saved=1'));
+        exit;
+    }
+
+    /**
      * Handles the `admin_post_tmwseo_save_integrations` hook.
      *
      * @return void
@@ -2690,6 +2929,311 @@ class Admin {
             return;
         }
         update_option($key, $value, false);
+    }
+
+    /**
+     * Render enhanced dashboard widgets
+     */
+    protected static function render_dashboard_widgets(): void {
+        ?>
+        <div class="tmwseo-dashboard-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
+            
+            <!-- Keyword Health Widget -->
+            <div class="tmwseo-card">
+                <h3>📊 Keyword Health</h3>
+                <?php
+                $all_keywords = self::get_all_used_keywords();
+                $stats = \TMW_SEO\KD_Filter::get_distribution_stats($all_keywords);
+                $settings = \TMW_SEO\KD_Filter::get_settings();
+                ?>
+                <table class="widefat" style="margin-top: 10px;">
+                    <tr>
+                        <td>Very Easy (0-20%)</td>
+                        <td><strong style="color: #28a745;"><?php echo $stats['very_easy']; ?></strong></td>
+                        <td><?php echo $stats['total'] > 0 ? round($stats['very_easy'] / $stats['total'] * 100) : 0; ?>%</td>
+                    </tr>
+                    <tr>
+                        <td>Easy (21-30%)</td>
+                        <td><strong style="color: #28a745;"><?php echo $stats['easy']; ?></strong></td>
+                        <td><?php echo $stats['total'] > 0 ? round($stats['easy'] / $stats['total'] * 100) : 0; ?>%</td>
+                    </tr>
+                    <tr>
+                        <td>Medium (31-50%)</td>
+                        <td><strong style="color: #ffc107;"><?php echo $stats['medium']; ?></strong></td>
+                        <td><?php echo $stats['total'] > 0 ? round($stats['medium'] / $stats['total'] * 100) : 0; ?>%</td>
+                    </tr>
+                    <tr>
+                        <td>Hard (51-70%)</td>
+                        <td><strong style="color: #dc3545;"><?php echo $stats['hard']; ?></strong></td>
+                        <td><?php echo $stats['total'] > 0 ? round($stats['hard'] / $stats['total'] * 100) : 0; ?>%</td>
+                    </tr>
+                    <tr>
+                        <td>Very Hard (71-100%)</td>
+                        <td><strong style="color: #dc3545;"><?php echo $stats['very_hard']; ?></strong></td>
+                        <td><?php echo $stats['total'] > 0 ? round($stats['very_hard'] / $stats['total'] * 100) : 0; ?>%</td>
+                    </tr>
+                </table>
+                <p style="margin-top: 10px;">
+                    <strong>Current Mode:</strong> <?php echo ucfirst(str_replace('_', ' ', get_option('tmwseo_kd_mode', 'balanced'))); ?><br>
+                    <strong>Max KD Target:</strong> <?php echo $settings['max']; ?>%
+                </p>
+            </div>
+            
+            <!-- Platform Coverage Widget -->
+            <div class="tmwseo-card">
+                <h3>🌐 Platform Coverage</h3>
+                <?php
+                $total_models = wp_count_posts(Core::MODEL_PT)->publish ?? 0;
+                $models_with_platforms = self::count_models_with_platforms();
+                $coverage = $total_models > 0 ? round($models_with_platforms / $total_models * 100) : 0;
+                $platform_stats = self::get_platform_stats();
+                ?>
+                <div style="text-align: center; padding: 20px;">
+                    <div style="font-size: 48px; font-weight: bold; color: <?php echo $coverage >= 50 ? '#28a745' : '#dc3545'; ?>;">
+                        <?php echo $coverage; ?>%
+                    </div>
+                    <p>Models with platform data</p>
+                    <p style="font-size: 12px; color: #666;">
+                        <?php echo $models_with_platforms; ?> of <?php echo $total_models; ?> models
+                    </p>
+                </div>
+                <h4>Platform Distribution</h4>
+                <ul style="margin: 0; padding-left: 20px;">
+                    <?php foreach (array_slice($platform_stats, 0, 5) as $platform => $count): ?>
+                    <li><?php echo esc_html($platform); ?>: <strong><?php echo $count; ?></strong></li>
+                    <?php endforeach; ?>
+                </ul>
+                <p style="margin-top: 10px;">
+                    <a href="<?php echo admin_url('edit.php?post_type=model&tmwseo_filter=no_platforms'); ?>">
+                        View models without platform data →
+                    </a>
+                </p>
+            </div>
+            
+            <!-- Content Queue Widget -->
+            <div class="tmwseo-card">
+                <h3>📝 Content Queue</h3>
+                <?php
+                $pending_models = self::count_pending_content('model');
+                $pending_videos = self::count_pending_content('video');
+                ?>
+                <table class="widefat" style="margin-top: 10px;">
+                    <tr>
+                        <td>Models needing SEO</td>
+                        <td><strong><?php echo $pending_models; ?></strong></td>
+                    </tr>
+                    <tr>
+                        <td>Videos needing SEO</td>
+                        <td><strong><?php echo $pending_videos; ?></strong></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Total pending</strong></td>
+                        <td><strong><?php echo $pending_models + $pending_videos; ?></strong></td>
+                    </tr>
+                </table>
+                <div style="margin-top: 15px;">
+                    <a href="#tmw-bulk-generator" class="button button-primary">Process Queue</a>
+                </div>
+            </div>
+            
+            <!-- Duplicate Checker Widget -->
+            <div class="tmwseo-card">
+                <h3>🔍 Duplicate Checker</h3>
+                <?php
+                $duplicates = self::find_duplicates();
+                $has_duplicates = !empty($duplicates['titles']) || !empty($duplicates['descriptions']) || !empty($duplicates['focus_keywords']);
+                ?>
+                <?php if ($has_duplicates): ?>
+                    <div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 4px;">
+                        ⚠️ Duplicates found!
+                    </div>
+                    <ul style="margin-top: 10px;">
+                        <?php if (!empty($duplicates['titles'])): ?>
+                        <li>Duplicate titles: <strong><?php echo count($duplicates['titles']); ?></strong></li>
+                        <?php endif; ?>
+                        <?php if (!empty($duplicates['descriptions'])): ?>
+                        <li>Duplicate descriptions: <strong><?php echo count($duplicates['descriptions']); ?></strong></li>
+                        <?php endif; ?>
+                        <?php if (!empty($duplicates['focus_keywords'])): ?>
+                        <li>Duplicate focus keywords: <strong><?php echo count($duplicates['focus_keywords']); ?></strong></li>
+                        <?php endif; ?>
+                    </ul>
+                    <p style="margin-top: 10px;">
+                        <a href="<?php echo admin_url('admin.php?page=tmw-seo-duplicates'); ?>">
+                            View & Fix Duplicates →
+                        </a>
+                    </p>
+                <?php else: ?>
+                    <div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 4px;">
+                        ✓ No duplicates found!
+                    </div>
+                <?php endif; ?>
+            </div>
+            
+        </div>
+        <?php
+    }
+
+    /**
+     * Helper: Count models with platform data
+     */
+    protected static function count_models_with_platforms(): int {
+        global $wpdb;
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} 
+             WHERE meta_key = %s AND meta_value != '' AND meta_value != 'a:0:{}'",
+            '_tmwseo_model_platforms'
+        ));
+    }
+
+    /**
+     * Helper: Get platform usage stats
+     */
+    protected static function get_platform_stats(): array {
+        global $wpdb;
+        $results = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s",
+            '_tmwseo_model_platforms'
+        ));
+        
+        $counts = [];
+        $platforms = \TMW_SEO\Platform_Registry::get_platforms();
+        
+        foreach ($platforms as $slug => $platform) {
+            $counts[$platform['name']] = 0;
+        }
+        
+        foreach ($results as $row) {
+            $slugs = maybe_unserialize($row->meta_value);
+            if (is_array($slugs)) {
+                foreach ($slugs as $slug) {
+                    $platform = \TMW_SEO\Platform_Registry::get_platform($slug);
+                    if ($platform) {
+                        $counts[$platform['name']]++;
+                    }
+                }
+            }
+        }
+        
+        arsort($counts);
+        return $counts;
+    }
+
+    /**
+     * Helper: Count pending content
+     */
+    protected static function count_pending_content(string $type): int {
+        $args = [
+            'post_type' => $type === 'model' ? Core::MODEL_PT : Core::video_post_types(),
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+            'meta_query' => [
+                'relation' => 'OR',
+                [
+                    'key' => 'rank_math_focus_keyword',
+                    'compare' => 'NOT EXISTS',
+                ],
+                [
+                    'key' => 'rank_math_focus_keyword',
+                    'value' => '',
+                    'compare' => '=',
+                ],
+            ],
+        ];
+        
+        $query = new \WP_Query($args);
+        return $query->found_posts;
+    }
+
+    /**
+     * Helper: Find duplicate SEO content
+     */
+    protected static function find_duplicates(): array {
+        global $wpdb;
+        
+        $duplicates = [
+            'titles' => [],
+            'descriptions' => [],
+            'focus_keywords' => [],
+        ];
+        
+        // Find duplicate titles
+        $titles = $wpdb->get_results(
+            "SELECT meta_value, GROUP_CONCAT(post_id) as post_ids, COUNT(*) as count
+             FROM {$wpdb->postmeta}
+             WHERE meta_key = 'rank_math_title' AND meta_value != ''
+             GROUP BY meta_value
+             HAVING count > 1
+             LIMIT 50"
+        );
+        
+        foreach ($titles as $row) {
+            $duplicates['titles'][] = [
+                'value' => $row->meta_value,
+                'post_ids' => explode(',', $row->post_ids),
+                'count' => $row->count,
+            ];
+        }
+        
+        // Find duplicate descriptions
+        $descriptions = $wpdb->get_results(
+            "SELECT meta_value, GROUP_CONCAT(post_id) as post_ids, COUNT(*) as count
+             FROM {$wpdb->postmeta}
+             WHERE meta_key = 'rank_math_description' AND meta_value != ''
+             GROUP BY meta_value
+             HAVING count > 1
+             LIMIT 50"
+        );
+        
+        foreach ($descriptions as $row) {
+            $duplicates['descriptions'][] = [
+                'value' => $row->meta_value,
+                'post_ids' => explode(',', $row->post_ids),
+                'count' => $row->count,
+            ];
+        }
+        
+        // Find duplicate focus keywords
+        $keywords = $wpdb->get_results(
+            "SELECT meta_value, GROUP_CONCAT(post_id) as post_ids, COUNT(*) as count
+             FROM {$wpdb->postmeta}
+             WHERE meta_key = 'rank_math_focus_keyword' AND meta_value != ''
+             GROUP BY meta_value
+             HAVING count > 1
+             LIMIT 50"
+        );
+        
+        foreach ($keywords as $row) {
+            $duplicates['focus_keywords'][] = [
+                'value' => $row->meta_value,
+                'post_ids' => explode(',', $row->post_ids),
+                'count' => $row->count,
+            ];
+        }
+        
+        return $duplicates;
+    }
+
+    /**
+     * Helper: Get all used keywords for stats
+     */
+    protected static function get_all_used_keywords(): array {
+        // Load from keyword usage table
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmwseo_keyword_usage';
+        
+        $rows = $wpdb->get_results(
+            "SELECT keyword_text, used_count FROM {$table} ORDER BY used_count DESC LIMIT 1000",
+            ARRAY_A
+        );
+        
+        // Add estimated KD based on keyword length/complexity
+        foreach ($rows as &$row) {
+            $row['tmw_kd'] = \TMW_SEO\Keyword_Difficulty_Proxy::score($row['keyword_text']);
+        }
+        
+        return $rows;
     }
 
     /**
