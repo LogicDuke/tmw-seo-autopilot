@@ -60,7 +60,7 @@ class Model_Platforms_Metabox {
         echo '<div class="tmwseo-platforms-list" style="margin-top: 10px;">';
 
         foreach ($platforms as $slug => $platform) {
-            $checked = in_array($slug, $active_platforms) ? 'checked' : '';
+            $checked = in_array($slug, $active_platforms, true) ? 'checked' : '';
             $username = get_post_meta($post->ID, self::USERNAME_META_PREFIX . $slug, true);
             $primary_badge = !empty($platform['is_primary']) ? ' <span style="color: #0073aa; font-size: 10px;">(Primary)</span>' : '';
 
@@ -168,7 +168,7 @@ class Model_Platforms_Metabox {
      */
     public static function model_is_on_platform(int $post_id, string $platform_slug): bool {
         $platforms = get_post_meta($post_id, self::META_KEY, true) ?: [];
-        return in_array($platform_slug, (array) $platforms);
+        return in_array($platform_slug, (array) $platforms, true);
     }
 
     /**
