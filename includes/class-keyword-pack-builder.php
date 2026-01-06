@@ -270,59 +270,35 @@ class Keyword_Pack_Builder {
     }
 
     /**
-     * Detects adult cam intent anchors.
+     * Check if keyword has adult cam industry intent.
      *
-     * @param string $normalized
-     * @return bool
+     * @param string $keyword The keyword to check.
+     * @return bool True if has adult intent.
      */
-    protected static function has_adult_intent(string $normalized): bool {
-        $anchor_phrases = [
-            'cam girl',
-            'cam model',
-            'webcam model',
-            'live cam',
+    private static function has_adult_intent(string $keyword): bool {
+        $keyword_lower = strtolower($keyword);
+
+        $intent_indicators = [
+            // Platforms
+            'livejasmin', 'chaturbate', 'stripchat', 'bongacams', 'camsoda',
+            'myfreecams', 'flirt4free', 'cam4', 'streamate', 'imlive',
+            // Core terms
+            'cam girl', 'camgirl', 'webcam model', 'cam model', 'webcam girl',
+            'live cam', 'cam show', 'webcam show', 'private show', 'cam site',
+            'adult cam', 'sex cam', 'nude cam', 'xxx cam', 'porn cam',
+            // Partial
+            'webcam', ' cam', 'cam ',
         ];
 
-        foreach ($anchor_phrases as $phrase) {
-            if (strpos($normalized, $phrase) !== false) {
+        foreach ($intent_indicators as $indicator) {
+            if (strpos($keyword_lower, $indicator) !== false) {
                 return true;
             }
         }
 
-        $platforms = [
-            'livejasmin',
-            'chaturbate',
-            'stripchat',
-            'cam4',
-            'myfreecams',
-            'camsoda',
-            'jerkmate',
-            'flirt4free',
-        ];
-
-        foreach ($platforms as $platform) {
-            if (strpos($normalized, $platform) !== false) {
-                return true;
-            }
-        }
-
-        $cam_terms = ['cam', 'cams', 'webcam'];
-        $intent_terms = ['girl', 'model', 'chat', 'show', 'site', 'cams'];
-
-        $has_cam = false;
-        foreach ($cam_terms as $cam) {
-            if (preg_match('/\b' . preg_quote($cam, '/') . '\b/', $normalized)) {
-                $has_cam = true;
-                break;
-            }
-        }
-
-        if ($has_cam) {
-            foreach ($intent_terms as $intent) {
-                if (preg_match('/\b' . preg_quote($intent, '/') . '\b/', $normalized)) {
-                    return true;
-                }
-            }
+        // Check if ends with "cam"
+        if (substr($keyword_lower, -3) === 'cam' || substr($keyword_lower, -4) === ' cam') {
+            return true;
         }
 
         return false;
@@ -571,19 +547,14 @@ class Keyword_Pack_Builder {
         $all_keywords    = [];
         $validated_count = 0;
 
-        // SOURCE 1: Internal pattern expansion (ALWAYS TRUSTED - no validation)
+        // SOURCE 1: Internal pattern expansion (trusted but validated)
         $expanded = Keyword_Expander::expand_category($seeds, $category, 20);
         foreach ($expanded as $keyword) {
-            if ($validated_count >= $target) {
-                break;
-            }
-
-            // Skip only if blacklisted (safety check), but DO NOT require anchor validation
-            if (!Keyword_Validator::is_blacklisted($keyword)) {
+            if (self::is_trusted_expansion($keyword)) {
                 $all_keywords[] = self::build_keyword_entry($keyword, $category, 'internal');
                 $validated_count++;
-                if ($validated_count >= $target) break;
             }
+            // NO early break here - let other sources contribute
         }
 
         // SOURCE 2: Google Autocomplete (bonus)
@@ -625,25 +596,28 @@ class Keyword_Pack_Builder {
 
         $all_keywords = self::deduplicate_keywords($all_keywords);
 
-        // PHASE 4: GUARANTEED FALLBACK - If still under minimum, use hardcoded keywords
-        $minimum_required = 20;
-        if (count($all_keywords) < $minimum_required) {
+        // PHASE 4: GUARANTEED FALLBACK - If still under target, use hardcoded keywords
+        $effective_target = max($target, 20); // Ensure at least 20 keywords
+        if (count($all_keywords) < $effective_target) {
             $fallbacks = Keyword_Expander::get_fallback_keywords($category);
             foreach ($fallbacks as $keyword) {
-                if (count($all_keywords) >= $target) break;
+                if (count($all_keywords) >= $effective_target) break;
                 if (!self::keyword_exists($keyword, $all_keywords)) {
-                    $all_keywords[] = self::build_keyword_entry($keyword, $category, 'fallback');
+                    // Fallback keywords are pre-validated, but still check blacklist
+                    if (!Keyword_Validator::is_blacklisted($keyword)) {
+                        $all_keywords[] = self::build_keyword_entry($keyword, $category, 'fallback');
+                    }
                 }
             }
         }
 
-        // Log warning if still under minimum
-        if (count($all_keywords) < $minimum_required) {
-            error_log("TMW SEO WARNING: Category '{$category}' has only " . count($all_keywords) . " keywords after all sources.");
+        // Log warning if still under effective target
+        if (count($all_keywords) < $effective_target) {
+            error_log("TMW SEO WARNING: Category '{$category}' has only " . count($all_keywords) . " keywords after all sources (target: {$effective_target}).");
         }
 
         $all_keywords = self::deduplicate_keywords($all_keywords);
-        $all_keywords = array_slice($all_keywords, 0, $target);
+        $all_keywords = array_slice($all_keywords, 0, $effective_target);
 
         $run_state['quality_report'] = [
             'accepted' => [
@@ -718,14 +692,57 @@ class Keyword_Pack_Builder {
 
     /**
      * Check if keyword is a trusted internal expansion.
+     * Requires at least one industry indicator OR adult intent.
      *
      * @param string $keyword The keyword to check.
      * @return bool True if trusted.
      */
     private static function is_trusted_expansion(string $keyword): bool {
-        // Trust everything that isn't blacklisted
-        // Internal expansions already contain industry terms by design
-        return !Keyword_Validator::is_blacklisted($keyword);
+        // Must not be blacklisted
+        if (Keyword_Validator::is_blacklisted($keyword)) {
+            return false;
+        }
+
+        $keyword_lower = strtolower($keyword);
+
+        // Check for platform names (high trust)
+        $platforms = [
+            'livejasmin', 'chaturbate', 'stripchat', 'bongacams',
+            'camsoda', 'myfreecams', 'flirt4free', 'cam4',
+        ];
+        foreach ($platforms as $platform) {
+            if (strpos($keyword_lower, $platform) !== false) {
+                return true;
+            }
+        }
+
+        // Check for core industry terms (medium trust)
+        $industry_terms = [
+            'cam girl', 'camgirl', 'cam model', 'webcam model',
+            'webcam girl', 'live cam', 'cam show', 'webcam show',
+            'private show', 'cam site', 'adult cam', 'sex cam',
+        ];
+        foreach ($industry_terms as $term) {
+            if (strpos($keyword_lower, $term) !== false) {
+                return true;
+            }
+        }
+
+        // Check for partial matches (low trust but acceptable)
+        $partial_indicators = [
+            'webcam', 'camgirl', 'livecam', ' cam ', 'cam ',
+        ];
+        foreach ($partial_indicators as $indicator) {
+            if (strpos($keyword_lower, $indicator) !== false) {
+                return true;
+            }
+        }
+        // Also accept if ends with " cam"
+        if (substr($keyword_lower, -4) === ' cam') {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -970,7 +987,7 @@ class Keyword_Pack_Builder {
             $is_allowed_keyword = $normalized !== ''
                 && (
                     $is_trusted_internal
-                        ? !Keyword_Validator::is_blacklisted($display)
+                        ? (!Keyword_Validator::is_blacklisted($display) && self::has_adult_intent($normalized))
                         : self::is_allowed($normalized, $display)
                 );
 
