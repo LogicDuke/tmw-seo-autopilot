@@ -39,6 +39,7 @@ class Admin {
         add_action('admin_post_tmwseo_save_integrations', [__CLASS__, 'handle_save_integrations']);
         add_action('admin_post_tmwseo_clear_dataforseo_password', [__CLASS__, 'handle_clear_dataforseo_password']);
         add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
+        add_action('admin_post_tmwseo_delete_keyword', [__CLASS__, 'handle_delete_keyword']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
         add_action('wp_ajax_tmwseo_dataforseo_test', [__CLASS__, 'ajax_dataforseo_test']);
@@ -664,6 +665,14 @@ class Admin {
             self::CAP,
             'tmw-seo-autopilot',
             [__CLASS__, 'render_tools']
+        );
+        add_submenu_page(
+            'tmw-seo-autopilot',
+            'TMW SEO Keyword Browser',
+            'Keyword Browser',
+            self::CAP,
+            'tmw-seo-keyword-browser',
+            [__CLASS__, 'render_keyword_browser']
         );
         add_submenu_page(
             'tmw-seo-autopilot',
@@ -1545,6 +1554,33 @@ class Admin {
     }
 
     /**
+     * Handles deleting a keyword from CSV.
+     *
+     * @return void
+     */
+    public static function handle_delete_keyword() {
+        if (!current_user_can(self::CAP)) {
+            wp_die('Access denied');
+        }
+
+        check_admin_referer('tmwseo_delete_keyword', 'tmwseo_delete_keyword_nonce');
+
+        $keyword  = isset($_POST['kw']) ? sanitize_text_field(wp_unslash($_POST['kw'])) : '';
+        $category = isset($_POST['category']) ? sanitize_key($_POST['category']) : '';
+        $type     = isset($_POST['type']) ? sanitize_key($_POST['type']) : '';
+
+        $success = false;
+        if ($keyword !== '' && $category !== '' && $type !== '') {
+            $success = Keyword_Browser::delete_keyword($keyword, $category, $type);
+        }
+
+        $redirect = wp_get_referer() ?: admin_url('admin.php?page=tmw-seo-keyword-browser');
+        $redirect = add_query_arg($success ? 'tmwseo_kw_deleted' : 'tmwseo_kw_error', '1', $redirect);
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
+    /**
      * Prepares usage sets for admin display.
      *
      * @param array $raw Raw usage data.
@@ -1736,6 +1772,21 @@ class Admin {
             <?php endif; ?>
         <?php Admin_UI::render_footer(); ?>
         <?php
+    }
+
+    /**
+     * Renders the keyword browser page.
+     *
+     * @return void
+     */
+    public static function render_keyword_browser() {
+        if (!current_user_can(self::CAP)) {
+            return;
+        }
+
+        Admin_UI::render_header('tmw-seo-keyword-browser', 'Keyword Browser', 'Browse every keyword across all packs.');
+        include TMW_SEO_PATH . 'includes/admin/views/keyword-browser.php';
+        Admin_UI::render_footer();
     }
 
     /**
@@ -2410,66 +2461,76 @@ class Admin {
         }
 
         global $wpdb;
-        $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
-        $log_table   = $wpdb->prefix . 'tmwseo_keyword_usage_log';
 
+        $tab = sanitize_key($_GET['tab'] ?? 'all');
         $categories = array_merge(['all'], Keyword_Library::categories());
         $types      = ['all', 'extra', 'longtail', 'competitor'];
 
-        $selected_category = sanitize_key($_GET['category'] ?? 'all');
-        $selected_type     = sanitize_key($_GET['type'] ?? 'all');
-        $limit             = max(10, min(500, intval($_GET['limit'] ?? 100)));
-
-        $where = [];
-        $params = [];
-        if ($selected_category !== 'all') {
-            $where[] = 'category = %s';
-            $params[] = $selected_category;
-        }
-        if ($selected_type !== 'all') {
-            $where[] = 'type = %s';
-            $params[] = $selected_type;
-        }
-        $where_sql = !empty($where) ? ('WHERE ' . implode(' AND ', $where)) : '';
-
-        if (!empty($_GET['tmwseo_export_usage']) && check_admin_referer('tmwseo_usage_export', 'tmwseo_usage_nonce')) {
-            $sql = "SELECT keyword_text, type, category, post_id, post_type, used_at FROM {$log_table} {$where_sql} ORDER BY used_at DESC";
-            $rows = $params ? $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A) : $wpdb->get_results($sql, ARRAY_A);
-
-            header('Content-Type: text/csv');
-            header('Content-Disposition: attachment; filename="tmwseo-keyword-usage.csv"');
-            $output = fopen('php://output', 'w');
-            fputcsv($output, ['keyword_text', 'type', 'category', 'post_id', 'post_type', 'used_at']);
-            foreach ((array) $rows as $row) {
-                fputcsv($output, [
-                    $row['keyword_text'] ?? '',
-                    $row['type'] ?? '',
-                    $row['category'] ?? '',
-                    $row['post_id'] ?? '',
-                    $row['post_type'] ?? '',
-                    $row['used_at'] ?? '',
-                ]);
-            }
-            fclose($output);
-            exit;
-        }
-
-        $sql = "SELECT keyword_text, category, type, used_count, last_used_at FROM {$usage_table} {$where_sql} ORDER BY used_count DESC, last_used_at DESC LIMIT %d";
-        $params_with_limit = $params;
-        $params_with_limit[] = $limit;
-        $rows = $params_with_limit ? $wpdb->get_results($wpdb->prepare($sql, $params_with_limit), ARRAY_A) : $wpdb->get_results($wpdb->prepare($sql, $limit), ARRAY_A);
-
-        $export_url = add_query_arg([
-            'page' => 'tmw-seo-keyword-usage',
-            'category' => $selected_category,
-            'type' => $selected_type,
-            'tmwseo_export_usage' => 1,
-        ], admin_url('admin.php'));
-
+        Admin_UI::render_header('tmw-seo-keyword-usage', 'Keyword Usage', 'Track keyword usage and browse your full library.');
         ?>
-        <?php Admin_UI::render_header('tmw-seo-keyword-usage', 'Keyword Usage', 'Track keyword usage counts across packs.'); ?>
+        <div class="nav-tab-wrapper">
+            <a href="<?php echo esc_url(add_query_arg(['page' => 'tmw-seo-keyword-usage', 'tab' => 'all'])); ?>" class="nav-tab <?php echo $tab === 'usage' ? '' : 'nav-tab-active'; ?>"><?php esc_html_e('All Keywords', 'tmw-seo-autopilot'); ?></a>
+            <a href="<?php echo esc_url(add_query_arg(['page' => 'tmw-seo-keyword-usage', 'tab' => 'usage'])); ?>" class="nav-tab <?php echo $tab === 'usage' ? 'nav-tab-active' : ''; ?>"><?php esc_html_e('Usage History', 'tmw-seo-autopilot'); ?></a>
+        </div>
+        <?php
+        if ($tab === 'usage') {
+            $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
+            $log_table   = $wpdb->prefix . 'tmwseo_keyword_usage_log';
+
+            $selected_category = sanitize_key($_GET['category'] ?? 'all');
+            $selected_type     = sanitize_key($_GET['type'] ?? 'all');
+            $limit             = max(10, min(500, intval($_GET['limit'] ?? 100)));
+
+            $where = [];
+            $params = [];
+            if ($selected_category !== 'all') {
+                $where[] = 'category = %s';
+                $params[] = $selected_category;
+            }
+            if ($selected_type !== 'all') {
+                $where[] = 'type = %s';
+                $params[] = $selected_type;
+            }
+            $where_sql = !empty($where) ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+            if (!empty($_GET['tmwseo_export_usage']) && check_admin_referer('tmwseo_usage_export', 'tmwseo_usage_nonce')) {
+                $sql = "SELECT keyword_text, type, category, post_id, post_type, used_at FROM {$log_table} {$where_sql} ORDER BY used_at DESC";
+                $rows = $params ? $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A) : $wpdb->get_results($sql, ARRAY_A);
+
+                header('Content-Type: text/csv');
+                header('Content-Disposition: attachment; filename=\"tmwseo-keyword-usage.csv\"');
+                $output = fopen('php://output', 'w');
+                fputcsv($output, ['keyword_text', 'type', 'category', 'post_id', 'post_type', 'used_at']);
+                foreach ((array) $rows as $row) {
+                    fputcsv($output, [
+                        $row['keyword_text'] ?? '',
+                        $row['type'] ?? '',
+                        $row['category'] ?? '',
+                        $row['post_id'] ?? '',
+                        $row['post_type'] ?? '',
+                        $row['used_at'] ?? '',
+                    ]);
+                }
+                fclose($output);
+                exit;
+            }
+
+            $sql = "SELECT keyword_text, category, type, used_count, last_used_at FROM {$usage_table} {$where_sql} ORDER BY used_count DESC, last_used_at DESC LIMIT %d";
+            $params_with_limit = $params;
+            $params_with_limit[] = $limit;
+            $rows = $params_with_limit ? $wpdb->get_results($wpdb->prepare($sql, $params_with_limit), ARRAY_A) : $wpdb->get_results($wpdb->prepare($sql, $limit), ARRAY_A);
+
+            $export_url = add_query_arg([
+                'page' => 'tmw-seo-keyword-usage',
+                'tab' => 'usage',
+                'category' => $selected_category,
+                'type' => $selected_type,
+                'tmwseo_export_usage' => 1,
+            ], admin_url('admin.php'));
+            ?>
             <form method="get" style="margin-bottom:15px;">
                 <input type="hidden" name="page" value="tmw-seo-keyword-usage">
+                <input type="hidden" name="tab" value="usage">
                 <table class="form-table">
                     <tr>
                         <th scope="row"><label for="tmwseo_usage_category">Category</label></th>
@@ -2531,8 +2592,84 @@ class Admin {
                     <?php endif; ?>
                 </tbody>
             </table>
-        <?php Admin_UI::render_footer(); ?>
-        <?php
+            <?php
+        } else {
+            $selected_category = sanitize_key($_GET['category'] ?? 'all');
+            $selected_type     = sanitize_key($_GET['type'] ?? 'all');
+            $limit             = max(10, min(500, intval($_GET['limit'] ?? 100)));
+            $filters = [
+                'category' => $selected_category,
+                'type'     => $selected_type,
+            ];
+            $rows = Keyword_Browser::get_keywords($filters, $limit, 0, 'keyword', 'asc');
+            ?>
+            <form method="get" style="margin-bottom:15px;">
+                <input type="hidden" name="page" value="tmw-seo-keyword-usage">
+                <input type="hidden" name="tab" value="all">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="tmwseo_all_category">Category</label></th>
+                        <td>
+                            <select name="category" id="tmwseo_all_category">
+                                <?php foreach ($categories as $cat) : ?>
+                                    <option value="<?php echo esc_attr($cat); ?>" <?php selected($selected_category, $cat); ?>><?php echo esc_html(ucfirst($cat)); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_all_type">Type</label></th>
+                        <td>
+                            <select name="type" id="tmwseo_all_type">
+                                <?php foreach ($types as $t) : ?>
+                                    <option value="<?php echo esc_attr($t); ?>" <?php selected($selected_type, $t); ?>><?php echo esc_html($t); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="tmwseo_all_limit">Limit</label></th>
+                        <td>
+                            <input type="number" name="limit" id="tmwseo_all_limit" value="<?php echo (int) $limit; ?>" min="10" max="500">
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="submit" class="button button-primary">Filter</button>
+                </p>
+            </form>
+
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>KD%</th>
+                        <th>Volume</th>
+                        <th>CPC</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($rows)) : ?>
+                        <tr><td colspan="6">No keywords found.</td></tr>
+                    <?php else : ?>
+                        <?php foreach ($rows as $row) : ?>
+                            <tr>
+                                <td><?php echo esc_html($row['keyword'] ?? ''); ?></td>
+                                <td><?php echo esc_html($row['category'] ?? ''); ?></td>
+                                <td><?php echo esc_html($row['type'] ?? ''); ?></td>
+                                <td><?php echo isset($row['tmw_kd']) && $row['tmw_kd'] !== '' ? (int) $row['tmw_kd'] : '—'; ?></td>
+                                <td><?php echo isset($row['search_volume']) && $row['search_volume'] !== null ? number_format_i18n((int) $row['search_volume']) : '—'; ?></td>
+                                <td><?php echo isset($row['cpc']) && $row['cpc'] !== '' ? esc_html(number_format((float) $row['cpc'], 2)) : '—'; ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+            <?php
+        }
+        Admin_UI::render_footer();
     }
 
     /**
@@ -2650,6 +2787,20 @@ class Admin {
         <?php Admin_UI::render_header('tmw-seo-autopilot', 'Dashboard', 'Monitor coverage, quality, and automation health at a glance.'); ?>
 
             <?php self::render_dashboard_widgets(); ?>
+
+            <?php $category_stats = Keyword_Browser::get_category_stats(); ?>
+            <div class="tmwseo-category-grid">
+                <?php foreach ($category_stats as $stat) : ?>
+                    <div class="tmwseo-category-card">
+                        <div class="tmwseo-category-card__title">
+                            <span class="dashicons dashicons-category"></span>
+                            <?php echo esc_html(ucfirst($stat['category'] ?? '')); ?>
+                        </div>
+                        <p class="tmwseo-category-card__count"><?php echo number_format_i18n((int) ($stat['count'] ?? 0)); ?> <?php esc_html_e('keywords', 'tmw-seo-autopilot'); ?></p>
+                        <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=tmw-seo-keyword-browser&category=' . urlencode($stat['category'] ?? ''))); ?>"><?php esc_html_e('Browse →', 'tmw-seo-autopilot'); ?></a>
+                    </div>
+                <?php endforeach; ?>
+            </div>
 
             <div class="tmwseo-card-grid">
                 <div class="tmwseo-card">
@@ -3759,22 +3910,36 @@ class Admin {
      * AJAX handler to export all keywords.
      */
     public static function ajax_export_keywords() {
-        check_ajax_referer('tmwseo_autofill_keywords', 'nonce');
+        check_ajax_referer('tmwseo_keyword_browser', 'nonce');
         if (!current_user_can(self::CAP)) {
             wp_send_json_error(['message' => 'No permission']);
         }
-        $keywords = \TMW_SEO\Dashboard_Stats::build()['top_opportunities'] ?? [];
+
+        $filters = [
+            'category' => sanitize_key($_GET['category'] ?? 'all'),
+            'type'     => sanitize_key($_GET['type'] ?? 'all'),
+            'kd_range' => sanitize_key($_GET['kd_range'] ?? 'all'),
+            'search'   => isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '',
+        ];
+
+        $sort_by    = sanitize_key($_GET['sort'] ?? 'keyword');
+        $sort_order = sanitize_key($_GET['order'] ?? 'asc');
+        $total      = Keyword_Browser::get_total_count($filters);
+        $rows       = Keyword_Browser::get_keywords($filters, $total ?: 5000, 0, $sort_by, $sort_order);
+
         $fh = fopen('php://output', 'w');
         header('Content-Type: text/csv');
         header('Content-Disposition: attachment; filename="tmwseo-keywords.csv"');
-        $columns = Keyword_Pack_Builder::csv_columns();
-        fputcsv($fh, $columns);
-        foreach ($keywords as $row) {
-            $ordered = [];
-            foreach ($columns as $col) {
-                $ordered[] = $row[$col] ?? '';
-            }
-            fputcsv($fh, $ordered);
+        fputcsv($fh, ['keyword', 'category', 'type', 'tmw_kd', 'search_volume', 'cpc']);
+        foreach ($rows as $row) {
+            fputcsv($fh, [
+                $row['keyword'] ?? '',
+                $row['category'] ?? '',
+                $row['type'] ?? '',
+                $row['tmw_kd'] ?? '',
+                $row['search_volume'] ?? '',
+                $row['cpc'] ?? '',
+            ]);
         }
         fclose($fh);
         exit;
