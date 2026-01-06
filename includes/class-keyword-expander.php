@@ -127,6 +127,73 @@ class Keyword_Expander {
     }
 
     /**
+     * Get hardcoded fallback keywords for a category.
+     * These are GUARANTEED to be valid and will be used if all other sources fail.
+     *
+     * @param string $category Category name.
+     * @return array Fallback keywords.
+     */
+    public static function get_fallback_keywords(string $category): array {
+        $base_modifiers = [
+            'best', 'top', 'hot', 'free', 'live', 'sexy', 'amateur', 'real',
+        ];
+
+        $platforms = ['livejasmin', 'chaturbate', 'stripchat'];
+
+        $category_terms = [
+            'uniforms'       => ['nurse cam girl', 'maid webcam', 'schoolgirl cam', 'secretary webcam', 'uniform cam'],
+            'fetish-lite'    => ['feet cam girl', 'stockings webcam', 'lingerie cam', 'heels webcam', 'nylon cam'],
+            'big-boobs'      => ['busty cam girl', 'big tits webcam', 'huge boobs cam', 'busty model webcam'],
+            'big-butt'       => ['big ass cam girl', 'big booty webcam', 'thick ass cam', 'phat booty webcam'],
+            'interracial'    => ['interracial cam', 'mixed couple webcam', 'interracial show cam'],
+            'white'          => ['white cam girl', 'caucasian webcam', 'european cam girl'],
+            'tattoo-piercing'=> ['tattooed cam girl', 'inked webcam', 'pierced cam girl', 'alt cam model'],
+            'chatty'         => ['chatty cam girl', 'talkative webcam', 'friendly cam model'],
+            'fitness'        => ['fitness cam girl', 'fit webcam model', 'athletic cam girl', 'gym cam'],
+            'dominant'       => ['dominant cam girl', 'domme webcam', 'femdom cam', 'mistress cam'],
+            'livejasmin'     => ['livejasmin models', 'livejasmin girls', 'livejasmin cam'],
+            'roleplay'       => ['roleplay cam girl', 'fantasy webcam', 'roleplay show cam'],
+            'cosplay'        => ['cosplay cam girl', 'anime webcam model', 'costume cam'],
+            'dance'          => ['dancing cam girl', 'twerk webcam', 'stripper cam'],
+            'glamour'        => ['glamour cam girl', 'elegant webcam', 'classy cam model'],
+            'romantic'       => ['romantic cam girl', 'sensual webcam', 'girlfriend cam'],
+            'outdoor'        => ['outdoor cam girl', 'public webcam', 'exhibitionist cam'],
+            'couples'        => ['couple cam show', 'couples webcam', 'duo cam'],
+            'petite'         => ['petite cam girl', 'small webcam model', 'tiny cam girl'],
+            'curvy'          => ['curvy cam girl', 'thick webcam model', 'bbw cam'],
+            'athletic'       => ['athletic cam girl', 'sporty webcam', 'fit cam model'],
+            'asian'          => ['asian cam girl', 'japanese webcam', 'korean cam model'],
+            'latina'         => ['latina cam girl', 'colombian webcam', 'brazilian cam'],
+            'ebony'          => ['ebony cam girl', 'black webcam model', 'african cam'],
+            'blonde'         => ['blonde cam girl', 'blonde webcam model'],
+            'brunette'       => ['brunette cam girl', 'brunette webcam model'],
+            'redhead'        => ['redhead cam girl', 'ginger webcam model'],
+            'milf'           => ['milf cam girl', 'mature webcam model', 'cougar cam'],
+            'teen'           => ['18 year old cam girl', 'young webcam model', 'college cam'],
+            'toys'           => ['lovense cam girl', 'toy webcam show', 'vibrator cam'],
+            'private-shows'  => ['private cam show', 'exclusive webcam', 'one on one cam'],
+            'general'        => ['cam girls', 'webcam models', 'live cam girls'],
+            'compare-platforms' => ['livejasmin vs chaturbate', 'best cam site', 'cam site comparison'],
+        ];
+
+        $terms = $category_terms[$category] ?? $category_terms['general'];
+        $fallbacks = [];
+
+        // Generate combinations: modifier + term + platform
+        foreach ($terms as $term) {
+            $fallbacks[] = $term; // Base term
+            foreach ($base_modifiers as $mod) {
+                $fallbacks[] = $mod . ' ' . $term;
+            }
+            foreach ($platforms as $platform) {
+                $fallbacks[] = $term . ' ' . $platform;
+            }
+        }
+
+        return array_unique($fallbacks);
+    }
+
+    /**
      * Get category-specific modifiers.
      *
      * @param string $category Category name.

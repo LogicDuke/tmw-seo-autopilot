@@ -1,8 +1,7 @@
 <?php
 /**
  * Curated seed phrases for keyword expansion.
- * These seeds are hand-picked for the adult webcam industry.
- * Each seed will be expanded into 10-20 keyword variations.
+ * COMPLETE LIST - All categories must have at least 8 seeds.
  */
 
 return [
@@ -26,14 +25,20 @@ return [
 
     'livejasmin' => [
         'livejasmin models',
-        'livejasmin girls',
         'livejasmin cam girls',
-        'livejasmin private show',
-        'livejasmin free credits',
         'best livejasmin models',
         'hot livejasmin girls',
+        'livejasmin private show',
+        'livejasmin free credits',
         'livejasmin review',
         'livejasmin vs chaturbate',
+        'livejasmin blonde',
+        'livejasmin latina',
+        'livejasmin asian',
+        'livejasmin mature',
+        'top livejasmin models',
+        'livejasmin busty',
+        'livejasmin petite',
     ],
 
     'compare-platforms' => [
@@ -73,14 +78,16 @@ return [
     ],
 
     'chatty' => [
-        'chatty cam girls',
-        'talkative webcam models',
-        'conversation cam girls',
-        'friendly cam girls',
-        'social cam models',
-        'cam girls who talk',
-        'best chatty cam girls',
-        'cam girl conversation',
+        'chatty cam girl',
+        'talkative webcam model',
+        'friendly cam girl',
+        'social cam model',
+        'conversation cam girl',
+        'interactive webcam model',
+        'engaging cam girl',
+        'fun personality webcam',
+        'chatty livejasmin model',
+        'talkative chaturbate girl',
     ],
 
     'dance' => [
@@ -118,24 +125,32 @@ return [
     ],
 
     'dominant' => [
-        'dominant cam girls',
-        'domme webcam models',
-        'mistress cam shows',
-        'femdom cam girls',
-        'bossy cam models',
-        'dominatrix webcam',
-        'findom cam girls',
-        'commanding cam models',
+        'dominant cam girl',
+        'domme webcam model',
+        'femdom cam show',
+        'mistress webcam',
+        'dominatrix cam girl',
+        'bossy cam model',
+        'findom webcam',
+        'goddess cam girl',
+        'dominant livejasmin',
+        'femdom chaturbate',
+        'mistress stripchat',
+        'bdsm dom cam',
     ],
 
     'fitness' => [
-        'fitness cam girls',
-        'fit webcam models',
-        'gym cam girls',
-        'athletic cam shows',
-        'muscular cam models',
-        'toned cam girls',
-        'sporty webcam girls',
+        'fitness cam girl',
+        'fit webcam model',
+        'gym body cam girl',
+        'athletic webcam model',
+        'muscular cam girl',
+        'toned body webcam',
+        'sporty cam model',
+        'workout cam girl',
+        'fitness livejasmin',
+        'fit chaturbate model',
+        'gym girl stripchat',
         'bodybuilder cam',
     ],
 
@@ -151,14 +166,18 @@ return [
     ],
 
     'uniforms' => [
-        'uniform cam girls',
-        'nurse cam girls',
-        'maid webcam models',
-        'schoolgirl cam shows',
-        'secretary cam girls',
-        'police uniform cam',
-        'costume cam models',
-        'uniform fetish webcam',
+        'nurse cam girl',
+        'maid webcam model',
+        'schoolgirl cam show',
+        'secretary cam girl',
+        'police uniform webcam',
+        'flight attendant cam',
+        'cheerleader cam model',
+        'office girl webcam',
+        'uniform fetish cam',
+        'costume cam girls',
+        'nurse outfit livejasmin',
+        'sexy maid chaturbate',
     ],
 
     'couples' => [
@@ -173,14 +192,18 @@ return [
     ],
 
     'fetish-lite' => [
-        'feet cam girls',
+        'feet cam girl',
         'foot fetish webcam',
-        'stockings cam models',
-        'lingerie cam shows',
-        'heels cam girls',
-        'leather webcam models',
-        'nylon cam girls',
+        'stockings cam model',
+        'nylon webcam show',
+        'high heels cam girl',
+        'lingerie cam model',
         'pantyhose webcam',
+        'leather cam girl',
+        'latex webcam model',
+        'smoking cam girl',
+        'feet livejasmin',
+        'stocking fetish chaturbate',
     ],
 
     'petite' => [
@@ -217,25 +240,44 @@ return [
     ],
 
     'big-boobs' => [
-        'big boobs cam girls',
-        'busty webcam models',
-        'huge tits cam shows',
+        'big tits cam girl',
+        'busty webcam model',
+        'huge boobs cam show',
         'large breasts webcam',
-        'big tits cam girls',
-        'busty blonde cam',
-        'natural big boobs cam',
-        'big boobs private show',
+        'big breasts cam girl',
+        'busty blonde webcam',
+        'natural big tits cam',
+        'busty latina cam',
+        'busty asian webcam',
+        'big tits livejasmin',
+        'busty chaturbate models',
+        'huge tits stripchat',
     ],
 
     'big-butt' => [
-        'big butt cam girls',
-        'big ass webcam models',
-        'thick booty cam shows',
+        'big ass cam girl',
+        'big booty webcam model',
+        'thick booty cam show',
         'phat ass webcam',
-        'juicy booty cam girls',
-        'big butt latina cam',
-        'bubble butt webcam',
-        'twerk big ass cam',
+        'juicy booty cam girl',
+        'big butt latina webcam',
+        'bubble butt cam model',
+        'twerk cam girl',
+        'big ass livejasmin',
+        'booty chaturbate',
+        'thick ass stripchat',
+        'pawg cam girl',
+    ],
+
+    'interracial' => [
+        'interracial cam couple',
+        'interracial webcam show',
+        'bbc cam show',
+        'interracial couple livejasmin',
+        'mixed couple webcam',
+        'interracial chaturbate',
+        'interracial cam models',
+        'diverse couple cam',
     ],
 
     'asian' => [
@@ -278,6 +320,17 @@ return [
         'hot ebony cam',
         'ebony livejasmin',
         'best ebony cam sites',
+    ],
+
+    'white' => [
+        'white cam girl',
+        'caucasian webcam model',
+        'european cam girl',
+        'american cam model',
+        'white girl livejasmin',
+        'white webcam models',
+        'pale cam girl',
+        'fair skin webcam',
     ],
 
     'milf' => [
@@ -323,6 +376,19 @@ return [
         'brunette livejasmin',
         'brunette curvy cam',
         'brunette athletic cam',
+    ],
+
+    'tattoo-piercing' => [
+        'tattooed cam girl',
+        'tattoo webcam model',
+        'pierced cam girl',
+        'alt cam model',
+        'inked webcam girl',
+        'tattoo livejasmin',
+        'pierced nipples cam',
+        'alternative cam girl',
+        'goth cam model',
+        'punk webcam girl',
     ],
 
     'redhead' => [

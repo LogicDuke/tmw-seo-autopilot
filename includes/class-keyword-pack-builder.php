@@ -571,16 +571,18 @@ class Keyword_Pack_Builder {
         $all_keywords    = [];
         $validated_count = 0;
 
-        // SOURCE 1: Internal pattern expansion (trusted)
-        $expanded = Keyword_Expander::expand_category($seeds, $category, 15);
+        // SOURCE 1: Internal pattern expansion (ALWAYS TRUSTED - no validation)
+        $expanded = Keyword_Expander::expand_category($seeds, $category, 20);
         foreach ($expanded as $keyword) {
             if ($validated_count >= $target) {
                 break;
             }
 
-            if (self::is_trusted_expansion($keyword)) {
+            // Skip only if blacklisted (safety check), but DO NOT require anchor validation
+            if (!Keyword_Validator::is_blacklisted($keyword)) {
                 $all_keywords[] = self::build_keyword_entry($keyword, $category, 'internal');
                 $validated_count++;
+                if ($validated_count >= $target) break;
             }
         }
 
@@ -619,6 +621,25 @@ class Keyword_Pack_Builder {
                     }
                 }
             }
+        }
+
+        $all_keywords = self::deduplicate_keywords($all_keywords);
+
+        // PHASE 4: GUARANTEED FALLBACK - If still under minimum, use hardcoded keywords
+        $minimum_required = 20;
+        if (count($all_keywords) < $minimum_required) {
+            $fallbacks = Keyword_Expander::get_fallback_keywords($category);
+            foreach ($fallbacks as $keyword) {
+                if (count($all_keywords) >= $target) break;
+                if (!self::keyword_exists($keyword, $all_keywords)) {
+                    $all_keywords[] = self::build_keyword_entry($keyword, $category, 'fallback');
+                }
+            }
+        }
+
+        // Log warning if still under minimum
+        if (count($all_keywords) < $minimum_required) {
+            error_log("TMW SEO WARNING: Category '{$category}' has only " . count($all_keywords) . " keywords after all sources.");
         }
 
         $all_keywords = self::deduplicate_keywords($all_keywords);
@@ -702,22 +723,9 @@ class Keyword_Pack_Builder {
      * @return bool True if trusted.
      */
     private static function is_trusted_expansion(string $keyword): bool {
-        $keyword_lower = strtolower($keyword);
-
-        $trust_indicators = [
-            'livejasmin', 'chaturbate', 'stripchat', 'bongacams',
-            'camsoda', 'myfreecams', 'flirt4free', 'cam4',
-            'cam girl', 'cam model', 'webcam', 'live cam', 'cam show',
-            'private show', 'live show', 'camgirl', 'webcam model',
-        ];
-
-        foreach ($trust_indicators as $indicator) {
-            if (strpos($keyword_lower, $indicator) !== false) {
-                return !Keyword_Validator::is_blacklisted($keyword);
-            }
-        }
-
-        return false;
+        // Trust everything that isn't blacklisted
+        // Internal expansions already contain industry terms by design
+        return !Keyword_Validator::is_blacklisted($keyword);
     }
 
     /**
@@ -957,7 +965,16 @@ class Keyword_Pack_Builder {
             }
 
             ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword($raw_keyword);
-            if ($normalized !== '' && self::is_allowed($normalized, $display)) {
+            $source_key = is_array($kw) ? sanitize_key((string) ($kw['source'] ?? '')) : '';
+            $is_trusted_internal = in_array($source_key, ['internal', 'modifier', 'fallback'], true);
+            $is_allowed_keyword = $normalized !== ''
+                && (
+                    $is_trusted_internal
+                        ? !Keyword_Validator::is_blacklisted($display)
+                        : self::is_allowed($normalized, $display)
+                );
+
+            if ($is_allowed_keyword) {
                 if (!isset($existing[$normalized])) {
                     $competition = Keyword_Difficulty_Proxy::normalize_competition($competition);
                     $cpc         = Keyword_Difficulty_Proxy::normalize_cpc($cpc);
