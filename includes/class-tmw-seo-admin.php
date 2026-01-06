@@ -350,6 +350,10 @@ class Admin {
     /**
      * Handles the `wp_ajax_tmwseo_dataforseo_test` hook.
      *
+     * Performs a connection test against DataForSEO keyword difficulty by requesting
+     * a single sample keyword and returning the KD value from the first result.
+     * Uses the saved location and language codes to mirror production requests.
+     *
      * @return void
      */
     public static function ajax_dataforseo_test() {
@@ -364,8 +368,9 @@ class Admin {
 
         $location_code = (int) get_option('tmwseo_dataforseo_location_code', 2840);
         $language_code = (string) get_option('tmwseo_dataforseo_language_code', 'en');
+        $test_keyword = 'keyword difficulty test';
 
-        $result = \TMW_SEO\DataForSEO_Client::bulk_keyword_difficulty(['tmw seo autopilot'], $location_code, $language_code);
+        $result = \TMW_SEO\DataForSEO_Client::bulk_keyword_difficulty([$test_keyword], $location_code, $language_code);
         if (is_wp_error($result)) {
             wp_send_json_error(['message' => $result->get_error_message()]);
         }
@@ -1165,11 +1170,17 @@ class Admin {
                     <table class="form-table">
                         <tr>
                             <th scope="row"><label for="tmwseo_dataforseo_location_code">Location code</label></th>
-                            <td><input type="number" name="tmwseo_dataforseo_location_code" id="tmwseo_dataforseo_location_code" value="<?php echo esc_attr((int) $dataforseo_location_code); ?>" class="regular-text" min="1" placeholder="2840"></td>
+                            <td>
+                                <input type="number" name="tmwseo_dataforseo_location_code" id="tmwseo_dataforseo_location_code" value="<?php echo esc_attr((int) $dataforseo_location_code); ?>" class="regular-text" min="1" placeholder="2840">
+                                <p class="description">Location code for SERP data (e.g., 2840 for United States). <a href="https://docs.dataforseo.com/v3/appendix/locations/" target="_blank" rel="noreferrer noopener">View location codes</a></p>
+                            </td>
                         </tr>
                         <tr>
                             <th scope="row"><label for="tmwseo_dataforseo_language_code">Language code</label></th>
-                            <td><input type="text" name="tmwseo_dataforseo_language_code" id="tmwseo_dataforseo_language_code" value="<?php echo esc_attr($dataforseo_language_code); ?>" class="regular-text" placeholder="en"></td>
+                            <td>
+                                <input type="text" name="tmwseo_dataforseo_language_code" id="tmwseo_dataforseo_language_code" value="<?php echo esc_attr($dataforseo_language_code); ?>" class="regular-text" placeholder="en">
+                                <p class="description">ISO 639-1 language code used for keyword difficulty (e.g., en, es). <a href="https://docs.dataforseo.com/v3/appendix/languages/" target="_blank" rel="noreferrer noopener">View language codes</a></p>
+                            </td>
                         </tr>
                     </table>
                     <p class="submit">
