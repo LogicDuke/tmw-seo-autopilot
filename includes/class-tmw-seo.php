@@ -1728,7 +1728,7 @@ class Core {
                     }
                     return $kw !== strtolower( $extra_focus_1 ) && $kw !== strtolower( $extra_focus_2 );
                 } ) );
-                $additional_keywords = array_slice( $additional_keywords, 0, 6 );
+                $additional_keywords = array_slice( $additional_keywords, 0, 10 );
             }
 
             update_post_meta($post_id, 'rank_math_focus_keyword', implode(', ', $focus_keywords));
