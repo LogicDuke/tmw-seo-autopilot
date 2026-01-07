@@ -1,16 +1,16 @@
 <?php
 $search_hooks = [
-    "Fans searching '{name} OnlyFans' or '{name} {platform_a}' quickly learn that {live_brand} keeps her live shows polished and personal.",
-    "People typing '{name} OnlyFans videos' often land here and realize {live_brand} streams highlight what makes {name} stand out.",
-    "Those seeking '{name} on {platform_a}' discover this page pairs that curiosity with {live_brand} links that lead to real-time sessions.",
-    "Viewers wondering where to watch {name} compare OnlyFans mentions with {live_brand}'s immersive approach.",
-    "Shoppers who follow '{name} {platform_b}' tags get redirected to {live_brand} where {name} interacts live rather than posting static clips.",
-    "While OnlyFans subscribers browse {name}'s photo galleries, {live_brand} fans enjoy real-time conversation and instant responses.",
-    "Fans searching '{name} OnlyFans' often discover that {live_brand}'s live format creates more genuine connection than static posts.",
-    "Unlike OnlyFans' pre-recorded content where {name} posts on a schedule, {live_brand} delivers spontaneous interactions tailored to each viewer.",
-    "{name}'s OnlyFans offers on-demand viewing, but {live_brand} provides the excitement of live requests and immediate feedback.",
-    "Many who follow {name} on OnlyFans add {live_brand} to their routine for the interactive experience that photos can't capture.",
-    "Searching '{name} OnlyFans videos' leads viewers here, where they learn {live_brand} streams offer HD quality and two-way chat.",
+    "Fans searching '{name} live shows' quickly learn that {live_brand} keeps her streams polished and personal.",
+    "People typing '{name} cam model' often land here and realize {live_brand} streams highlight what makes {name} stand out.",
+    "Those seeking '{name} live chat' discover this page pairs that curiosity with official {live_brand} links that lead to real-time sessions.",
+    "Viewers wondering where to watch {name} find the official profile links below for trusted access.",
+    "Searchers who follow '{name} live cam' tags get directed to {live_brand} where {name} interacts live with attentive pacing.",
+    "Fans looking for {name}'s shows appreciate real-time conversation and instant responses on {live_brand}.",
+    "People searching '{name} live stream' often discover that {live_brand}'s live format creates a more genuine connection.",
+    "Instead of waiting for updates, {live_brand} delivers spontaneous interactions tailored to each viewer.",
+    "{name}'s live room on {live_brand} offers the excitement of real-time requests and immediate feedback.",
+    "Many who follow {name} online add {live_brand} to their routine for the interactive experience that live chat delivers.",
+    "Searching '{name} live videos' leads viewers here, where they learn {live_brand} streams offer HD quality and two-way chat.",
 ];
 
 $live_benefits = [
@@ -30,11 +30,11 @@ $style_notes = [
 ];
 
 $cta_lines = [
-    "Click the {live_brand} link to join her next stream and see why fans trade OnlyFans scrolls for live connection.",
+    "Click the {live_brand} link below to join her next stream and enjoy real-time connection.",
     "Tap into {live_brand} now to reserve a spot before the next private show fills up.",
     "Use the {live_brand} button to follow {name} and get pinged when she starts a surprise session.",
     "Jump into {live_brand} to chat directly while the room is cozy and responsive.",
-    "Join {live_brand} for immediate access and skip the wait for recycled clips elsewhere.",
+    "Join {live_brand} for immediate access and check the official profile links below.",
 ];
 
 $intros = [];

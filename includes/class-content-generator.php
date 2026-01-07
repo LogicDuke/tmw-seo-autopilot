@@ -34,7 +34,10 @@ class Content_Generator {
 
         $intro      = Template_Engine::render(Template_Engine::pick('model-intros', $seed), $base);
         $bio        = Template_Engine::render(Template_Engine::pick('model-bios', $seed, 1), $base);
+        $intro      = '<p>' . esc_html($intro) . '</p>';
+        $bio        = '<p>' . esc_html($bio) . '</p>';
         $focus_block = self::render_focus_blocks($base, $name);
+        $kw_coverage = self::render_rankmath_keyword_coverage($base['rankmath_additional_keywords'] ?? [], $name);
         $comparison = self::build_platform_comparison($model_id, $name);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 5);
         $faqs_html  = self::render_faqs($faqs_tpl, $base, $base['longtail_keywords']);
@@ -43,9 +46,9 @@ class Content_Generator {
         $related = self::render_related($context, $name);
 
         $sections = [
-            0 => [$intro, $focus_block, $bio, $longtail_block, $comparison, $faqs_html, $related],
-            1 => [$intro, $focus_block, $comparison, $longtail_block, $bio, $faqs_html, $related],
-            2 => [$intro, $focus_block, $bio, $faqs_html, $longtail_block, $comparison, $related],
+            0 => [$intro, $focus_block, $bio, $kw_coverage, $longtail_block, $comparison, $faqs_html, $related],
+            1 => [$intro, $focus_block, $comparison, $longtail_block, $bio, $kw_coverage, $faqs_html, $related],
+            2 => [$intro, $focus_block, $bio, $kw_coverage, $faqs_html, $longtail_block, $comparison, $related],
         ];
 
         $content = implode("\n\n", $sections[$layout]);
@@ -60,8 +63,11 @@ class Content_Generator {
         $similarity = Uniqueness_Checker::similarity_score($content, Core::MODEL_PT);
         if ($similarity > 70) {
             $alt_intro = Template_Engine::render(Template_Engine::pick('model-intros', $seed, 3), $base);
+            $alt_intro = '<p>' . esc_html($alt_intro) . '</p>';
             $content   = implode("\n\n", [$alt_intro, $bio, $comparison, $faqs_html, $related]);
         }
+
+        $content = self::split_long_paragraphs($content);
 
         return [
             'content' => wp_kses_post($content),
@@ -87,6 +93,8 @@ class Content_Generator {
 
         $intro      = Template_Engine::render(Template_Engine::pick('video-templates', $seed), $base);
         $details    = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 1), $base);
+        $intro      = '<p>' . esc_html($intro) . '</p>';
+        $details    = '<p>' . esc_html($details) . '</p>';
         $comparison = self::build_platform_comparison((int) ($context['model_id'] ?? 0), $name);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 4);
         $faqs_html  = self::render_faqs($faqs_tpl, $base, $base['longtail_keywords']);
@@ -103,8 +111,11 @@ class Content_Generator {
         $similarity = Uniqueness_Checker::similarity_score($content, Core::VIDEO_PT);
         if ($similarity > 70) {
             $alt_intro = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 5), $base);
+            $alt_intro = '<p>' . esc_html($alt_intro) . '</p>';
             $content   = implode("\n\n", [$alt_intro, $details, $comparison, $faqs_html]);
         }
+
+        $content = self::split_long_paragraphs($content);
 
         return [
             'content' => wp_kses_post($content),
@@ -129,21 +140,54 @@ class Content_Generator {
         $seed = $seed_source !== null ? (string) $seed_source : (string) crc32($name);
         $post_id   = (int) ($context['model_id'] ?? $context['video_id'] ?? 0);
         $post_type = !empty($context['model_id']) ? Core::MODEL_PT : (!empty($context['video_id']) ? Core::VIDEO_PT : '');
-        $extra = Keyword_Library::pick_multi($categories, 'extra', 10, $seed, [], 30, $post_id, $post_type);
+        $extra = [];
+        $locked = null;
+        $locked_extras = [];
+
+        if ($post_id > 0) {
+            $locked = get_post_meta($post_id, '_tmwseo_extras_locked', true);
+            $locked_extras = get_post_meta($post_id, '_tmwseo_extras_list', true);
+        }
+
+        if ($locked && is_array($locked_extras) && !empty($locked_extras)) {
+            $extra = array_values(array_unique(array_filter(array_map('trim', $locked_extras), 'strlen')));
+        } else {
+            $extra = Keyword_Library::pick_multi($categories, 'extra', 10, $seed, [], 30, $post_id, $post_type);
+            if ($post_id > 0) {
+                update_post_meta($post_id, '_tmwseo_extras_list', $extra);
+                update_post_meta($post_id, '_tmwseo_extras_locked', 1);
+            }
+        }
         $longtail = Keyword_Library::pick_multi($categories, 'longtail', 6, $seed, $extra, 30, $post_id, $post_type);
 
         $extra_focus_1 = $extra[0] ?? 'live cam model';
         $extra_focus_2 = $extra[1] ?? 'webcam model profile';
 
         if ($post_id > 0) {
-            $locked = get_post_meta($post_id, '_tmwseo_extras_locked', true);
-            if (empty($locked) && !empty($extra)) {
-                update_post_meta($post_id, '_tmwseo_extras_list', $extra);
-                update_post_meta($post_id, '_tmwseo_extras_locked', 1);
+            $stored_focus_1 = trim((string) get_post_meta($post_id, '_tmwseo_extra_focus_1', true));
+            $stored_focus_2 = trim((string) get_post_meta($post_id, '_tmwseo_extra_focus_2', true));
+            if ($stored_focus_1 !== '') {
+                $extra_focus_1 = $stored_focus_1;
             }
-            update_post_meta($post_id, '_tmwseo_extra_focus_1', $extra_focus_1);
-            update_post_meta($post_id, '_tmwseo_extra_focus_2', $extra_focus_2);
+            if ($stored_focus_2 !== '') {
+                $extra_focus_2 = $stored_focus_2;
+            }
+            if ($stored_focus_1 === '' && $extra_focus_1 !== '') {
+                update_post_meta($post_id, '_tmwseo_extra_focus_1', $extra_focus_1);
+            }
+            if ($stored_focus_2 === '' && $extra_focus_2 !== '') {
+                update_post_meta($post_id, '_tmwseo_extra_focus_2', $extra_focus_2);
+            }
         }
+
+        $rankmath_additional_keywords = array_values(array_filter($extra, function ($kw) use ($extra_focus_1, $extra_focus_2) {
+            $kw = strtolower(trim((string) $kw));
+            if ($kw === '') {
+                return false;
+            }
+            return $kw !== strtolower($extra_focus_1) && $kw !== strtolower($extra_focus_2);
+        }));
+        $rankmath_additional_keywords = array_slice($rankmath_additional_keywords, 0, 10);
 
         $safe_tags_slice = array_slice($safe_tags, 0, max(4, min(6, count($safe_tags))));
         $safe_tags_text  = !empty($safe_tags_slice) ? implode(', ', $safe_tags_slice) : 'live webcam shows';
@@ -161,6 +205,7 @@ class Content_Generator {
             'extra_keywords'       => $extra,
             'extra_keywords_text'  => implode(', ', $extra),
             'longtail_keywords'    => $longtail,
+            'rankmath_additional_keywords' => $rankmath_additional_keywords,
             'cta_url'              => $context['brand_url'] ?? '',
         ];
     }
@@ -189,6 +234,30 @@ class Content_Generator {
         }
 
         return implode("\n", $blocks);
+    }
+
+    /**
+     * Renders related keyword coverage for RankMath.
+     *
+     * @param array $keywords
+     * @param string $name
+     * @return string
+     */
+    protected static function render_rankmath_keyword_coverage(array $keywords, string $name): string {
+        $keywords = array_values(array_filter(array_map('trim', $keywords), 'strlen'));
+        if (empty($keywords)) {
+            return '';
+        }
+
+        $out  = '<h3>Related searches</h3>';
+        $out .= '<p>People looking for ' . esc_html($name) . ' often search these topics:</p>';
+        $out .= '<ul>';
+        foreach ($keywords as $keyword) {
+            $out .= '<li>' . esc_html($keyword) . '</li>';
+        }
+        $out .= '</ul>';
+
+        return $out;
     }
 
     /**
@@ -303,8 +372,33 @@ class Content_Generator {
      */
     public static function build_platform_comparison(int $model_id, string $name): string {
         $platforms = \TMW_SEO\Admin\Model_Platforms_Metabox::get_model_platforms($model_id);
+        $confirmed = array_filter($platforms, function ($platform) {
+            return !empty($platform['username']);
+        });
+
+        $profiles_html = '';
+        if (!empty($confirmed)) {
+            $links = [];
+            foreach ($confirmed as $platform) {
+                if (empty($platform['url_pattern'])) {
+                    continue;
+                }
+                $username = (string) ($platform['username'] ?? '');
+                if ($username === '') {
+                    continue;
+                }
+                $url = str_replace('{username}', rawurlencode($username), $platform['url_pattern']);
+                if ($url === '') {
+                    continue;
+                }
+                $links[] = '<li><a href="' . esc_url($url) . '" rel="nofollow noopener" target="_blank">' . esc_html($platform['name']) . '</a></li>';
+            }
+            if (!empty($links)) {
+                $profiles_html = '<h2>Official profiles</h2><ul>' . implode('', $links) . '</ul>';
+            }
+        }
         
-        if (empty($platforms)) {
+        if (empty($confirmed)) {
             // Default: only mention LiveJasmin as primary
             return self::default_livejasmin_pitch($name);
         }
@@ -313,23 +407,23 @@ class Content_Generator {
         $primary_slug = $primary['slug'];
         
         // Check if model is on LiveJasmin (our primary)
-        $is_on_primary = isset($platforms[$primary_slug]);
+        $is_on_primary = isset($confirmed[$primary_slug]);
         
         if (!$is_on_primary) {
             // Model not on LiveJasmin - just describe where she IS
-            return self::describe_active_platforms($name, $platforms);
+            return ($profiles_html !== '' ? $profiles_html . "\n" : '') . self::describe_active_platforms($name, $confirmed);
         }
         
         // Model is on LiveJasmin - compare with her other platforms
-        $other_platforms = array_filter($platforms, function ($slug) use ($primary_slug) {
+        $other_platforms = array_filter($confirmed, function ($slug) use ($primary_slug) {
             return $slug !== $primary_slug;
         }, ARRAY_FILTER_USE_KEY);
         
         if (empty($other_platforms)) {
-            return self::livejasmin_exclusive_pitch($name);
+            return ($profiles_html !== '' ? $profiles_html . "\n" : '') . self::livejasmin_exclusive_pitch($name);
         }
         
-        return self::livejasmin_vs_others($name, $other_platforms);
+        return ($profiles_html !== '' ? $profiles_html . "\n" : '') . self::livejasmin_vs_others($name, $other_platforms);
     }
 
     protected static function default_livejasmin_pitch(string $name): string {
@@ -479,5 +573,58 @@ class Content_Generator {
         }
 
         return $content . $added;
+    }
+
+    /**
+     * Splits long paragraphs into shorter ones.
+     *
+     * @param string $html
+     * @param int $max_chars
+     * @return string
+     */
+    protected static function split_long_paragraphs(string $html, int $max_chars = 320): string {
+        return preg_replace_callback('/<p>(.*?)<\/p>/s', function ($matches) use ($max_chars) {
+            $text = trim(wp_strip_all_tags($matches[1]));
+            if ($text === '') {
+                return $matches[0];
+            }
+            if (mb_strlen($text) <= $max_chars) {
+                return '<p>' . esc_html($text) . '</p>';
+            }
+
+            $sentences = preg_split('/(?<=[.!?])\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
+            if (empty($sentences)) {
+                return '<p>' . esc_html($text) . '</p>';
+            }
+
+            $chunks = [];
+            $current = '';
+            $count = 0;
+            foreach ($sentences as $sentence) {
+                $sentence = trim($sentence);
+                if ($sentence === '') {
+                    continue;
+                }
+                $candidate = $current === '' ? $sentence : $current . ' ' . $sentence;
+                if (($count >= 2 && $current !== '') || (mb_strlen($candidate) > $max_chars && $current !== '')) {
+                    $chunks[] = $current;
+                    $current = $sentence;
+                    $count = 1;
+                    continue;
+                }
+                $current = $candidate;
+                $count++;
+            }
+            if ($current !== '') {
+                $chunks[] = $current;
+            }
+
+            $out = '';
+            foreach ($chunks as $chunk) {
+                $out .= '<p>' . esc_html($chunk) . '</p>';
+            }
+
+            return $out;
+        }, $html);
     }
 }

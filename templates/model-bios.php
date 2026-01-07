@@ -1,7 +1,7 @@
 <?php
 $bio_openers = [
     "{name} treats each LiveJasmin session like a guided experience, mixing slow pacing with check-ins so newcomers feel welcome.",
-    "This performer balances playful jokes with focused storytelling, helping fans escape endless OnlyFans scrolling by delivering live energy.",
+    "This performer balances playful jokes with focused storytelling, delivering live energy that keeps viewers engaged.",
     "Community members describe {name} as a thoughtful entertainer who keeps private chats respectful and attentive.",
     "Instead of guessing when a model goes live, viewers rely on {name}'s consistent LiveJasmin schedule and calm updates.",
 ];
@@ -14,14 +14,14 @@ $specialties = [
 ];
 
 $platform_angles = [
-    "While OnlyFans offers on-demand uploads, {name} uses LiveJasmin to deliver real-time reactions and sharper HD quality.",
-    "Compared to crowded {platform_a} rooms, her LiveJasmin shows emphasize private attention and clear audio.",
-    "Fans who tried {platform_b} note that LiveJasmin keeps distractions low and camera angles steady.",
-    "LiveJasmin's moderation tools keep the room comfortable, avoiding the spam that sometimes floods {platform_a} streams.",
-    "Regular viewers note that while OnlyFans updates arrive on {name}'s schedule, LiveJasmin sessions respond to the room's energy in real time.",
-    "The shift from browsing OnlyFans galleries to joining {name} on LiveJasmin changes the dynamic from passive viewing to active participation.",
-    "Fans appreciate how {name} balances OnlyFans content creation with LiveJasmin's live interaction, offering both formats to different audiences.",
-    "Unlike OnlyFans where {name} curates finished posts, LiveJasmin shows capture unscripted moments that feel more authentic.",
+    "LiveJasmin delivers real-time reactions and sharper HD quality, keeping every show immersive.",
+    "Her LiveJasmin shows emphasize private attention, clear audio, and steady camera work.",
+    "Fans note that LiveJasmin keeps distractions low so the focus stays on {name}.",
+    "LiveJasmin's moderation tools keep the room comfortable and the chat flow steady.",
+    "Regular viewers appreciate how LiveJasmin sessions respond to the room's energy in real time.",
+    "Joining {name} live on LiveJasmin changes the dynamic from passive viewing to active participation.",
+    "Fans appreciate how {name} keeps LiveJasmin interactions warm and personal throughout the session.",
+    "LiveJasmin shows capture unscripted moments that feel more authentic and connected.",
 ];
 
 $style_blocks = [
@@ -41,7 +41,7 @@ $schedule = [
 $ctas = [
     "Follow on LiveJasmin to get the next alert and avoid missing her most interactive moments.",
     "Bookmark this page and use the LiveJasmin button above to join when the chat warms up.",
-    "Switch from OnlyFans browsing to a LiveJasmin session with {name} for genuine back-and-forth conversation.",
+    "Join a LiveJasmin session with {name} for genuine back-and-forth conversation.",
     "Open LiveJasmin in a new tab so you're ready when {name} welcomes the room with fresh energy.",
 ];
 
