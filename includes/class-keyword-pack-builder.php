@@ -14,6 +14,7 @@ if (!defined('ABSPATH')) exit;
  */
 class Keyword_Pack_Builder {
     protected static $google_suggest_client;
+    protected static $google_autocomplete_client;
 
     /**
      * Determine keyword type based on brand detection and length.
@@ -119,6 +120,99 @@ class Keyword_Pack_Builder {
         }
 
         return self::$google_suggest_client;
+    }
+
+    /**
+     * Handles google autocomplete client.
+     *
+     * @return Google_Autocomplete
+     */
+    protected static function google_autocomplete_client(): Google_Autocomplete {
+        if (!self::$google_autocomplete_client) {
+            self::$google_autocomplete_client = new Google_Autocomplete();
+        }
+
+        return self::$google_autocomplete_client;
+    }
+
+    /**
+     * Build a readable label from category slug.
+     *
+     * @param string $category
+     * @return string
+     */
+    protected static function category_label(string $category): string {
+        $label = str_replace(['-', '_'], ' ', $category);
+        $label = trim(preg_replace('/\s+/', ' ', $label));
+        return ucwords($label);
+    }
+
+    /**
+     * Build fallback seeds for a category when missing.
+     *
+     * @param string $category
+     * @param string $label
+     * @return array
+     */
+    protected static function fallback_seeds(string $category, string $label): array {
+        $fallback = [
+            $label,
+            'live ' . $label,
+            $label . ' chat',
+            $label . ' webcam',
+        ];
+
+        $fallback = array_values(array_unique(array_filter(array_map('trim', $fallback), 'strlen')));
+
+        return apply_filters('tmwseo_autofill_fallback_seeds', $fallback, $category, $label);
+    }
+
+    /**
+     * Build the autofill plan (categories + seeds).
+     *
+     * @param array $categories
+     * @param array $options
+     * @return array|\WP_Error
+     */
+    public static function build_autofill_plan(array $categories, array $options = []) {
+        $seeds_file = TMW_SEO_PATH . 'data/google-autocomplete-seeds.php';
+        $all_seeds = file_exists($seeds_file) ? require $seeds_file : [];
+        if (!is_array($all_seeds)) {
+            return new \WP_Error('tmwseo_autofill_seeds', 'Seed file missing or invalid.');
+        }
+
+        $plan = [
+            'categories'        => [],
+            'seeds_by_category' => [],
+            'warnings'          => [],
+            'total_seeds'       => 0,
+        ];
+
+        foreach ($categories as $category) {
+            $category = sanitize_key($category);
+            $label = self::category_label($category);
+            $seeds = $all_seeds[$category] ?? [];
+            $seeds = array_values(array_unique(array_filter(array_map('trim', (array) $seeds), 'strlen')));
+
+            if (empty($seeds)) {
+                $fallback = self::fallback_seeds($category, $label);
+                if (!empty($fallback)) {
+                    $seeds = $fallback;
+                    $plan['warnings'][] = sprintf("[warn] No seeds configured for '%s'. Using fallback seeds: %s", $category, implode(', ', $fallback));
+                } else {
+                    $plan['warnings'][] = sprintf("[warn] No seeds configured for '%s'. Skipping category.", $category);
+                }
+            }
+
+            $plan['categories'][] = [
+                'slug'  => $category,
+                'label' => $label,
+            ];
+            $plan['seeds_by_category'][$category] = $seeds;
+            $plan['total_seeds'] += count($seeds);
+        }
+
+        return $plan;
     }
 
     /**
@@ -1118,7 +1212,7 @@ class Keyword_Pack_Builder {
      * @param bool $flush_cache
      * @return int
      */
-    public static function merge_write_csv(string $category, string $type, array $keywords, bool $append = false, bool $flush_cache = true): int {
+    public static function merge_write_csv(string $category, string $type, array $keywords, bool $append = false, bool $flush_cache = true, bool $atomic = false): int {
         $category = sanitize_key($category);
         $type     = sanitize_key($type);
 
@@ -1368,7 +1462,13 @@ class Keyword_Pack_Builder {
 
         $new_only = array_diff_key($existing, $existing_before);
 
-        $fh = fopen($path, $append ? 'a' : 'w');
+        $target_path = $path;
+        $write_path = $path;
+        if ($atomic && !$append) {
+            $write_path = $path . '.tmp';
+        }
+
+        $fh = fopen($write_path, $append ? 'a' : 'w');
         if ($fh) {
             if (!$append) {
                 fputcsv($fh, self::csv_columns());
@@ -1377,6 +1477,10 @@ class Keyword_Pack_Builder {
                 self::write_csv_rows($fh, $new_only, $type, $category);
             }
             fclose($fh);
+
+            if ($atomic && !$append) {
+                rename($write_path, $target_path);
+            }
         }
 
         if ($flush_cache) {
@@ -1525,82 +1629,59 @@ class Keyword_Pack_Builder {
         int $max_retries = 3,
         string $accept_language = 'en-US,en;q=0.9'
     ): array {
-        // Enforce a 150-300ms rate limit between outbound Google Suggest calls.
-        $client = self::google_suggest_client();
+        $client = self::google_autocomplete_client();
 
-        $attempt = 0;
-        $backoff = [0.5, 1.0, 2.0];
-        while ($attempt <= $max_retries) {
-            if ($rate_limit_ms > 0 && $last_call > 0) {
-                $elapsed = (microtime(true) - $last_call) * 1000;
-                if ($elapsed < $rate_limit_ms) {
-                    usleep((int) (($rate_limit_ms - $elapsed) * 1000));
-                }
+        if ($rate_limit_ms > 0 && $last_call > 0) {
+            $elapsed = (microtime(true) - $last_call) * 1000;
+            if ($elapsed < $rate_limit_ms) {
+                usleep((int) (($rate_limit_ms - $elapsed) * 1000));
             }
-
-            $result = $client->fetch(
-                $query,
-                $hl,
-                $gl,
-                [
-                    'accept_language' => $accept_language,
-                    'timeout'         => 18,
-                ]
-            );
-
-            if (!$client->was_last_cached()) {
-                $last_call = microtime(true);
-            }
-
-            if (!is_wp_error($result)) {
-                return array_slice((array) $result, 0, $limit);
-            }
-
-            $data = $result->get_error_data();
-            $http_code = is_array($data) ? (int) ($data['http_code'] ?? 0) : 0;
-            $message = $result->get_error_message();
-            $snippet = is_array($data) ? (string) ($data['body_snippet'] ?? '') : '';
-            $url_hint = is_array($data) ? (string) ($data['url'] ?? '') : '';
-
-            Core::debug_log(sprintf(
-                '[TMW-KEYPACKS] Google Suggest error (%s/%s): %s (HTTP %d) %s %s',
-                $category,
-                $query,
-                $message,
-                $http_code,
-                $url_hint,
-                $snippet ? 'Snippet: ' . $snippet : ''
-            ));
-
-            if (in_array($http_code, [429, 503], true) && $attempt < $max_retries) {
-                $delay = $backoff[min($attempt, count($backoff) - 1)];
-                usleep((int) ($delay * 1000000));
-                $attempt++;
-                continue;
-            }
-
-            $snippet = $snippet !== '' ? wp_strip_all_tags($snippet) : '';
-            if (in_array($http_code, [429, 503], true)) {
-                $errors[] = [
-                    'category'  => $category,
-                    'query'     => $query,
-                    'message'   => sprintf('Google rate limited (HTTP %d). Please try again later.', $http_code),
-                    'http_code' => $http_code,
-                    'url'       => $url_hint,
-                    'snippet'   => $snippet,
-                ];
-            } else {
-                $errors[] = [
-                    'category'  => $category,
-                    'query'     => $query,
-                    'message'   => $message,
-                    'http_code' => $http_code,
-                    'url'       => $url_hint,
-                    'snippet'   => $snippet,
-                ];
-            }
-            return [];
         }
+
+        $result = $client->fetch(
+            $query,
+            $hl,
+            $gl,
+            [
+                'accept_language' => $accept_language,
+                'timeout'         => 12,
+                'max_retries'      => $max_retries,
+            ]
+        );
+
+        if (!$client->was_last_cached()) {
+            $last_call = microtime(true);
+        }
+
+        if (!is_wp_error($result)) {
+            return array_slice((array) $result, 0, $limit);
+        }
+
+        $data = $result->get_error_data();
+        $http_code = is_array($data) ? (int) ($data['http_code'] ?? 0) : 0;
+        $message = $result->get_error_message();
+        $snippet = is_array($data) ? (string) ($data['body_snippet'] ?? '') : '';
+        $url_hint = is_array($data) ? (string) ($data['url'] ?? '') : '';
+
+        Core::debug_log(sprintf(
+            '[TMW-AUTOFILL] Google Autocomplete error (%s/%s): %s (HTTP %d) %s %s',
+            $category,
+            $query,
+            $message,
+            $http_code,
+            $url_hint,
+            $snippet ? 'Snippet: ' . $snippet : ''
+        ));
+
+        $snippet = $snippet !== '' ? wp_strip_all_tags($snippet) : '';
+        $errors[] = [
+            'category'  => $category,
+            'query'     => $query,
+            'message'   => $message,
+            'http_code' => $http_code,
+            'url'       => $url_hint,
+            'snippet'   => $snippet,
+        ];
 
         return [];
     }
@@ -1614,14 +1695,12 @@ class Keyword_Pack_Builder {
      * @return array
      */
     public static function autofill_google_autocomplete(array $categories, bool $dry_run = false, array $options = []): array {
-        // Load seed phrases for all categories from the data file.
-        $seeds_file = TMW_SEO_PATH . 'data/google-autocomplete-seeds.php';
-        $all_seeds = file_exists($seeds_file) ? require $seeds_file : [];
-        if (!is_array($all_seeds)) {
+        $plan = self::build_autofill_plan($categories, $options);
+        if (is_wp_error($plan)) {
             return [
                 'categories'     => [],
                 'total_keywords' => 0,
-                'errors'         => ['Seed file missing or invalid.'],
+                'errors'         => [$plan->get_error_message()],
             ];
         }
 
@@ -1643,12 +1722,12 @@ class Keyword_Pack_Builder {
 
         $last_call = 0.0;
 
-        foreach ($categories as $category) {
-            $category = sanitize_key($category);
-            $seeds = $all_seeds[$category] ?? [];
+        foreach ($plan['categories'] as $category_entry) {
+            $category = sanitize_key($category_entry['slug'] ?? '');
+            $seeds = $plan['seeds_by_category'][$category] ?? [];
             $seeds = array_values(array_unique(array_filter(array_map('trim', (array) $seeds), 'strlen')));
             if (empty($seeds)) {
-                $summary['errors'][] = sprintf('%s: no seeds found.', $category);
+                $summary['errors'][] = sprintf('%s: no seeds available.', $category);
                 continue;
             }
 
@@ -1740,6 +1819,10 @@ class Keyword_Pack_Builder {
             $summary['categories'][] = $category_entry;
         }
 
+        foreach ($plan['warnings'] as $warning) {
+            $summary['errors'][] = $warning;
+        }
+
         return $summary;
     }
 
@@ -1753,15 +1836,14 @@ class Keyword_Pack_Builder {
      * @return array
      */
     public static function autofill_google_autocomplete_batch(array $categories, array $cursor, bool $dry_run = false, array $options = []): array {
-        $seeds_file = TMW_SEO_PATH . 'data/google-autocomplete-seeds.php';
-        $all_seeds = file_exists($seeds_file) ? require $seeds_file : [];
-        if (!is_array($all_seeds)) {
+        $plan = self::build_autofill_plan($categories, $options);
+        if (is_wp_error($plan)) {
             return [
                 'done'               => true,
                 'cursor'             => $cursor,
                 'categories'         => [],
                 'batch_keywords'     => 0,
-                'errors'             => ['Seed file missing or invalid.'],
+                'errors'             => [$plan->get_error_message()],
                 'completed_categories' => 0,
             ];
         }
@@ -1790,7 +1872,7 @@ class Keyword_Pack_Builder {
         }
 
         $category = sanitize_key($categories[$category_index]);
-        $seeds = $all_seeds[$category] ?? [];
+        $seeds = $plan['seeds_by_category'][$category] ?? [];
         $seeds = array_values(array_unique(array_filter(array_map('trim', (array) $seeds), 'strlen')));
 
         $summary = [
@@ -1803,7 +1885,7 @@ class Keyword_Pack_Builder {
         ];
 
         if (empty($seeds)) {
-            $summary['errors'][] = sprintf('%s: no seeds found.', $category);
+            $summary['errors'][] = sprintf('%s: no seeds available.', $category);
             $summary['categories'][] = [
                 'category'       => $category,
                 'found'          => 0,
@@ -1929,6 +2011,333 @@ class Keyword_Pack_Builder {
         $summary['done'] = $summary['completed_categories'] >= $total_categories;
 
         return $summary;
+    }
+
+    /**
+     * Process a single autofill step for Google Autocomplete.
+     *
+     * @param array $state
+     * @return array
+     */
+    public static function autofill_google_autocomplete_step(array $state): array {
+        $log_lines = [];
+        $categories = $state['categories'] ?? [];
+        $cat_index = max(0, (int) ($state['cat_index'] ?? 0));
+        $seed_index = max(0, (int) ($state['seed_index'] ?? 0));
+        $options = $state['options'] ?? [];
+        $stats = $state['stats'] ?? [
+            'keywords_added' => 0,
+            'requests'       => 0,
+            'errors'         => 0,
+        ];
+
+        $total_categories = count($categories);
+        $total_seeds = (int) ($state['total_seeds'] ?? 0);
+
+        if ($cat_index >= $total_categories) {
+            return [
+                'state' => $state,
+                'response' => [
+                    'done'      => true,
+                    'progress'  => [
+                        'current'  => $total_seeds,
+                        'total'    => $total_seeds,
+                        'category' => '',
+                        'seed'     => '',
+                    ],
+                    'stats'     => $stats,
+                    'log_lines' => [],
+                ],
+            ];
+        }
+
+        $category_entry = $categories[$cat_index] ?? [];
+        $category = sanitize_key($category_entry['slug'] ?? '');
+        $category_label = (string) ($category_entry['label'] ?? $category);
+        $seeds = $state['seeds_by_category'][$category] ?? [];
+        $seeds = array_values(array_unique(array_filter(array_map('trim', (array) $seeds), 'strlen')));
+
+        if (empty($seeds)) {
+            $log_lines[] = sprintf("[warn] No seeds configured for '%s'. Skipping category.", $category);
+            $state['cat_index'] = $cat_index + 1;
+            $state['seed_index'] = 0;
+
+            return [
+                'state' => $state,
+                'response' => self::autofill_step_response($state, $category_label, '', $log_lines, $stats),
+            ];
+        }
+
+        if ($seed_index >= count($seeds)) {
+            $finalized = self::finalize_autofill_category($category, $seeds, $state, $stats, $log_lines);
+            $state = $finalized['state'];
+            $stats = $finalized['stats'];
+            $log_lines = array_merge($log_lines, $finalized['log_lines']);
+
+            return [
+                'state' => $state,
+                'response' => self::autofill_step_response($state, $category_label, '', $log_lines, $stats),
+            ];
+        }
+
+        $now_ms = (int) round(microtime(true) * 1000);
+        $last_request_ms = (int) ($state['last_request_ms'] ?? 0);
+        $min_gap_ms = 150;
+        if ($last_request_ms > 0 && ($now_ms - $last_request_ms) < $min_gap_ms) {
+            $retry_after = $min_gap_ms - ($now_ms - $last_request_ms);
+            return [
+                'state' => $state,
+                'response' => [
+                    'done'           => false,
+                    'progress'       => self::autofill_progress($state),
+                    'stats'          => $stats,
+                    'log_lines'      => [],
+                    'retriable'      => true,
+                    'retry_after_ms' => $retry_after,
+                ],
+            ];
+        }
+
+        $seed = sanitize_text_field((string) ($seeds[$seed_index] ?? ''));
+        $hl = sanitize_text_field((string) ($options['hl'] ?? get_option('tmwseo_serper_hl', 'en')));
+        $gl = sanitize_text_field((string) ($options['gl'] ?? get_option('tmwseo_serper_gl', 'us')));
+        $per_seed = (int) ($options['per_seed'] ?? 10);
+        $per_seed = max(8, min(10, $per_seed));
+        $accept_language = sanitize_text_field((string) ($options['accept_language'] ?? ''));
+
+        $client = self::google_autocomplete_client();
+        $suggestions = $client->fetch(
+            $seed,
+            $hl,
+            $gl,
+            [
+                'accept_language' => $accept_language ?: null,
+                'timeout'         => 12,
+                'max_retries'      => 3,
+            ]
+        );
+
+        if (!$client->was_last_cached()) {
+            $state['last_request_ms'] = $now_ms;
+            $stats['requests']++;
+        }
+
+        if (is_wp_error($suggestions)) {
+            $data = (array) $suggestions->get_error_data();
+            $http_code = (int) ($data['http_code'] ?? 0);
+            $snippet = (string) ($data['body_snippet'] ?? '');
+            $url_hint = (string) ($data['url'] ?? '');
+
+            $stats['errors']++;
+            Core::debug_log(sprintf(
+                '[TMW-AUTOFILL] %s seed "%s" failed: %s (HTTP %d) %s',
+                $category,
+                $seed,
+                $suggestions->get_error_message(),
+                $http_code,
+                $url_hint
+            ));
+            $log_lines[] = sprintf(
+                "[error] %s (%s) %s%s",
+                $suggestions->get_error_message(),
+                $seed,
+                $http_code ? 'HTTP ' . $http_code . ' ' : '',
+                $url_hint !== '' ? $url_hint : ''
+            );
+            if ($snippet !== '') {
+                $log_lines[] = sprintf('[error] Snippet: %s', wp_strip_all_tags(substr($snippet, 0, 200)));
+            }
+
+            $state['seed_index'] = $seed_index + 1;
+            $state['stats'] = $stats;
+
+            return [
+                'state' => $state,
+                'response' => self::autofill_step_response($state, $category_label, $seed, $log_lines, $stats),
+            ];
+        }
+
+        if ($client->was_last_cached()) {
+            $log_lines[] = sprintf('[cache] %s', $seed);
+        }
+
+        $buffer = $state['buffers'][$category]['keyword_map'] ?? [];
+        $priority = ['extra' => 1, 'longtail' => 2, 'competitor' => 3];
+        $added = 0;
+
+        foreach ((array) $suggestions as $suggestion) {
+            ['normalized' => $normalized, 'display' => $display] = self::normalize_keyword((string) $suggestion);
+            if ($normalized === '' || !self::is_allowed($normalized, $display)) {
+                continue;
+            }
+
+            $word_count = self::keyword_word_count($display);
+            if ($word_count <= 1) {
+                continue;
+            }
+
+            $type = self::determine_type($display, $category, $word_count);
+
+            $row = [
+                'keyword'     => $display,
+                'word_count'  => $word_count,
+                'type'        => $type,
+                'source_seed' => $seed,
+                'category'    => $category,
+                'timestamp'   => current_time('mysql'),
+                'competition' => Keyword_Difficulty_Proxy::DEFAULT_COMPETITION,
+                'cpc'         => Keyword_Difficulty_Proxy::DEFAULT_CPC,
+                'tmw_kd'      => Keyword_Difficulty_Proxy::score($display, Keyword_Difficulty_Proxy::DEFAULT_COMPETITION, Keyword_Difficulty_Proxy::DEFAULT_CPC),
+            ];
+
+            if (!isset($buffer[$normalized]) || $priority[$type] > $priority[$buffer[$normalized]['type']]) {
+                if (!isset($buffer[$normalized])) {
+                    $added++;
+                }
+                $buffer[$normalized] = $row;
+            }
+        }
+
+        $state['buffers'][$category]['keyword_map'] = $buffer;
+        $stats['keywords_added'] += $added;
+        $state['seed_index'] = $seed_index + 1;
+        $state['stats'] = $stats;
+
+        $log_lines[] = sprintf('[info] %s: seed "%s" added %d keywords.', $category_label, $seed, $added);
+
+        if ($state['seed_index'] >= count($seeds)) {
+            $finalized = self::finalize_autofill_category($category, $seeds, $state, $stats, $log_lines);
+            $state = $finalized['state'];
+            $stats = $finalized['stats'];
+            $log_lines = $finalized['log_lines'];
+        }
+
+        return [
+            'state' => $state,
+            'response' => self::autofill_step_response($state, $category_label, $seed, $log_lines, $stats),
+        ];
+    }
+
+    /**
+     * Build a response payload for a step.
+     *
+     * @param array $state
+     * @param string $category_label
+     * @param string $seed
+     * @param array $log_lines
+     * @param array $stats
+     * @return array
+     */
+    protected static function autofill_step_response(array $state, string $category_label, string $seed, array $log_lines, array $stats): array {
+        $done = (int) ($state['cat_index'] ?? 0) >= count($state['categories'] ?? []);
+        return [
+            'done'           => $done,
+            'progress'       => self::autofill_progress($state, $category_label, $seed),
+            'stats'          => $stats,
+            'log_lines'      => array_slice(array_values($log_lines), -5),
+            'retriable'      => false,
+            'retry_after_ms' => 0,
+        ];
+    }
+
+    /**
+     * Compute progress details.
+     *
+     * @param array $state
+     * @param string $category_label
+     * @param string $seed
+     * @return array
+     */
+    protected static function autofill_progress(array $state, string $category_label = '', string $seed = ''): array {
+        $cat_index = max(0, (int) ($state['cat_index'] ?? 0));
+        $seed_index = max(0, (int) ($state['seed_index'] ?? 0));
+        $categories = $state['categories'] ?? [];
+        $seeds_by_category = $state['seeds_by_category'] ?? [];
+        $total = (int) ($state['total_seeds'] ?? 0);
+
+        $current = 0;
+        for ($i = 0; $i < $cat_index; $i++) {
+            $slug = $categories[$i]['slug'] ?? '';
+            $current += isset($seeds_by_category[$slug]) ? count($seeds_by_category[$slug]) : 0;
+        }
+        $current += $seed_index;
+
+        return [
+            'current'  => min($current, $total),
+            'total'    => $total,
+            'category' => $category_label,
+            'seed'     => $seed,
+        ];
+    }
+
+    /**
+     * Finalize a category buffer and write CSV files.
+     *
+     * @param string $category
+     * @param array $seeds
+     * @param array $state
+     * @param array $stats
+     * @param array $log_lines
+     * @return array
+     */
+    protected static function finalize_autofill_category(string $category, array $seeds, array $state, array $stats, array $log_lines): array {
+        $buffers = $state['buffers'][$category]['keyword_map'] ?? [];
+        $rows_by_type = [
+            'extra'      => [],
+            'longtail'   => [],
+            'competitor' => [],
+        ];
+
+        foreach ($buffers as $row) {
+            $rows_by_type[$row['type']][] = $row;
+        }
+
+        $before_count = count($buffers);
+        $found_count = $before_count;
+        $initial_total = $found_count;
+        self::ensure_minimum_google_rows($category, $rows_by_type, $buffers, $initial_total);
+        self::ensure_minimum_type_targets($category, $seeds, $rows_by_type, $buffers);
+        $found_count = count($buffers);
+        if ($found_count > $before_count) {
+            $stats['keywords_added'] += ($found_count - $before_count);
+        }
+
+        $log_lines[] = sprintf('[info] %s: %d keywords ready.', $category, $found_count);
+
+        if (empty($state['options']['dry_run'])) {
+            $new_counts = [];
+            foreach ($rows_by_type as $type => $rows) {
+                if (!empty($rows)) {
+                    $before = count(Keyword_Library::load($category, $type));
+                    $after = self::merge_write_csv($category, $type, $rows, false, false, true);
+                    $new_counts[$type] = max(0, $after - $before);
+                } else {
+                    $new_counts[$type] = 0;
+                }
+            }
+            $log_lines[] = sprintf('[info] %s saved. extra:%d longtail:%d competitor:%d', $category, $new_counts['extra'], $new_counts['longtail'], $new_counts['competitor']);
+            Core::debug_log(sprintf(
+                '[TMW-AUTOFILL] %s saved. extra:%d longtail:%d competitor:%d',
+                $category,
+                $new_counts['extra'],
+                $new_counts['longtail'],
+                $new_counts['competitor']
+            ));
+        } else {
+            $log_lines[] = sprintf('[info] %s previewed (no files written).', $category);
+            Core::debug_log(sprintf('[TMW-AUTOFILL] %s previewed (%d keywords).', $category, $found_count));
+        }
+
+        unset($state['buffers'][$category]);
+        $state['cat_index'] = max(0, (int) ($state['cat_index'] ?? 0)) + 1;
+        $state['seed_index'] = 0;
+        $state['stats'] = $stats;
+
+        return [
+            'state' => $state,
+            'stats' => $stats,
+            'log_lines' => $log_lines,
+        ];
     }
 
     /**

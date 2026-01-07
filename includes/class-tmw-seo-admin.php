@@ -44,7 +44,9 @@ class Admin {
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
         add_action('wp_ajax_tmwseo_dataforseo_test', [__CLASS__, 'ajax_dataforseo_test']);
         add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
-        add_action('wp_ajax_tmwseo_autofill_google_keywords', [__CLASS__, 'ajax_autofill_google_keywords']);
+        add_action('wp_ajax_tmwseo_autofill_start', [__CLASS__, 'ajax_autofill_start']);
+        add_action('wp_ajax_tmwseo_autofill_step', [__CLASS__, 'ajax_autofill_step']);
+        add_action('wp_ajax_tmwseo_autofill_cancel', [__CLASS__, 'ajax_autofill_cancel']);
         add_action('admin_post_tmwseo_save_kd_settings', [__CLASS__, 'handle_save_kd_settings']);
         add_action('wp_ajax_tmwseo_autofill_keywords', [__CLASS__, 'ajax_autofill_keywords']);
         add_action('wp_ajax_tmwseo_analyze_competitor', [__CLASS__, 'ajax_analyze_competitor']);
@@ -559,11 +561,21 @@ class Admin {
     }
 
     /**
-     * Handles the `wp_ajax_tmwseo_autofill_google_keywords` hook.
+     * Get the autofill transient key for the current user.
+     *
+     * @return string
+     */
+    protected static function autofill_state_key(): string {
+        $user_id = get_current_user_id();
+        return 'tmwseo_autofill_state_' . (int) $user_id;
+    }
+
+    /**
+     * Handles the `wp_ajax_tmwseo_autofill_start` hook.
      *
      * @return void
      */
-    public static function ajax_autofill_google_keywords() {
+    public static function ajax_autofill_start() {
         if (!check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce', false)) {
             wp_send_json_error(['message' => 'Invalid nonce.', 'http_status' => 403], 403);
         }
@@ -571,65 +583,111 @@ class Admin {
             wp_send_json_error(['message' => 'No permission.', 'http_status' => 403], 403);
         }
 
-        // Endpoint: https://suggestqueries.google.com/complete/search
-        // Root cause (from logs): prior multi-category batches exceeded PHP execution time; switch to seed cursor.
-        // Batch size: 2 seeds (~10-20 suggestions) per call; retries on 429/503 with exponential backoff.
         $categories = Keyword_Library::categories();
-        $category_index = max(0, (int) ($_POST['category_index'] ?? 0));
-        $seed_offset = max(0, (int) ($_POST['seed_offset'] ?? 0));
-        $dry_run    = !empty($_POST['dry_run']);
-
-        if ($category_index >= count($categories)) {
-            wp_send_json_success([
-                'done'               => true,
-                'cursor'             => [
-                    'category_index' => $category_index,
-                    'seed_offset'    => $seed_offset,
-                ],
-                'categories'         => [],
-                'batch_keywords'     => 0,
-                'total_categories'   => count($categories),
-                'completed_categories' => count($categories),
-                'errors'             => [],
-            ]);
+        $plan = Keyword_Pack_Builder::build_autofill_plan($categories);
+        if (is_wp_error($plan)) {
+            wp_send_json_error(['message' => $plan->get_error_message()], 500);
         }
 
-        // Use saved locale settings for Google Autocomplete.
+        $dry_run = !empty($_POST['dry_run']);
+        $locale = str_replace('_', '-', get_locale());
+        $locale_primary = strtolower(substr($locale, 0, 2));
         $options = [
             'gl' => (string) get_option('tmwseo_serper_gl', 'us'),
             'hl' => (string) get_option('tmwseo_serper_hl', 'en'),
             'per_seed' => 10,
-            'rate_limit_ms' => 200,
-            'seed_batch_size' => 2,
-            'accept_language' => 'en-US,en;q=0.9',
+            'accept_language' => $locale . ',' . $locale_primary . ';q=0.9,en;q=0.8',
+            'dry_run' => $dry_run,
         ];
 
-        $result = Keyword_Pack_Builder::autofill_google_autocomplete_batch(
-            $categories,
-            [
-                'category_index' => $category_index,
-                'seed_offset'    => $seed_offset,
+        $state = [
+            'categories'        => $plan['categories'],
+            'seeds_by_category' => $plan['seeds_by_category'],
+            'cat_index'         => 0,
+            'seed_index'        => 0,
+            'options'           => $options,
+            'stats'             => [
+                'keywords_added' => 0,
+                'requests'       => 0,
+                'errors'         => 0,
             ],
-            $dry_run,
-            $options
-        );
+            'buffers'           => [],
+            'started_at'        => time(),
+            'last_request_ms'   => 0,
+            'total_seeds'       => (int) $plan['total_seeds'],
+            'warnings'          => $plan['warnings'],
+        ];
 
-        if (!$dry_run) {
-            Keyword_Library::flush_cache();
+        if ($state['total_seeds'] <= 0) {
+            wp_send_json_error(['message' => 'No seeds available for autofill.'], 400);
         }
 
+        set_transient(self::autofill_state_key(), $state, 2 * HOUR_IN_SECONDS);
+
         wp_send_json_success([
-            'done'                => $result['done'] ?? false,
-            'cursor'              => $result['cursor'] ?? [
-                'category_index' => $category_index,
-                'seed_offset'    => $seed_offset,
+            'state_summary' => [
+                'total_categories' => count($plan['categories']),
+                'total_seeds'      => (int) $plan['total_seeds'],
             ],
-            'categories'          => $result['categories'] ?? [],
-            'batch_keywords'      => $result['batch_keywords'] ?? 0,
-            'completed_categories'=> $result['completed_categories'] ?? 0,
-            'total_categories'    => count($categories),
-            'errors'              => $result['errors'] ?? [],
+            'log_lines' => array_slice($plan['warnings'], -5),
+            'progress'  => [
+                'current'  => 0,
+                'total'    => (int) $plan['total_seeds'],
+                'category' => '',
+                'seed'     => '',
+            ],
         ]);
+    }
+
+    /**
+     * Handles the `wp_ajax_tmwseo_autofill_step` hook.
+     *
+     * @return void
+     */
+    public static function ajax_autofill_step() {
+        if (!check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce.', 'http_status' => 403], 403);
+        }
+        if (!current_user_can(self::CAP)) {
+            wp_send_json_error(['message' => 'No permission.', 'http_status' => 403], 403);
+        }
+
+        $state = get_transient(self::autofill_state_key());
+        if (empty($state) || !is_array($state)) {
+            wp_send_json_error(['message' => 'Autofill session expired. Please restart.'], 410);
+        }
+
+        $result = Keyword_Pack_Builder::autofill_google_autocomplete_step($state);
+        $state = $result['state'] ?? $state;
+        $response = $result['response'] ?? [];
+
+        if (!empty($response['done'])) {
+            delete_transient(self::autofill_state_key());
+            if (empty($state['options']['dry_run'])) {
+                Keyword_Library::flush_cache();
+            }
+        } else {
+            set_transient(self::autofill_state_key(), $state, 2 * HOUR_IN_SECONDS);
+        }
+
+        wp_send_json_success($response);
+    }
+
+    /**
+     * Handles the `wp_ajax_tmwseo_autofill_cancel` hook.
+     *
+     * @return void
+     */
+    public static function ajax_autofill_cancel() {
+        if (!check_ajax_referer('tmwseo_autofill_google_keywords', 'nonce', false)) {
+            wp_send_json_error(['message' => 'Invalid nonce.', 'http_status' => 403], 403);
+        }
+        if (!current_user_can(self::CAP)) {
+            wp_send_json_error(['message' => 'No permission.', 'http_status' => 403], 403);
+        }
+
+        delete_transient(self::autofill_state_key());
+        wp_send_json_success(['ok' => true]);
     }
 
     /**
@@ -2051,6 +2109,7 @@ class Admin {
                 <label><input type="checkbox" id="tmwseo-autofill-dry-run" value="1"> Preview without saving</label>
                 <p class="submit">
                     <button type="button" class="button button-primary" id="tmwseo-autofill-start">Auto-Fill from Google Autocomplete</button>
+                    <button type="button" class="button" id="tmwseo-autofill-stop" style="display:none;">Stop</button>
                 </p>
                 <div id="tmwseo-autofill-progress" style="display:none; margin-top:10px;">
                     <progress id="tmwseo-autofill-bar" value="0" max="100" style="width:100%;"></progress>
@@ -2307,8 +2366,16 @@ class Admin {
                     tmwseoRunBuild(true);
                 });
 
-                // Google Autocomplete auto-fill (cursor-based progress).
-                var tmwseoAutofillCategories = <?php echo wp_json_encode($categories); ?>;
+                // Google Autocomplete auto-fill (step-based progress).
+                var tmwseoAutofill = {
+                    running: false,
+                    controller: null,
+                    logLines: [],
+                    logTimer: null,
+                    progressTimer: null,
+                    stats: null,
+                    total: 0
+                };
 
                 function tmwseoRenderAutofillStatus(message) {
                     $('#tmwseo-autofill-status').text(message);
@@ -2324,144 +2391,229 @@ class Admin {
                     $notice.html('<div class="' + noticeClass + '"><p>' + message + '</p></div>');
                 }
 
-                function tmwseoAppendAutofillLog(message, isError) {
-                    var $log = $('#tmwseo-autofill-log');
-                    var $item = $('<li/>').text(message);
-                    if (isError) {
-                        $item.css('color', '#b32d2e');
+                function tmwseoAppendAutofillLog(lines) {
+                    if (!lines || !lines.length) {
+                        return;
                     }
-                    $log.append($item);
+                    lines.forEach(function(line){
+                        tmwseoAutofill.logLines.push(line);
+                    });
+                    if (tmwseoAutofill.logLines.length > 200) {
+                        tmwseoAutofill.logLines = tmwseoAutofill.logLines.slice(-200);
+                    }
+                    if (!tmwseoAutofill.logTimer) {
+                        tmwseoAutofill.logTimer = setTimeout(function(){
+                            tmwseoAutofill.logTimer = null;
+                            var $log = $('#tmwseo-autofill-log');
+                            $log.empty();
+                            tmwseoAutofill.logLines.forEach(function(line){
+                                var $item = $('<li/>').text(line);
+                                if (line.indexOf('[error]') === 0 || line.indexOf('[warn]') === 0) {
+                                    $item.css('color', '#b32d2e');
+                                }
+                                $log.append($item);
+                            });
+                        }, 150);
+                    }
                 }
 
-                function tmwseoFormatAutofillError(error) {
+                function tmwseoFormatAutofillError(error, context) {
                     if (!error) {
                         return 'Unknown error';
                     }
-                    if (typeof error === 'string') {
-                        return error;
+                    if (error.type === 'nonce') {
+                        return 'Nonce failed or you are logged out. Refresh and try again.';
                     }
-                    var message = error.message || 'Error';
-                    var prefix = error.query ? (error.query + ': ') : '';
-                    var details = [];
-                    if (error.http_code) {
-                        details.push('HTTP ' + error.http_code);
+                    var parts = [];
+                    if (error.status) {
+                        parts.push('HTTP ' + error.status);
                     }
-                    if (error.url) {
-                        details.push(error.url);
+                    if (error.message) {
+                        parts.push(error.message);
+                    }
+                    if (error.data && error.data.message) {
+                        parts.push(error.data.message);
+                    }
+                    if (error.data && error.data.details) {
+                        parts.push(error.data.details);
                     }
                     if (error.snippet) {
-                        details.push('Snippet: ' + error.snippet);
+                        parts.push('Snippet: ' + error.snippet);
                     }
-                    return prefix + message + (details.length ? ' (' + details.join(' | ') + ')' : '');
+                    if (context) {
+                        parts.push(context);
+                    }
+                    return parts.filter(Boolean).join(' | ') || 'Request failed';
                 }
 
-                function tmwseoRunAutofillBatch(cursor, dryRun, state) {
-                    var data = {
-                        action: 'tmwseo_autofill_google_keywords',
-                        nonce: $('#tmwseo-autofill-nonce').val(),
-                        category_index: cursor.categoryIndex || 0,
-                        seed_offset: cursor.seedOffset || 0,
-                        dry_run: dryRun ? 1 : 0
-                    };
+                async function tmwseoAutofillRequest(action, payload, signal) {
+                    var params = new URLSearchParams(payload || {});
+                    params.set('action', action);
+                    params.set('nonce', $('#tmwseo-autofill-nonce').val());
 
-                    tmwseoRenderAutofillStatus('Processing category ' + (cursor.categoryIndex + 1) + ' of ' + state.totalCategories + '...');
-
-                    $.ajax({
-                        url: ajaxurl,
+                    var fetchOptions = {
                         method: 'POST',
-                        data: data
-                    }).done(function(resp){
-                        if (resp && resp.success) {
-                            var payload = resp.data || {};
-                            var categories = payload.categories || [];
-                            categories.forEach(function(entry){
-                                var name = entry.category ? entry.category : 'category';
-                                var found = entry.found || 0;
-                                var seedOffset = entry.seed_offset || 0;
-                                var seedTotal = entry.seed_total || 0;
-                                var seedStatus = seedTotal ? (' (seed ' + seedOffset + '/' + seedTotal + ')') : '';
-                                tmwseoAppendAutofillLog('Processing ' + name + '... ' + found + ' keywords found' + seedStatus);
-                            });
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                        },
+                        body: params.toString()
+                    };
+                    if (signal) {
+                        fetchOptions.signal = signal;
+                    }
 
-                            if (payload.errors && payload.errors.length) {
-                                tmwseoSetAutofillNotice('Some categories returned errors. See log for details.', 'error');
-                                payload.errors.forEach(function(error){
-                                    tmwseoAppendAutofillLog('Error: ' + tmwseoFormatAutofillError(error), true);
-                                });
-                            } else {
-                                tmwseoSetAutofillNotice('', '');
-                            }
+                    var resp = await fetch(ajaxurl, fetchOptions);
 
-                            state.completed = payload.completed_categories || state.completed;
-                            state.totalKeywords += payload.batch_keywords || 0;
-                            var percent = state.totalCategories > 0 ? Math.round((state.completed / state.totalCategories) * 100) : 100;
-                            $('#tmwseo-autofill-bar').val(percent);
+                    var text = await resp.text();
+                    if (text.trim() === '-1') {
+                        throw { type: 'nonce', status: resp.status };
+                    }
 
-                            if (payload.done) {
-                                tmwseoRenderAutofillStatus('Completed.');
-                                $('#tmwseo-autofill-summary').text('Completed! ' + state.totalCategories + ' categories, ' + state.totalKeywords + ' total keywords' + (dryRun ? ' (preview)' : '') + '.');
-                                $('#tmwseo-autofill-start').prop('disabled', false);
-                                if (!dryRun) {
-                                    setTimeout(function(){
-                                        location.reload();
-                                    }, 1200);
-                                }
-                                return;
-                            }
+                    var json = null;
+                    try {
+                        json = JSON.parse(text);
+                    } catch (err) {
+                        throw { type: 'parse', message: 'Failed to parse JSON response', snippet: text.slice(0, 200) };
+                    }
 
-                            var nextCursor = payload.cursor || {};
-                            tmwseoRunAutofillBatch({
-                                categoryIndex: nextCursor.category_index || 0,
-                                seedOffset: nextCursor.seed_offset || 0
-                            }, dryRun, state);
-                        } else {
-                            var message = resp && resp.data && resp.data.message ? resp.data.message : 'Request failed';
-                            var detail = resp && resp.data && resp.data.details ? resp.data.details : '';
-                            var status = resp && resp.data && resp.data.http_status ? ('HTTP ' + resp.data.http_status + ' ') : '';
-                            var extra = detail ? ' (' + detail + ')' : '';
-                            tmwseoAppendAutofillLog('Error: ' + status + message + extra, true);
-                            tmwseoSetAutofillNotice('Auto-fill failed: ' + status + message + extra, 'error');
-                            tmwseoRenderAutofillStatus('Stopped due to error.');
-                            $('#tmwseo-autofill-start').prop('disabled', false);
-                        }
-                    }).fail(function(jqXHR){
-                        var statusText = jqXHR && jqXHR.status ? ('HTTP ' + jqXHR.status + ' ') : '';
-                        var message = 'request failed';
-                        if (jqXHR && jqXHR.responseJSON && jqXHR.responseJSON.data && jqXHR.responseJSON.data.message) {
-                            message = jqXHR.responseJSON.data.message;
-                        } else if (jqXHR && jqXHR.responseText && jqXHR.responseText.trim().charAt(0) === '<') {
-                            message = 'Server error (likely fatal). Check debug.log.';
-                        }
-                        tmwseoAppendAutofillLog('Error: ' + statusText + message, true);
-                        tmwseoSetAutofillNotice('Auto-fill failed: ' + statusText + message, 'error');
-                        tmwseoRenderAutofillStatus('Stopped due to error.');
-                        $('#tmwseo-autofill-start').prop('disabled', false);
-                    });
+                    if (!resp.ok) {
+                        throw { type: 'http', status: resp.status, message: resp.statusText, data: json ? json.data : null };
+                    }
+
+                    if (!json || typeof json !== 'object' || !json.success) {
+                        throw { type: 'wp', status: resp.status, data: json ? json.data : null, message: 'Request failed' };
+                    }
+
+                    return json.data || {};
                 }
 
-                $('#tmwseo-autofill-start').on('click', function(e){
-                    e.preventDefault();
-                    var $btn = $(this);
-                    var dryRun = $('#tmwseo-autofill-dry-run').is(':checked');
-                    if (!tmwseoAutofillCategories.length) {
-                        tmwseoRenderAutofillStatus('No categories available.');
+                function tmwseoUpdateAutofillProgress(progress) {
+                    if (!progress) {
                         return;
                     }
+                    if (!tmwseoAutofill.progressTimer) {
+                        tmwseoAutofill.progressTimer = setTimeout(function(){
+                            tmwseoAutofill.progressTimer = null;
+                            var current = progress.current || 0;
+                            var total = progress.total || tmwseoAutofill.total || 0;
+                            var percent = total > 0 ? Math.round((current / total) * 100) : 0;
+                            $('#tmwseo-autofill-bar').val(percent);
+                            var status = '';
+                            if (progress.category) {
+                                status = 'Processing ' + progress.category;
+                            }
+                            if (progress.seed) {
+                                status += ' — "' + progress.seed + '"';
+                            }
+                            if (total > 0) {
+                                status += ' (' + current + '/' + total + ')';
+                            }
+                            tmwseoRenderAutofillStatus(status || 'Processing…');
+                        }, 150);
+                    }
+                }
 
-                    $btn.prop('disabled', true);
+                function tmwseoSetAutofillButtons(running) {
+                    $('#tmwseo-autofill-start').prop('disabled', running);
+                    $('#tmwseo-autofill-stop').toggle(running);
+                }
+
+                async function tmwseoRunAutofillSteps() {
+                    while (tmwseoAutofill.running) {
+                        var stepData = await tmwseoAutofillRequest('tmwseo_autofill_step', {}, tmwseoAutofill.controller.signal);
+                        if (stepData.log_lines && stepData.log_lines.length) {
+                            tmwseoAppendAutofillLog(stepData.log_lines);
+                        }
+                        tmwseoAutofill.stats = stepData.stats || tmwseoAutofill.stats;
+                        tmwseoUpdateAutofillProgress(stepData.progress);
+
+                        if (stepData.retriable && stepData.retry_after_ms) {
+                            await new Promise(function(resolve){ setTimeout(resolve, stepData.retry_after_ms); });
+                            continue;
+                        }
+
+                        if (stepData.done) {
+                            tmwseoAutofill.running = false;
+                            tmwseoSetAutofillButtons(false);
+                            var stats = tmwseoAutofill.stats || {};
+                            var summary = 'Completed! ' + (stats.keywords_added || 0) + ' keywords processed';
+                            if ($('#tmwseo-autofill-dry-run').is(':checked')) {
+                                summary += ' (preview)';
+                            }
+                            summary += '. Requests: ' + (stats.requests || 0) + ', Errors: ' + (stats.errors || 0) + '.';
+                            $('#tmwseo-autofill-summary').text(summary);
+                            tmwseoRenderAutofillStatus('Completed.');
+                            if (!$('#tmwseo-autofill-dry-run').is(':checked')) {
+                                setTimeout(function(){ location.reload(); }, 1200);
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                $('#tmwseo-autofill-start').on('click', async function(e){
+                    e.preventDefault();
+                    if (tmwseoAutofill.running) {
+                        return;
+                    }
+                    tmwseoAutofill.running = true;
+                    tmwseoAutofill.controller = new AbortController();
+                    tmwseoAutofill.logLines = [];
+                    tmwseoAutofill.stats = null;
+                    tmwseoAutofill.total = 0;
+
+                    tmwseoSetAutofillButtons(true);
                     $('#tmwseo-autofill-log').empty();
                     $('#tmwseo-autofill-summary').text('');
                     tmwseoSetAutofillNotice('', '');
                     $('#tmwseo-autofill-progress').show();
                     $('#tmwseo-autofill-bar').val(0);
 
-                    var state = {
-                        totalCategories: tmwseoAutofillCategories.length,
-                        completed: 0,
-                        totalKeywords: 0
-                    };
+                    try {
+                        var startData = await tmwseoAutofillRequest('tmwseo_autofill_start', {
+                            dry_run: $('#tmwseo-autofill-dry-run').is(':checked') ? 1 : 0
+                        }, tmwseoAutofill.controller.signal);
 
-                    tmwseoRunAutofillBatch({categoryIndex: 0, seedOffset: 0}, dryRun, state);
+                        tmwseoAutofill.total = startData.state_summary ? startData.state_summary.total_seeds : 0;
+                        tmwseoUpdateAutofillProgress(startData.progress);
+                        tmwseoAppendAutofillLog(startData.log_lines || []);
+
+                        await tmwseoRunAutofillSteps();
+                    } catch (error) {
+                        if (error.name === 'AbortError') {
+                            return;
+                        }
+                        tmwseoAutofill.running = false;
+                        tmwseoSetAutofillButtons(false);
+                        var message = tmwseoFormatAutofillError(error);
+                        tmwseoAppendAutofillLog(['[error] ' + message]);
+                        tmwseoSetAutofillNotice('Auto-fill failed: ' + message, 'error');
+                        tmwseoRenderAutofillStatus('Stopped due to error.');
+                    }
+                });
+
+                $('#tmwseo-autofill-stop').on('click', async function(e){
+                    e.preventDefault();
+                    if (!tmwseoAutofill.running) {
+                        return;
+                    }
+                    tmwseoAutofill.running = false;
+                    if (tmwseoAutofill.controller) {
+                        tmwseoAutofill.controller.abort();
+                    }
+                    tmwseoSetAutofillButtons(false);
+                    tmwseoRenderAutofillStatus('Stopping…');
+                    try {
+                        await tmwseoAutofillRequest('tmwseo_autofill_cancel', {}, null);
+                        tmwseoAppendAutofillLog(['[info] Autofill cancelled.']);
+                        tmwseoRenderAutofillStatus('Cancelled.');
+                    } catch (error) {
+                        var message = tmwseoFormatAutofillError(error);
+                        tmwseoAppendAutofillLog(['[error] ' + message]);
+                        tmwseoSetAutofillNotice('Auto-fill cancel failed: ' + message, 'error');
+                        tmwseoRenderAutofillStatus('Cancel failed.');
+                    }
                 });
             })(jQuery);
             </script>
