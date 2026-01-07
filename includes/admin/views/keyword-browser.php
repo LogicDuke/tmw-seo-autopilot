@@ -31,6 +31,22 @@ $page              = max(1, (int) ($_GET['paged'] ?? 1));
 $per_page          = min(500, max(10, (int) ($_GET['per_page'] ?? 50)));
 $offset            = ($page - 1) * $per_page;
 
+$allowed_params = ['page', 'category', 'type', 'kd_range', 's', 'per_page', 'sort', 'order', 'paged'];
+$query_args     = array_intersect_key(
+    [
+        'page'     => 'tmw-seo-keyword-browser',
+        'category' => $selected_category,
+        'type'     => $selected_type,
+        'kd_range' => $selected_kd,
+        's'        => $search,
+        'per_page' => $per_page,
+        'sort'     => $sort_by,
+        'order'    => $sort_order,
+        'paged'    => $page,
+    ],
+    array_flip($allowed_params)
+);
+
 $filters = [
     'category' => $selected_category,
     'type'     => $selected_type,
@@ -80,7 +96,7 @@ $nonce          = wp_create_nonce('tmwseo_keyword_browser');
             <input type="number" name="per_page" value="<?php echo (int) $per_page; ?>" min="10" max="500" />
         </label>
         <button class="button button-primary" type="submit"><?php esc_html_e('Apply Filters', 'tmw-seo-autopilot'); ?></button>
-        <a class="button" href="<?php echo esc_url(wp_nonce_url(add_query_arg(array_merge($_GET, ['action' => 'tmwseo_export_keywords'] ), admin_url('admin-ajax.php')), 'tmwseo_keyword_browser', 'nonce')); ?>"><?php esc_html_e('Export Filtered CSV', 'tmw-seo-autopilot'); ?></a>
+        <a class="button" href="<?php echo esc_url(wp_nonce_url(add_query_arg(array_merge($query_args, ['action' => 'tmwseo_export_keywords']), admin_url('admin-ajax.php')), 'tmwseo_keyword_browser', 'nonce')); ?>"><?php esc_html_e('Export Filtered CSV', 'tmw-seo-autopilot'); ?></a>
     </form>
 
     <p class="tmwseo-keyword-browser__counts">
@@ -139,7 +155,7 @@ $nonce          = wp_create_nonce('tmwseo_keyword_browser');
             <div class="tablenav-pages">
                 <?php
                 echo paginate_links([
-                    'base'      => add_query_arg(array_merge($_GET, ['paged' => '%#%'])),
+                    'base'      => add_query_arg(array_merge($query_args, ['paged' => '%#%'])),
                     'format'    => '',
                     'current'   => $page,
                     'total'     => $total_pages,

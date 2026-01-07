@@ -2484,12 +2484,13 @@ class Admin {
         $tab = sanitize_key($_GET['tab'] ?? 'all');
         $categories = array_merge(['all'], Keyword_Library::categories());
         $types      = ['all', 'extra', 'longtail', 'competitor'];
+        $is_usage_tab = $tab === 'usage';
 
         Admin_UI::render_header('tmw-seo-keyword-usage', 'Keyword Usage', 'Track keyword usage and browse your full library.');
         ?>
         <div class="nav-tab-wrapper">
-            <a href="<?php echo esc_url(add_query_arg(['page' => 'tmw-seo-keyword-usage', 'tab' => 'all'])); ?>" class="nav-tab <?php echo $tab === 'usage' ? '' : 'nav-tab-active'; ?>"><?php esc_html_e('All Keywords', 'tmw-seo-autopilot'); ?></a>
-            <a href="<?php echo esc_url(add_query_arg(['page' => 'tmw-seo-keyword-usage', 'tab' => 'usage'])); ?>" class="nav-tab <?php echo $tab === 'usage' ? 'nav-tab-active' : ''; ?>"><?php esc_html_e('Usage History', 'tmw-seo-autopilot'); ?></a>
+            <a href="<?php echo esc_url(add_query_arg(['page' => 'tmw-seo-keyword-usage', 'tab' => 'all'])); ?>" class="nav-tab <?php echo $is_usage_tab ? '' : 'nav-tab-active'; ?>"><?php esc_html_e('All Keywords', 'tmw-seo-autopilot'); ?></a>
+            <a href="<?php echo esc_url(add_query_arg(['page' => 'tmw-seo-keyword-usage', 'tab' => 'usage'])); ?>" class="nav-tab <?php echo $is_usage_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e('Usage History', 'tmw-seo-autopilot'); ?></a>
         </div>
         <?php
         if ($tab === 'usage') {
