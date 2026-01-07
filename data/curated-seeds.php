@@ -7,6 +7,7 @@
 return [
     'general' => [
         'cam girls',
+        'cam girl',
         'webcam models',
         'live cam girls',
         'cam girl sites',
@@ -75,6 +76,7 @@ return [
         'costume cam girls',
         'cosplay cam shows',
         'hentai cosplay cam',
+        'cosplay model',
     ],
 
     'chatty' => [
@@ -111,6 +113,7 @@ return [
         'glamorous webcam girls',
         'high class cam girls',
         'model quality webcam',
+        'glamour model',
     ],
 
     'romantic' => [
@@ -215,6 +218,7 @@ return [
         'petite asian cam',
         'petite latina cam',
         'small body cam girls',
+        'petite model',
     ],
 
     'curvy' => [
@@ -237,6 +241,7 @@ return [
         'gym body cam girls',
         'athletic blonde cam',
         'sporty brunette cam',
+        'athletic model',
     ],
 
     'big-boobs' => [
@@ -293,6 +298,7 @@ return [
         'korean bj cam',
         'asian livejasmin',
         'best asian cam sites',
+        'asian model',
     ],
 
     'latina' => [
@@ -307,6 +313,7 @@ return [
         'hot latina cam',
         'latina livejasmin',
         'best latina cam sites',
+        'latina model',
     ],
 
     'ebony' => [
@@ -365,6 +372,7 @@ return [
         'blonde livejasmin',
         'blonde busty cam',
         'blonde petite cam',
+        'blonde model',
     ],
 
     'brunette' => [
@@ -376,6 +384,7 @@ return [
         'brunette livejasmin',
         'brunette curvy cam',
         'brunette athletic cam',
+        'brunette model',
     ],
 
     'tattoo-piercing' => [
@@ -400,6 +409,7 @@ return [
         'redhead livejasmin',
         'natural redhead cam',
         'fiery redhead cam',
+        'redhead model',
     ],
 
     'toys' => [
@@ -423,4 +433,576 @@ return [
         'intimate private shows',
         'best private cam sites',
     ],
+
+    'long-hair' => [
+        'long hair cam model',
+        'long hair webcam model',
+        'long hair live cam',
+        'long hair cam show',
+        'long hair model',
+        'long hair live stream',
+        'long hair webcam show',
+        'long hair studio model',
+    ],
+
+    'short-hair' => [
+        'short hair cam model',
+        'short hair webcam model',
+        'short hair live cam',
+        'short hair cam show',
+        'short hair model',
+        'short hair live stream',
+        'short hair webcam show',
+        'short hair studio model',
+    ],
+
+    'shoulder-length-hair' => [
+        'shoulder length hair cam model',
+        'shoulder length hair webcam model',
+        'medium hair live cam',
+        'mid length hair cam show',
+        'shoulder length hair model',
+        'medium hair studio model',
+        'shoulder length hair webcam show',
+        'medium hair live stream',
+    ],
+
+    'bald' => [
+        'bald cam model',
+        'bald webcam model',
+        'shaved head live cam',
+        'clean shave cam show',
+        'bald studio model',
+        'bald live stream',
+        'shaved head webcam show',
+        'bald model',
+    ],
+
+    'muscular' => [
+        'muscular cam model',
+        'muscular webcam model',
+        'muscular live cam',
+        'strong build cam show',
+        'muscular studio model',
+        'muscular live stream',
+        'athletic muscular model',
+        'defined physique webcam show',
+    ],
+
+    'tall' => [
+        'tall cam model',
+        'tall webcam model',
+        'tall live cam',
+        'tall cam show',
+        'tall studio model',
+        'tall live stream',
+        'tall model',
+        'statuesque webcam show',
+    ],
+
+    'slim' => [
+        'slim cam model',
+        'slim webcam model',
+        'slim live cam',
+        'slim cam show',
+        'slim studio model',
+        'slim live stream',
+        'slim model',
+        'slender webcam show',
+    ],
+
+    'large-build' => [
+        'large build cam model',
+        'large build webcam model',
+        'strong build live cam',
+        'broad build cam show',
+        'large build studio model',
+        'large build live stream',
+        'large build model',
+        'solid build webcam show',
+    ],
+
+    'natural-look' => [
+        'natural look cam model',
+        'natural look webcam model',
+        'fresh look live cam',
+        'minimal makeup cam show',
+        'natural look studio model',
+        'natural look live stream',
+        'natural look model',
+        'fresh look webcam show',
+    ],
+
+    'blue-eyes' => [
+        'blue eyes cam model',
+        'blue eyed webcam model',
+        'blue eyes live cam',
+        'bright eyes cam show',
+        'blue eyes studio model',
+        'blue eyes live stream',
+        'blue eyes model',
+        'blue eyes webcam show',
+    ],
+
+    'brown-eyes' => [
+        'brown eyes cam model',
+        'brown eyed webcam model',
+        'brown eyes live cam',
+        'warm eyes cam show',
+        'brown eyes studio model',
+        'brown eyes live stream',
+        'brown eyes model',
+        'brown eyes webcam show',
+    ],
+
+    'green-eyes' => [
+        'green eyes cam model',
+        'green eyed webcam model',
+        'green eyes live cam',
+        'emerald eyes cam show',
+        'green eyes studio model',
+        'green eyes live stream',
+        'green eyes model',
+        'green eyes webcam show',
+    ],
+
+    'grey-eyes' => [
+        'grey eyes cam model',
+        'gray eyed webcam model',
+        'grey eyes live cam',
+        'silver eyes cam show',
+        'grey eyes studio model',
+        'grey eyes live stream',
+        'grey eyes model',
+        'grey eyes webcam show',
+    ],
+
+    'black-eyes' => [
+        'black eyes cam model',
+        'dark eyes webcam model',
+        'black eyes live cam',
+        'deep eyes cam show',
+        'black eyes studio model',
+        'black eyes live stream',
+        'black eyes model',
+        'black eyes webcam show',
+    ],
+
+    'glasses' => [
+        'glasses cam model',
+        'model with glasses webcam',
+        'glasses live cam',
+        'glasses cam show',
+        'glasses studio model',
+        'glasses live stream',
+        'glasses model',
+        'stylish glasses webcam show',
+    ],
+
+    'eye-contact' => [
+        'eye contact cam model',
+        'direct gaze webcam model',
+        'eye contact live cam',
+        'steady gaze cam show',
+        'eye contact studio model',
+        'eye contact live stream',
+        'eye contact model',
+        'focused gaze webcam show',
+    ],
+
+    'jeans' => [
+        'jeans cam model',
+        'denim webcam model',
+        'jeans live cam',
+        'jeans cam show',
+        'jeans studio model',
+        'jeans live stream',
+        'denim model',
+        'jeans webcam show',
+    ],
+
+    'latex' => [
+        'latex outfit cam model',
+        'latex look webcam model',
+        'latex style live cam',
+        'latex cam show',
+        'latex studio model',
+        'latex live stream',
+        'latex model',
+        'latex webcam show',
+    ],
+
+    'leather' => [
+        'leather jacket cam model',
+        'leather look webcam model',
+        'leather style live cam',
+        'leather cam show',
+        'leather studio model',
+        'leather live stream',
+        'leather model',
+        'leather webcam show',
+    ],
+
+    'high-heels' => [
+        'high heels cam model',
+        'heels webcam model',
+        'high heels live cam',
+        'high heels cam show',
+        'high heels studio model',
+        'high heels live stream',
+        'high heels model',
+        'stiletto heels webcam show',
+    ],
+
+    'boots' => [
+        'boots cam model',
+        'boots webcam model',
+        'boots live cam',
+        'boots cam show',
+        'boots studio model',
+        'boots live stream',
+        'boots model',
+        'stylish boots webcam show',
+    ],
+
+    'cute' => [
+        'cute cam model',
+        'cute webcam model',
+        'cute live cam',
+        'cute cam show',
+        'cute studio model',
+        'cute live stream',
+        'cute model',
+        'cute webcam show',
+    ],
+
+    'elegant' => [
+        'elegant cam model',
+        'elegant webcam model',
+        'elegant live cam',
+        'elegant cam show',
+        'elegant studio model',
+        'elegant live stream',
+        'elegant model',
+        'classy webcam show',
+    ],
+
+    'sensual' => [
+        'sensual cam model',
+        'sensual webcam model',
+        'sensual live cam',
+        'sensual cam show',
+        'sensual studio model',
+        'sensual live stream',
+        'sensual model',
+        'soft look webcam show',
+    ],
+
+    'innocent' => [
+        'innocent look cam model',
+        'innocent webcam model',
+        'innocent live cam',
+        'innocent cam show',
+        'innocent studio model',
+        'innocent live stream',
+        'innocent model',
+        'fresh faced webcam show',
+    ],
+
+    'shy' => [
+        'shy cam model',
+        'shy webcam model',
+        'shy live cam',
+        'shy cam show',
+        'shy studio model',
+        'shy live stream',
+        'shy model',
+        'bashful webcam show',
+    ],
+
+    'curious' => [
+        'curious cam model',
+        'curious webcam model',
+        'curious live cam',
+        'curious cam show',
+        'curious studio model',
+        'curious live stream',
+        'curious model',
+        'playful webcam show',
+    ],
+
+    'confident' => [
+        'confident cam model',
+        'confident webcam model',
+        'confident live cam',
+        'confident cam show',
+        'confident studio model',
+        'confident live stream',
+        'confident model',
+        'bold webcam show',
+    ],
+
+    'latin' => [
+        'latin cam model',
+        'latin webcam model',
+        'latin live cam',
+        'latin cam show',
+        'latin studio model',
+        'latin live stream',
+        'latin model',
+        'latin webcam show',
+    ],
+
+    'black' => [
+        'black cam model',
+        'black webcam model',
+        'black live cam',
+        'black cam show',
+        'black studio model',
+        'black live stream',
+        'black model',
+        'black webcam show',
+    ],
+
+    'model' => [
+        'professional model',
+        'fashion model',
+        'studio model',
+        'model live cam',
+        'model live stream',
+        'model webcam show',
+        'model portfolio',
+        'model cam show',
+    ],
+
+    'performer' => [
+        'live performer cam',
+        'studio performer webcam',
+        'performer live cam',
+        'show performer cam',
+        'performer webcam show',
+        'performer live stream',
+        'professional performer',
+        'performer cam show',
+    ],
+
+    'maid' => [
+        'maid outfit cam model',
+        'maid costume webcam model',
+        'maid look live cam',
+        'maid cam model',
+        'maid webcam show',
+        'maid live stream',
+        'maid studio model',
+        'maid model',
+    ],
+
+    'office' => [
+        'office look cam model',
+        'office outfit webcam model',
+        'office style live cam',
+        'office cam model',
+        'office webcam show',
+        'office live stream',
+        'office studio model',
+        'office model',
+    ],
+
+    'celebrity-lookalike' => [
+        'celebrity lookalike cam model',
+        'celebrity inspired webcam model',
+        'celebrity style live cam',
+        'celebrity lookalike live cam',
+        'celebrity lookalike webcam',
+        'celebrity style webcam show',
+        'celebrity lookalike studio model',
+        'celebrity inspired model',
+    ],
+
+    'bedroom' => [
+        'bedroom cam model',
+        'bedroom webcam model',
+        'bedroom live cam',
+        'bedroom cam show',
+        'bedroom live stream',
+        'bedroom webcam',
+        'bedroom studio model',
+        'bedroom webcam show',
+    ],
+
+    'kitchen' => [
+        'kitchen cam model',
+        'kitchen webcam model',
+        'kitchen live cam',
+        'kitchen cam show',
+        'kitchen live stream',
+        'kitchen studio model',
+        'kitchen model',
+        'kitchen webcam show',
+    ],
+
+    'room' => [
+        'room cam model',
+        'room webcam model',
+        'room live cam',
+        'room cam show',
+        'room live stream',
+        'room studio model',
+        'room model',
+        'room webcam show',
+    ],
+
+    'pool' => [
+        'pool cam model',
+        'poolside webcam model',
+        'pool live cam',
+        'pool cam show',
+        'pool live stream',
+        'poolside model',
+        'pool studio model',
+        'pool webcam show',
+    ],
+
+    'party' => [
+        'party cam model',
+        'party webcam model',
+        'party live cam',
+        'party cam show',
+        'party live stream',
+        'party studio model',
+        'party model',
+        'party webcam show',
+    ],
+
+    'home' => [
+        'home cam model',
+        'home webcam model',
+        'home live cam',
+        'home cam show',
+        'home live stream',
+        'home studio model',
+        'home model',
+        'home webcam show',
+    ],
+
+    'studio' => [
+        'studio cam model',
+        'studio webcam model',
+        'studio live cam',
+        'studio cam show',
+        'studio live stream',
+        'studio webcam',
+        'studio model',
+        'studio webcam show',
+    ],
+
+    'live' => [
+        'live cam model',
+        'live webcam model',
+        'live cam show',
+        'live webcam',
+        'live cam stream',
+        'live cam',
+        'live webcam show',
+    ],
+
+    'hd' => [
+        'hd cam model',
+        'hd webcam model',
+        'hd live cam',
+        'hd webcam',
+        'high definition cam model',
+        'hd webcam show',
+        'hd live stream',
+        'full hd webcam',
+    ],
+
+    'solo' => [
+        'solo cam model',
+        'solo webcam model',
+        'solo live cam',
+        'solo cam show',
+        'solo live stream',
+        'solo webcam',
+        'solo model',
+        'solo webcam show',
+    ],
+
+    'sologirl' => [
+        'sologirl cam model',
+        'solo girl webcam model',
+        'sologirl live cam',
+        'sologirl cam show',
+        'sologirl live stream',
+        'sologirl model',
+        'sologirl webcam show',
+        'solo girl cam show',
+    ],
+
+    'webcam' => [
+        'webcam model',
+        'webcam cam show',
+        'webcam live show',
+        'webcam live stream',
+        'webcam show',
+        'webcam cam model',
+        'webcam live cam',
+        'webcam model live',
+    ],
+
+    'live-stream' => [
+        'model live stream',
+        'live stream model',
+        'live stream cam',
+        'live stream webcam',
+        'live stream show',
+        'livestream cam model',
+        'live stream performer',
+        'live stream studio',
+    ],
+
+    'auburn-hair' => [
+        'auburn hair cam model',
+        'auburn hair webcam model',
+        'auburn live cam',
+        'auburn cam show',
+        'auburn live stream',
+        'auburn hair model',
+        'auburn studio model',
+        'auburn webcam show',
+    ],
+
+    'blue-hair' => [
+        'blue hair cam model',
+        'blue hair webcam model',
+        'blue hair live cam',
+        'blue hair cam show',
+        'blue hair live stream',
+        'blue hair model',
+        'blue hair studio model',
+        'blue hair webcam show',
+    ],
+
+    'pink-hair' => [
+        'pink hair cam model',
+        'pink hair webcam model',
+        'pink hair live cam',
+        'pink hair cam show',
+        'pink hair live stream',
+        'pink hair model',
+        'pink hair studio model',
+        'pink hair webcam show',
+    ],
+
+    'orange-hair' => [
+        'orange hair cam model',
+        'orange hair webcam model',
+        'orange hair live cam',
+        'orange hair cam show',
+        'orange hair live stream',
+        'orange hair model',
+        'orange hair studio model',
+        'orange hair webcam show',
+    ],
+
 ];
