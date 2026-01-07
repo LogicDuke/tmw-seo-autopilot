@@ -42,6 +42,7 @@ class Keyword_Library {
         'teams',
         'skype',
     ];
+    protected static $compiled_blacklist = null;
 
     /**
      * Returns the uploads base directory.
@@ -779,12 +780,34 @@ class Keyword_Library {
      * @return bool
      */
     protected static function is_blacklisted(string $keyword): bool {
-        foreach (self::$blacklist as $banned) {
+        foreach (self::compiled_blacklist() as $banned) {
             if (stripos($keyword, $banned) !== false) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Compiles blacklist with custom options.
+     *
+     * @return array
+     */
+    protected static function compiled_blacklist(): array {
+        if (self::$compiled_blacklist !== null) {
+            return self::$compiled_blacklist;
+        }
+
+        $base = self::$blacklist;
+        $custom = get_option('tmwseo_keyword_blacklist_custom', []);
+        if (is_array($custom)) {
+            $custom = array_values(array_filter(array_map('trim', $custom), 'strlen'));
+            $base = array_merge($base, $custom);
+        }
+
+        self::$compiled_blacklist = array_values(array_unique($base));
+
+        return self::$compiled_blacklist;
     }
 
     /**
@@ -794,6 +817,7 @@ class Keyword_Library {
     public static function flush_cache(): void {
         global $wpdb;
         self::$cache = [];
+        self::$compiled_blacklist = null;
         $wpdb->query(
             $wpdb->prepare(
                 "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",

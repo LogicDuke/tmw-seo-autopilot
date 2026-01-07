@@ -40,6 +40,7 @@ class Admin {
         add_action('admin_post_tmwseo_clear_dataforseo_password', [__CLASS__, 'handle_clear_dataforseo_password']);
         add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_post_tmwseo_delete_keyword', [__CLASS__, 'handle_delete_keyword']);
+        add_action('admin_post_tmwseo_blacklist_keyword', [__CLASS__, 'handle_blacklist_keyword']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
         add_action('wp_ajax_tmwseo_dataforseo_test', [__CLASS__, 'ajax_dataforseo_test']);
@@ -1658,6 +1659,45 @@ class Admin {
     }
 
     /**
+     * Handles blacklisting a keyword from CSV.
+     *
+     * @return void
+     */
+    public static function handle_blacklist_keyword() {
+        if (!current_user_can(self::CAP)) {
+            wp_die('Access denied');
+        }
+
+        check_admin_referer('tmwseo_blacklist_keyword', 'tmwseo_blacklist_keyword_nonce');
+
+        $keyword = isset($_POST['kw']) ? sanitize_text_field(wp_unslash($_POST['kw'])) : '';
+        $keyword = \TMW_SEO\Keyword_Library::sanitize_keyword($keyword);
+
+        $redirect = wp_get_referer() ?: admin_url('admin.php?page=tmw-seo-keyword-browser');
+
+        if ($keyword === '') {
+            wp_safe_redirect(add_query_arg('tmwseo_kw_blacklist_error', '1', $redirect));
+            exit;
+        }
+
+        $opt_name = 'tmwseo_keyword_blacklist_custom';
+        $list = get_option($opt_name, []);
+        if (!is_array($list)) {
+            $list = [];
+        }
+
+        $list[] = $keyword;
+        $list = array_values(array_unique(array_filter(array_map('trim', $list), 'strlen')));
+        update_option($opt_name, $list, false);
+
+        \TMW_SEO\Keyword_Library::flush_cache();
+        delete_transient('tmwseo_keyword_category_stats');
+
+        wp_safe_redirect(add_query_arg('tmwseo_kw_blacklisted', '1', $redirect));
+        exit;
+    }
+
+    /**
      * Prepares usage sets for admin display.
      *
      * @param array $raw Raw usage data.
@@ -2960,18 +3000,10 @@ class Admin {
 
             <?php self::render_dashboard_widgets(); ?>
 
-            <?php $category_stats = Keyword_Browser::get_category_stats(); ?>
-            <div class="tmwseo-category-grid">
-                <?php foreach ($category_stats as $stat) : ?>
-                    <div class="tmwseo-category-card">
-                        <div class="tmwseo-category-card__title">
-                            <span class="dashicons dashicons-category"></span>
-                            <?php echo esc_html(ucfirst($stat['category'] ?? '')); ?>
-                        </div>
-                        <p class="tmwseo-category-card__count"><?php echo number_format_i18n((int) ($stat['count'] ?? 0)); ?> <?php esc_html_e('keywords', 'tmw-seo-autopilot'); ?></p>
-                        <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=tmw-seo-keyword-browser&category=' . urlencode($stat['category'] ?? ''))); ?>"><?php esc_html_e('Browse →', 'tmw-seo-autopilot'); ?></a>
-                    </div>
-                <?php endforeach; ?>
+            <div class="tmwseo-card">
+                <h3><?php esc_html_e('Keyword Browser', 'tmw-seo-autopilot'); ?></h3>
+                <p><?php esc_html_e('Browse every keyword across all packs.', 'tmw-seo-autopilot'); ?></p>
+                <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=tmw-seo-keyword-browser')); ?>"><?php esc_html_e('Open Keyword Browser', 'tmw-seo-autopilot'); ?></a>
             </div>
 
             <div class="tmwseo-card-grid">
@@ -4004,6 +4036,14 @@ class Admin {
      * @return void
      */
     public static function admin_notice() {
+        if (!empty($_GET['tmwseo_kw_blacklisted'])) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Keyword blacklisted.', 'tmw-seo-autopilot') . '</p></div>';
+        }
+
+        if (!empty($_GET['tmwseo_kw_blacklist_error'])) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('Unable to blacklist keyword. Please try again.', 'tmw-seo-autopilot') . '</p></div>';
+        }
+
         $screen = get_current_screen();
         if (!$screen || $screen->base !== 'post') return;
         if (!in_array($screen->post_type ?? '', \TMW_SEO\Core::video_post_types(), true)) return;

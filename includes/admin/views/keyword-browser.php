@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 use TMW_SEO\Keyword_Browser;
 use TMW_SEO\Keyword_Library;
 
-$categories = array_merge(['all' => __('All', 'tmw-seo-autopilot')], array_combine(Keyword_Library::categories(), Keyword_Library::categories()));
+$categories = ['all' => __('All categories', 'tmw-seo-autopilot')] + array_combine(Keyword_Library::categories(), Keyword_Library::categories());
 $types      = [
     'all'        => __('All', 'tmw-seo-autopilot'),
     'extra'      => 'extra',
@@ -135,14 +135,24 @@ $nonce          = wp_create_nonce('tmwseo_keyword_browser');
                         <td><?php echo isset($row['search_volume']) && $row['search_volume'] !== null ? number_format_i18n((int) $row['search_volume']) : '—'; ?></td>
                         <td><?php echo isset($row['cpc']) && $row['cpc'] !== '' ? esc_html(number_format((float) $row['cpc'], 2)) : '—'; ?></td>
                         <td>
-                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" onsubmit="return confirm('<?php echo esc_js(__('Delete this keyword from the CSV?', 'tmw-seo-autopilot')); ?>');">
-                                <?php wp_nonce_field('tmwseo_delete_keyword', 'tmwseo_delete_keyword_nonce'); ?>
-                                <input type="hidden" name="action" value="tmwseo_delete_keyword" />
-                                <input type="hidden" name="kw" value="<?php echo esc_attr($row['keyword'] ?? ''); ?>" />
-                                <input type="hidden" name="category" value="<?php echo esc_attr($row['category'] ?? ''); ?>" />
-                                <input type="hidden" name="type" value="<?php echo esc_attr($row['type'] ?? ''); ?>" />
-                                <button class="button-link-delete" type="submit"><?php esc_html_e('Delete', 'tmw-seo-autopilot'); ?></button>
-                            </form>
+                            <div class="tmwseo-keyword-browser__actions">
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" onsubmit="return confirm('<?php echo esc_js(__('Delete this keyword from the CSV?', 'tmw-seo-autopilot')); ?>');">
+                                    <?php wp_nonce_field('tmwseo_delete_keyword', 'tmwseo_delete_keyword_nonce'); ?>
+                                    <input type="hidden" name="action" value="tmwseo_delete_keyword" />
+                                    <input type="hidden" name="kw" value="<?php echo esc_attr($row['keyword'] ?? ''); ?>" />
+                                    <input type="hidden" name="category" value="<?php echo esc_attr($row['category'] ?? ''); ?>" />
+                                    <input type="hidden" name="type" value="<?php echo esc_attr($row['type'] ?? ''); ?>" />
+                                    <button class="button-link-delete" type="submit"><?php esc_html_e('Delete', 'tmw-seo-autopilot'); ?></button>
+                                </form>
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" onsubmit="return confirm('<?php echo esc_js(__('Blacklist this keyword? It will be excluded from future keyword packs.', 'tmw-seo-autopilot')); ?>');">
+                                    <?php wp_nonce_field('tmwseo_blacklist_keyword', 'tmwseo_blacklist_keyword_nonce'); ?>
+                                    <input type="hidden" name="action" value="tmwseo_blacklist_keyword" />
+                                    <input type="hidden" name="kw" value="<?php echo esc_attr($row['keyword'] ?? ''); ?>" />
+                                    <input type="hidden" name="category" value="<?php echo esc_attr($row['category'] ?? ''); ?>" />
+                                    <input type="hidden" name="type" value="<?php echo esc_attr($row['type'] ?? ''); ?>" />
+                                    <button class="button" type="submit"><?php esc_html_e('Blacklist', 'tmw-seo-autopilot'); ?></button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                 <?php endforeach; ?>
