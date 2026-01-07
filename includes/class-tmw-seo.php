@@ -567,38 +567,46 @@ class Core {
 
     /** Manual model generation for admin / CLI compatibility */
     public static function generate_and_write(int $post_id, array $args = []): array {
-        $args = wp_parse_args($args, [
-            'strategy' => Providers\OpenAI::is_enabled() ? 'openai' : 'template',
-            'insert_content' => true,
-            'dry_run' => false,
-        ]);
-        $post = get_post($post_id);
-        if (!$post || $post->post_type !== self::MODEL_PT) {
-            return ['ok' => false, 'message' => 'Invalid post or type'];
-        }
-        $ctx = self::build_ctx_model($post_id, $post->post_title, $args);
-        // DEBUG: Admin AJAX generate funnels through here; default strategy previously forced Template and skipped the OpenAI model prompt.
-        $provider = self::provider($args['strategy']);
-        $payload = $provider->generate_model($ctx);
-        $rm_model = self::compose_rankmath_for_model($post, [
-            'name' => $post->post_title,
-        ]);
-        $payload['keywords'] = array_merge([$rm_model['focus']], $rm_model['extras'] ?? []);
-        if (empty($payload['title'])) {
-            return ['ok' => false, 'message' => 'Generator returned empty payload'];
-        }
-        if ($args['dry_run']) {
-            return ['ok' => true, 'payload' => $payload, 'dry_run' => true];
-        }
-        self::write_all($post_id, $payload, 'MODEL', !empty($args['insert_content']), $ctx);
-        self::update_rankmath_meta($post_id, $rm_model);
-        $strategy_used     = sanitize_text_field((string) ($args['strategy'] ?? 'template'));
-        $onlyfans_mentions = substr_count(strtolower(wp_strip_all_tags((string) ($payload['content'] ?? ''))), 'onlyfans');
+        try {
+            $args = wp_parse_args($args, [
+                'strategy' => Providers\OpenAI::is_enabled() ? 'openai' : 'template',
+                'insert_content' => true,
+                'dry_run' => false,
+            ]);
+            $post = get_post($post_id);
+            if (!$post || $post->post_type !== self::MODEL_PT) {
+                return ['ok' => false, 'message' => 'Invalid post or type'];
+            }
+            $ctx = self::build_ctx_model($post_id, $post->post_title, $args);
+            // DEBUG: Admin AJAX generate funnels through here; default strategy previously forced Template and skipped the OpenAI model prompt.
+            $provider = self::provider($args['strategy']);
+            $payload = $provider->generate_model($ctx);
+            if (empty($payload) || !is_array($payload)) {
+                return ['ok' => false, 'message' => 'Provider returned empty payload'];
+            }
+            $rm_model = self::compose_rankmath_for_model($post, [
+                'name' => $post->post_title,
+            ]);
+            $payload['keywords'] = array_merge([$rm_model['focus']], $rm_model['extras'] ?? []);
+            if (empty($payload['title'])) {
+                return ['ok' => false, 'message' => 'Generator returned empty payload'];
+            }
+            if ($args['dry_run']) {
+                return ['ok' => true, 'payload' => $payload, 'dry_run' => true];
+            }
+            self::write_all($post_id, $payload, 'MODEL', !empty($args['insert_content']), $ctx);
+            self::update_rankmath_meta($post_id, $rm_model);
+            $strategy_used     = sanitize_text_field((string) ($args['strategy'] ?? 'template'));
+            $onlyfans_mentions = substr_count(strtolower(wp_strip_all_tags((string) ($payload['content'] ?? ''))), 'onlyfans');
 
-        update_post_meta($post_id, '_tmwseo_strategy', $strategy_used);
-        update_post_meta($post_id, '_tmwseo_onlyfans_count', $onlyfans_mentions);
-        update_post_meta($post_id, '_tmwseo_generated_date', current_time('mysql'));
-        return ['ok' => true, 'payload' => $payload];
+            update_post_meta($post_id, '_tmwseo_strategy', $strategy_used);
+            update_post_meta($post_id, '_tmwseo_onlyfans_count', $onlyfans_mentions);
+            update_post_meta($post_id, '_tmwseo_generated_date', current_time('mysql'));
+            return ['ok' => true, 'payload' => $payload];
+        } catch (\Throwable $e) {
+            self::debug_log(self::TAG . ' [TMW-SEO-GENERATE] error: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Generation error: ' . $e->getMessage()];
+        }
     }
 
     /**
