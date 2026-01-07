@@ -475,7 +475,7 @@ class Keyword_Library {
             if ($key === '' || isset($used_lookup[$key])) {
                 continue;
             }
-            if (!self::validate_keyword($kw) || !self::is_relevant_to_content($kw)) {
+            if (!self::validate_keyword($kw)) {
                 continue;
             }
             $pool[$kw] = $source_cat;
