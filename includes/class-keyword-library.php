@@ -14,7 +14,34 @@ if (!defined('ABSPATH')) exit;
  */
 class Keyword_Library {
     protected static $cache = [];
-    protected static $blacklist = ['leak', 'download', 'nude', 'torrent', 'teen'];
+    protected static $blacklist = [
+        'leak',
+        'download',
+        'nude',
+        'torrent',
+        'teen',
+        'microsoft',
+        'google',
+        'logitech',
+        'earth',
+        'insecam',
+        'trainmore',
+        'modern webcam',
+        'hd vf',
+        'security cam',
+        'surveillance',
+        'ip cam',
+        'nest',
+        'ring',
+        'wyze',
+        'baby monitor',
+        'nanny cam',
+        'dash cam',
+        'gopro',
+        'zoom meeting',
+        'teams',
+        'skype',
+    ];
 
     /**
      * Returns the uploads base directory.
@@ -448,6 +475,9 @@ class Keyword_Library {
             if ($key === '' || isset($used_lookup[$key])) {
                 continue;
             }
+            if (!self::validate_keyword($kw) || !self::is_relevant_to_content($kw)) {
+                continue;
+            }
             $pool[$kw] = $source_cat;
         }
 
@@ -467,12 +497,13 @@ class Keyword_Library {
             }
 
             $hash = crc32($seed . '|' . $kw);
+            $category_boost = ($source_cat === $primary_category) ? -1000 : 0;
             $candidates[] = [
                 'kw'        => $kw,
                 'count'     => (int) $stats['count'],
                 'last_used' => $stats['last_used'] ?: null,
                 'recent'    => $recent_block,
-                'score'     => $hash,
+                'score'     => $hash + $category_boost,
                 'category'  => $source_cat,
             ];
         }
@@ -517,6 +548,67 @@ class Keyword_Library {
         $keyword = preg_replace('/\s+/', ' ', $keyword);
         $keyword = trim($keyword);
         return $keyword;
+    }
+
+    /**
+     * Validates keywords for relevance.
+     *
+     * @param string $keyword
+     * @return bool
+     */
+    public static function validate_keyword(string $keyword): bool {
+        $keyword = trim($keyword);
+        if ($keyword === '') {
+            return false;
+        }
+
+        if (preg_match('/\b[a-z]{2,3}\d{4,}\b/i', $keyword)) {
+            return false;
+        }
+
+        if (self::is_blacklisted($keyword)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Checks whether keyword is relevant to cam content.
+     *
+     * @param string $keyword
+     * @return bool
+     */
+    public static function is_relevant_to_content(string $keyword): bool {
+        $keyword = strtolower($keyword);
+        $relevant_terms = [
+            'cam',
+            'webcam',
+            'live',
+            'chat',
+            'stream',
+            'show',
+            'model',
+            'performer',
+            'broadcast',
+            'private',
+            'session',
+            'interactive',
+            'hd',
+            'video',
+            'girl',
+            'watch',
+            'free',
+            'premium',
+        ];
+
+        foreach ($relevant_terms as $term) {
+            if (strpos($keyword, $term) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

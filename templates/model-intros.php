@@ -4,6 +4,7 @@ $search_hooks = [
     "People typing '{name} cam model' often land here and realize {live_brand} streams highlight what makes {name} stand out.",
     "Those seeking '{name} live chat' discover this page pairs that curiosity with official {live_brand} links that lead to real-time sessions.",
     "Viewers wondering where to watch {name} find the official profile links below for trusted access.",
+    "Followers looking for {name} across {active_platforms_text} find verified profile links that keep everything consistent.",
     "Searchers who follow '{name} live cam' tags get directed to {live_brand} where {name} interacts live with attentive pacing.",
     "Fans looking for {name}'s shows appreciate real-time conversation and instant responses on {live_brand}.",
     "People searching '{name} live stream' often discover that {live_brand}'s live format creates a more genuine connection.",

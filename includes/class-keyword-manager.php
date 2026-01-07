@@ -92,17 +92,18 @@ class Keyword_Manager {
      * @param string $type
      * @return array
      */
-    public static function apply_density(string $content, string $name, array $pair, string $type = 'model'): array {
-        $keywords = array_filter(array_unique([
+    public static function apply_density(string $content, string $name, array $pair, string $type = 'model', array $active_platforms = []): array {
+        $active_platforms = array_values(array_filter(array_map('trim', $active_platforms), 'strlen'));
+        if (empty($active_platforms)) {
+            $active_platforms = ['LiveJasmin'];
+        }
+
+        $keywords = array_filter(array_unique(array_merge([
             $name,
             'live cam',
             'webcam highlights',
             'live streaming show',
-            'LiveJasmin',
-            'OnlyFans',
-            $pair[0] ?? '',
-            $pair[1] ?? '',
-        ]));
+        ], $active_platforms)));
 
         $content = self::reduce_focus_density($content, $name, $type);
 
