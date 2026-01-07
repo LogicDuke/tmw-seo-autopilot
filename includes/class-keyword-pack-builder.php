@@ -394,13 +394,7 @@ class Keyword_Pack_Builder {
             'free trial',
         ];
 
-        $custom = get_option('tmwseo_keyword_blacklist_custom', []);
-        if (is_array($custom)) {
-            $custom = array_values(array_filter(array_map('trim', $custom), 'strlen'));
-            $list = array_merge($list, $custom);
-        }
-
-        $list = array_values(array_unique($list));
+        $list = Keyword_Library::merge_custom_blacklist($list);
 
         return apply_filters('tmwseo_keyword_builder_blacklist', $list);
     }

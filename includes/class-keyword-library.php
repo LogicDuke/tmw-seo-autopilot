@@ -62,6 +62,22 @@ class Keyword_Library {
     }
 
     /**
+     * Merges the base blacklist with custom entries.
+     *
+     * @param array $base
+     * @return array
+     */
+    public static function merge_custom_blacklist(array $base): array {
+        $custom = get_option('tmwseo_keyword_blacklist_custom', []);
+        if (is_array($custom)) {
+            $custom = array_values(array_filter(array_map('trim', $custom), 'strlen'));
+            $base = array_merge($base, $custom);
+        }
+
+        return array_values(array_unique($base));
+    }
+
+    /**
      * Ensures dirs and placeholders.
      * @return void
      */
@@ -798,14 +814,7 @@ class Keyword_Library {
             return self::$compiled_blacklist;
         }
 
-        $base = self::$blacklist;
-        $custom = get_option('tmwseo_keyword_blacklist_custom', []);
-        if (is_array($custom)) {
-            $custom = array_values(array_filter(array_map('trim', $custom), 'strlen'));
-            $base = array_merge($base, $custom);
-        }
-
-        self::$compiled_blacklist = array_values(array_unique($base));
+        self::$compiled_blacklist = self::merge_custom_blacklist(self::$blacklist);
 
         return self::$compiled_blacklist;
     }
