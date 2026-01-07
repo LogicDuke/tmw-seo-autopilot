@@ -34,8 +34,8 @@ class Content_Generator {
 
         $intro      = Template_Engine::render(Template_Engine::pick('model-intros', $seed), $base);
         $bio        = Template_Engine::render(Template_Engine::pick('model-bios', $seed, 1), $base);
-        $intro      = '<p>' . esc_html($intro) . '</p>';
-        $bio        = '<p>' . esc_html($bio) . '</p>';
+        $intro      = '<p>' . $intro . '</p>';
+        $bio        = '<p>' . $bio . '</p>';
         $focus_block = self::render_focus_blocks($base, $name);
         $kw_coverage = self::render_rankmath_keyword_coverage($base['rankmath_additional_keywords'] ?? [], $name);
         $comparison = self::build_platform_comparison($model_id, $name);
@@ -63,7 +63,7 @@ class Content_Generator {
         $similarity = Uniqueness_Checker::similarity_score($content, Core::MODEL_PT);
         if ($similarity > 70) {
             $alt_intro = Template_Engine::render(Template_Engine::pick('model-intros', $seed, 3), $base);
-            $alt_intro = '<p>' . esc_html($alt_intro) . '</p>';
+            $alt_intro = '<p>' . $alt_intro . '</p>';
             $content   = implode("\n\n", [$alt_intro, $bio, $comparison, $faqs_html, $related]);
         }
 
@@ -93,8 +93,8 @@ class Content_Generator {
 
         $intro      = Template_Engine::render(Template_Engine::pick('video-templates', $seed), $base);
         $details    = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 1), $base);
-        $intro      = '<p>' . esc_html($intro) . '</p>';
-        $details    = '<p>' . esc_html($details) . '</p>';
+        $intro      = '<p>' . $intro . '</p>';
+        $details    = '<p>' . $details . '</p>';
         $comparison = self::build_platform_comparison((int) ($context['model_id'] ?? 0), $name);
         $faqs_tpl   = Template_Engine::pick_faq('model-faqs', $seed, 4);
         $faqs_html  = self::render_faqs($faqs_tpl, $base, $base['longtail_keywords']);
@@ -111,7 +111,7 @@ class Content_Generator {
         $similarity = Uniqueness_Checker::similarity_score($content, Core::VIDEO_PT);
         if ($similarity > 70) {
             $alt_intro = Template_Engine::render(Template_Engine::pick('video-templates', $seed, 5), $base);
-            $alt_intro = '<p>' . esc_html($alt_intro) . '</p>';
+            $alt_intro = '<p>' . $alt_intro . '</p>';
             $content   = implode("\n\n", [$alt_intro, $details, $comparison, $faqs_html]);
         }
 
