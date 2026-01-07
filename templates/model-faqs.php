@@ -5,8 +5,8 @@ $question_pool = [
     'Does {name} have a schedule?',
     'What type of shows does {name} do?',
     'Can I watch replays of {name}\'s streams?',
-    'Is LiveJasmin a safe place to watch?',
-    'What makes LiveJasmin special for {name}?',
+    'Is {live_brand} a safe place to watch?',
+    'What makes {live_brand} special for {name}?',
     'How do I get notified when {name} goes live?',
     'Can I ask for specific themes with {name}?',
     'Does {name} do multilingual shows?',
@@ -16,6 +16,7 @@ $question_pool = [
     'What tags describe {name}\'s shows?',
     'Can I ask for specific themes or costumes?',
     'Where should I click to join {name}\'s official room?',
+    'Which official platforms does {name} use?',
 ];
 
 $answer_pool = [
@@ -25,7 +26,7 @@ $answer_pool = [
     "Expect themes tied to {tags}, plus interactive polls and mindful pacing so sessions stay comfortable for everyone.",
     "Highlights help, but the best way to experience {name} is live with two-way conversation on {live_brand}.",
     "{live_brand} moderation keeps chat respectful so the focus stays on the performer.",
-    "LiveJasmin sessions emphasize real-time responses you cannot get from static clips.",
+    "{live_brand} sessions emphasize real-time responses you cannot get from static clips.",
     "Tap the official links below to find the real-time room and verified pages.",
     "Yes, within posted boundaries. Mention ideas linked to {tags} and {name} will guide you through them in chat.",
     "{name} greets viewers in English first, and may swap languages when the room requests it.",
@@ -37,6 +38,7 @@ $answer_pool = [
     "Tags like {tags} describe the vibe, and you can nudge new ideas politely during the show.",
     "You can ask for themes or light cosplay as long as it fits the boundaries {name} posts on {live_brand}.",
     "Click the official {live_brand} link above or the verified profile links below to join {name}\'s room.",
+    "Check the official profile links for {active_platforms_text}; those are the verified destinations for {name}\'s live sessions.",
 ];
 
 shuffle($question_pool);

@@ -1660,6 +1660,8 @@ class Core {
 
         $extra_focus_1 = trim( (string) get_post_meta( $post->ID, '_tmwseo_extra_focus_1', true ) );
         $extra_focus_2 = trim( (string) get_post_meta( $post->ID, '_tmwseo_extra_focus_2', true ) );
+        $extra_focus_3 = trim( (string) get_post_meta( $post->ID, '_tmwseo_extra_focus_3', true ) );
+        $extra_focus_4 = trim( (string) get_post_meta( $post->ID, '_tmwseo_extra_focus_4', true ) );
         if ( $extra_focus_1 === '' ) {
             $extra_focus_1 = $extras[0] ?? 'live cam model';
             update_post_meta( $post->ID, '_tmwseo_extra_focus_1', $extra_focus_1 );
@@ -1667,6 +1669,14 @@ class Core {
         if ( $extra_focus_2 === '' ) {
             $extra_focus_2 = $extras[1] ?? 'webcam model profile';
             update_post_meta( $post->ID, '_tmwseo_extra_focus_2', $extra_focus_2 );
+        }
+        if ( $extra_focus_3 === '' ) {
+            $extra_focus_3 = $extras[2] ?? 'live webcam chat';
+            update_post_meta( $post->ID, '_tmwseo_extra_focus_3', $extra_focus_3 );
+        }
+        if ( $extra_focus_4 === '' ) {
+            $extra_focus_4 = $extras[3] ?? 'cam show highlights';
+            update_post_meta( $post->ID, '_tmwseo_extra_focus_4', $extra_focus_4 );
         }
 
         if (class_exists(__NAMESPACE__ . '\\RankMath') && method_exists(RankMath::class, 'generate_model_snippet_title')) {
@@ -1688,6 +1698,8 @@ class Core {
             'extras' => $extras,
             'extra_focus_1' => $extra_focus_1,
             'extra_focus_2' => $extra_focus_2,
+            'extra_focus_3' => $extra_focus_3,
+            'extra_focus_4' => $extra_focus_4,
             'title' => $title,
             'desc'  => $desc,
         ];
@@ -1714,19 +1726,31 @@ class Core {
         if ($post instanceof \WP_Post && $post->post_type === Core::MODEL_PT) {
             $extra_focus_1 = trim( (string) ( $rm['extra_focus_1'] ?? get_post_meta( $post_id, '_tmwseo_extra_focus_1', true ) ) );
             $extra_focus_2 = trim( (string) ( $rm['extra_focus_2'] ?? get_post_meta( $post_id, '_tmwseo_extra_focus_2', true ) ) );
+            $extra_focus_3 = trim( (string) ( $rm['extra_focus_3'] ?? get_post_meta( $post_id, '_tmwseo_extra_focus_3', true ) ) );
+            $extra_focus_4 = trim( (string) ( $rm['extra_focus_4'] ?? get_post_meta( $post_id, '_tmwseo_extra_focus_4', true ) ) );
 
             $focus_to_use = self::sanitize_sfw_text( (string) ( $rm['focus'] ?? '' ), (string) ( $rm['focus'] ?? '' ) );
 
-            $focus_keywords = array_values( array_filter( [ $focus_to_use, $extra_focus_1, $extra_focus_2 ], 'strlen' ) );
+            $focus_keywords = array_values( array_filter( [
+                $focus_to_use,
+                $extra_focus_1,
+                $extra_focus_2,
+                $extra_focus_3,
+                $extra_focus_4,
+            ], 'strlen' ) );
+            $focus_keywords = array_slice( $focus_keywords, 0, 5 );
 
             $additional_keywords = [];
             if ( ! empty( $extras ) ) {
-                $additional_keywords = array_values( array_filter( $extras, function ( $kw ) use ( $extra_focus_1, $extra_focus_2 ) {
+                $additional_keywords = array_values( array_filter( $extras, function ( $kw ) use ( $extra_focus_1, $extra_focus_2, $extra_focus_3, $extra_focus_4 ) {
                     $kw = strtolower( trim( (string) $kw ) );
                     if ( $kw === '' ) {
                         return false;
                     }
-                    return $kw !== strtolower( $extra_focus_1 ) && $kw !== strtolower( $extra_focus_2 );
+                    return $kw !== strtolower( $extra_focus_1 )
+                        && $kw !== strtolower( $extra_focus_2 )
+                        && $kw !== strtolower( $extra_focus_3 )
+                        && $kw !== strtolower( $extra_focus_4 );
                 } ) );
                 $additional_keywords = array_slice( $additional_keywords, 0, 10 );
             }
