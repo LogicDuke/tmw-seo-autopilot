@@ -87,6 +87,7 @@ class Admin_UI {
             'tmw-seo-autopilot'       => __('Dashboard', 'tmw-seo-autopilot'),
             'tmw-seo-keyword-packs'   => __('Keyword Packs', 'tmw-seo-autopilot'),
             'tmw-seo-keyword-usage'   => __('Keyword Usage', 'tmw-seo-autopilot'),
+            'tmw-seo-keyword-browser' => __('Keyword Browser', 'tmw-seo-autopilot'),
             'tmw-seo-usage'           => __('Usage / CSV Stats', 'tmw-seo-autopilot'),
             'tmw-seo-scheduled-actions' => __('Automations', 'tmw-seo-autopilot'),
             'tmw-seo-codex-reports'   => __('Codex Reports', 'tmw-seo-autopilot'),
