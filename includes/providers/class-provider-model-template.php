@@ -16,6 +16,63 @@ use TMW_SEO\Core;
  */
 class ModelTemplate {
     /**
+     * Generates model content using templates.
+     * MODEL: returns ['title','meta','keywords'=>[...],'content'].
+     *
+     * @param array $c Context array with: name, site, looks, focus, extras, model_id, etc.
+     * @return array
+     */
+    public function generate_model(array $c): array {
+        $name = $c['name'] ?? '';
+        $site = $c['site'] ?? 'Top Models Webcam';
+
+        // Generate SEO title (max ~60 chars).
+        $title = sprintf('%s — Live Cam Model Profile & Schedule | %s', $name, $site);
+        if (mb_strlen($title) > 60) {
+            $title = sprintf('%s — Live Cam Model Profile & Schedule', $name);
+        }
+        if (mb_strlen($title) > 60) {
+            $title = mb_substr($title, 0, 57) . '...';
+        }
+
+        // Generate meta description (140-160 chars).
+        $meta = sprintf(
+            '%s on %s. Profile, photos, schedule tips, and live chat links. Follow %s for highlights and updates.',
+            $name,
+            $site,
+            $name
+        );
+        if (mb_strlen($meta) > 160) {
+            $meta = mb_substr($meta, 0, 157) . '...';
+        }
+
+        // Generate content using Content_Generator.
+        $content_payload = \TMW_SEO\Content_Generator::generate_model($c);
+
+        // Build keywords array.
+        $base_keywords = [
+            $name,
+            $name . ' live cam',
+            $name . ' profile',
+            $name . ' webcam',
+            $name . ' schedule',
+        ];
+
+        $extra_keywords = isset($content_payload['keywords']) && is_array($content_payload['keywords'])
+            ? $content_payload['keywords']
+            : [];
+
+        $keywords = array_values(array_unique(array_merge($base_keywords, $extra_keywords)));
+
+        return [
+            'title'    => $title,
+            'meta'     => $meta,
+            'keywords' => $keywords,
+            'content'  => $content_payload['content'] ?? '',
+        ];
+    }
+
+    /**
      * Handles html.
      *
      * @param array $blocks

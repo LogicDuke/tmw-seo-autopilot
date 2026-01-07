@@ -33,8 +33,20 @@ class Template {
      * @return array
      */
     public function generate_video(array $ctx): array {
-        $video = new VideoTemplate();
-        return $video->generate_video($ctx);
+        try {
+            $video = new VideoTemplate();
+            return $video->generate_video($ctx);
+        } catch (\Throwable $e) {
+            if (defined('TMW_DEBUG') && TMW_DEBUG) {
+                error_log('[TMW-SEO] Template::generate_video error: ' . $e->getMessage());
+            }
+            return [
+                'title' => '',
+                'meta' => '',
+                'keywords' => [],
+                'content' => '',
+            ];
+        }
     }
 
     /**
@@ -44,7 +56,19 @@ class Template {
      * @return array
      */
     public function generate_model(array $ctx): array {
-        $model = new ModelTemplate();
-        return $model->generate_model($ctx);
+        try {
+            $model = new ModelTemplate();
+            return $model->generate_model($ctx);
+        } catch (\Throwable $e) {
+            if (defined('TMW_DEBUG') && TMW_DEBUG) {
+                error_log('[TMW-SEO] Template::generate_model error: ' . $e->getMessage());
+            }
+            return [
+                'title' => '',
+                'meta' => '',
+                'keywords' => [],
+                'content' => '',
+            ];
+        }
     }
 }
