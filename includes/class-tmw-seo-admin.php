@@ -286,21 +286,40 @@ class Admin {
      * @return void
      */
     public static function ajax_generate() {
-        $nonce_ok = check_ajax_referer('tmwseo_actions', 'nonce', false);
-        if (!$nonce_ok) {
-            $nonce_ok = check_ajax_referer('tmw_seo_nonce', 'nonce', false);
+        try {
+            $nonce_ok = check_ajax_referer('tmwseo_actions', 'nonce', false);
+            if (!$nonce_ok) {
+                $nonce_ok = check_ajax_referer('tmw_seo_nonce', 'nonce', false);
+            }
+            if (!$nonce_ok) {
+                wp_send_json_error(['message' => 'Invalid nonce. Please refresh and try again.'], 403);
+            }
+            if (!current_user_can('edit_posts')) {
+                wp_send_json_error(['message' => 'No permission'], 403);
+            }
+
+            $post_id = (int)($_POST['post_id'] ?? 0);
+            if ($post_id <= 0) {
+                wp_send_json_error(['message' => 'Invalid post ID'], 400);
+            }
+
+            $post = get_post($post_id);
+            if (!$post) {
+                wp_send_json_error(['message' => 'Post not found'], 404);
+            }
+
+            $default_strategy = \TMW_SEO\Providers\OpenAI::is_enabled() ? 'openai' : 'template';
+            $strategy = sanitize_text_field($_POST['strategy'] ?? $default_strategy);
+            $insert = !empty($_POST['insert']);
+            $res = Core::generate_and_write($post_id, ['strategy' => $strategy, 'insert_content' => $insert]);
+            if (!empty($res['ok'])) {
+                wp_send_json_success(['message' => 'SEO generated']);
+            }
+            wp_send_json_error(['message' => $res['message'] ?? 'Error']);
+        } catch (\Throwable $e) {
+            Core::debug_log(self::TAG . ' [TMW-SEO-AJAX] generate failed: ' . $e->getMessage());
+            wp_send_json_error(['message' => 'Server error: ' . $e->getMessage()], 500);
         }
-        if (!$nonce_ok) {
-            wp_send_json_error(['message' => 'Invalid nonce. Please refresh and try again.'], 403);
-        }
-        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'No permission']);
-        $post_id = (int)($_POST['post_id'] ?? 0);
-        $default_strategy = \TMW_SEO\Providers\OpenAI::is_enabled() ? 'openai' : 'template';
-        $strategy = sanitize_text_field($_POST['strategy'] ?? $default_strategy);
-        $insert = !empty($_POST['insert']);
-        $res = Core::generate_and_write($post_id, ['strategy' => $strategy, 'insert_content' => $insert]);
-        if ($res['ok']) wp_send_json_success(['message' => 'SEO generated']);
-        wp_send_json_error(['message' => $res['message'] ?? 'Error']);
     }
 
     /**
