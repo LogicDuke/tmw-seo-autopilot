@@ -1686,8 +1686,14 @@ class Admin {
             $list = [];
         }
 
+        $list = array_values(array_filter(array_map('trim', $list), 'strlen'));
+        if (in_array($keyword, $list, true)) {
+            wp_safe_redirect(add_query_arg('tmwseo_kw_blacklisted_existing', '1', $redirect));
+            exit;
+        }
+
         $list[] = $keyword;
-        $list = array_values(array_unique(array_filter(array_map('trim', $list), 'strlen')));
+        $list = array_values(array_unique($list));
         update_option($opt_name, $list, false);
 
         \TMW_SEO\Keyword_Library::flush_cache();
@@ -4042,6 +4048,10 @@ class Admin {
 
         if (!empty($_GET['tmwseo_kw_blacklist_error'])) {
             echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('Unable to blacklist keyword. Please try again.', 'tmw-seo-autopilot') . '</p></div>';
+        }
+
+        if (!empty($_GET['tmwseo_kw_blacklisted_existing'])) {
+            echo '<div class="notice notice-info is-dismissible"><p>' . esc_html__('Keyword is already blacklisted.', 'tmw-seo-autopilot') . '</p></div>';
         }
 
         $screen = get_current_screen();
