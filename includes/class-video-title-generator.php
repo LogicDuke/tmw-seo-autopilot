@@ -168,12 +168,12 @@ class Video_Title_Generator {
      */
     public static function ajax_generate_title_suggestions(): void {
         error_log(self::TAG . ' AJAX called');
-        error_log(self::TAG . ' POST data: ' . print_r($_POST, true));
         $nonce = $_POST['nonce'] ?? '';
-        error_log(self::TAG . ' Nonce check: ' . (wp_verify_nonce($nonce, 'tmwseo_admin_nonce') ? 'VALID' : 'INVALID'));
+        $nonce_valid = wp_verify_nonce($nonce, 'tmwseo_admin_nonce');
+        error_log(self::TAG . ' Nonce check: ' . ($nonce_valid ? 'VALID' : 'INVALID'));
+        check_ajax_referer('tmwseo_admin_nonce', 'nonce');
         $service = new OpenAI_Service();
         error_log(self::TAG . ' OpenAI configured: ' . ($service->is_configured() ? 'YES' : 'NO'));
-        check_ajax_referer('tmwseo_admin_nonce', 'nonce');
 
         $post_id = (int) ($_POST['post_id'] ?? 0);
         if (!$post_id || !current_user_can('edit_post', $post_id)) {

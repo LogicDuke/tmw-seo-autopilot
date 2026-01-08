@@ -32,11 +32,8 @@ jQuery(document).ready(function ($) {
     });
 
     $('#tmwseo-generate-titles').on('click', function () {
-        console.log('Button clicked');
         var $btn = $(this);
         var postId = $btn.data('post-id');
-        console.log('Post ID:', postId);
-        console.log('Nonce:', nonce);
         var $spinner = $btn.next('.spinner');
 
         $btn.prop('disabled', true);

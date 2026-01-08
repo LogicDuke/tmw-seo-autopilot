@@ -3732,10 +3732,31 @@ class Admin {
         $val = isset($_POST['tmwseo_model_name']) ? sanitize_text_field(wp_unslash($_POST['tmwseo_model_name'])) : '';
         if ($val !== '') update_post_meta($post_id, 'tmwseo_model_name', $val); else delete_post_meta($post_id, 'tmwseo_model_name');
         if (isset($_POST['tmwseo_video_keywords']) && is_array($_POST['tmwseo_video_keywords'])) {
+            $looks = Core::first_looks($post_id);
+            $categories = \TMW_SEO\Keyword_Library::categories_from_looks($looks);
+            if (empty($categories)) {
+                $categories = ['general'];
+            }
+            $available_keywords = [];
+            foreach ($categories as $category) {
+                $extra_keywords = \TMW_SEO\Keyword_Library::load_rows($category, 'extra', false);
+                foreach ($extra_keywords as $row) {
+                    $kw = $row['keyword'] ?? '';
+                    if ($kw !== '' && !in_array($kw, $available_keywords, true)) {
+                        $available_keywords[] = $kw;
+                    }
+                }
+            }
+            $available_keywords = is_array($available_keywords) ? $available_keywords : [];
             $selected = array_map('sanitize_text_field', wp_unslash($_POST['tmwseo_video_keywords']));
+            $selected = array_intersect($selected, $available_keywords);
             $selected = array_values(array_unique(array_filter($selected)));
             $selected = array_slice($selected, 0, 10);
-            update_post_meta($post_id, '_tmwseo_video_keywords', $selected);
+            if (!empty($selected)) {
+                update_post_meta($post_id, '_tmwseo_video_keywords', $selected);
+            } else {
+                delete_post_meta($post_id, '_tmwseo_video_keywords');
+            }
         } else {
             delete_post_meta($post_id, '_tmwseo_video_keywords');
         }
@@ -3771,11 +3792,30 @@ class Admin {
         }
 
         if (isset($_POST['tmwseo_selected_keywords']) && is_array($_POST['tmwseo_selected_keywords'])) {
+            $looks = Core::first_looks($post_id);
+            $categories = \TMW_SEO\Keyword_Library::categories_from_looks($looks);
+            $available_keywords = [];
+            foreach ($categories as $category) {
+                $extra_keywords = \TMW_SEO\Keyword_Library::load_rows($category, 'extra', false);
+                foreach ($extra_keywords as $row) {
+                    $kw = $row['keyword'] ?? '';
+                    if ($kw !== '' && !in_array($kw, $available_keywords, true)) {
+                        $available_keywords[] = $kw;
+                    }
+                }
+            }
+            $available_keywords = is_array($available_keywords) ? $available_keywords : [];
             $selected = array_map('sanitize_text_field', wp_unslash($_POST['tmwseo_selected_keywords']));
+            $selected = array_intersect($selected, $available_keywords);
             $selected = array_values(array_unique(array_filter($selected)));
             $selected = array_slice($selected, 0, 10);
-            update_post_meta($post_id, '_tmwseo_extras_list', $selected);
-            update_post_meta($post_id, '_tmwseo_extras_locked', 1);
+            if (!empty($selected)) {
+                update_post_meta($post_id, '_tmwseo_extras_list', $selected);
+                update_post_meta($post_id, '_tmwseo_extras_locked', 1);
+            } else {
+                delete_post_meta($post_id, '_tmwseo_extras_list');
+                delete_post_meta($post_id, '_tmwseo_extras_locked');
+            }
         } else {
             delete_post_meta($post_id, '_tmwseo_extras_list');
             delete_post_meta($post_id, '_tmwseo_extras_locked');
