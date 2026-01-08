@@ -3406,35 +3406,29 @@ class Admin {
         $has_prev = (bool) get_post_meta($post->ID, '_tmwseo_prev_VIDEO', true);
         echo '<p><label><strong>Model Name (override)</strong></label>';
         echo '<input type="text" class="widefat" name="tmwseo_model_name" value="' . esc_attr($override) . '" placeholder="e.g., Abby Murray"></p>';
-        echo '<p>Strategy: <select id="tmw_seo_video_strategy">';
+        echo '<form method="get" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_generate_now_' . $post->ID);
+        echo '<input type="hidden" name="action" value="tmwseo_generate_now">';
+        echo '<input type="hidden" name="post_id" value="' . (int) $post->ID . '">';
+        echo '<p>Strategy: <select id="tmw_seo_video_strategy" name="strategy">';
         echo '<option value="template" ' . $template_selected . '>Template</option>';
         if ($openai_enabled) {
             echo '<option value="openai" ' . $openai_selected . '>OpenAI</option>';
-        } else {
-            echo '<option value="openai" disabled>OpenAI (not configured)</option>';
         }
         echo '</select></p>';
-        $url = wp_nonce_url(admin_url('admin-post.php?action=tmwseo_generate_now&post_id=' . $post->ID), 'tmwseo_generate_now_' . $post->ID);
-        echo '<p><a href="' . esc_url($url) . '" class="button button-primary" id="tmw_seo_video_generate_btn" style="width:100%;">Generate Now</a></p>';
+        if (!$openai_enabled) {
+            echo '<p class="description">OpenAI strategy not available. <a href="' . esc_url(admin_url('admin.php?page=tmw-seo-integrations')) . '">Configure OpenAI</a> to enable.</p>';
+        }
+        echo '<p><button type="submit" class="button button-primary" id="tmw_seo_video_generate_btn" style="width:100%;">Generate Now</button></p>';
+        echo '</form>';
         echo '<p><button type="button" class="button" id="tmw_seo_video_rollback_btn" style="width:100%; margin-top:4px;"' . (!$has_prev ? ' disabled' : '') . '>Rollback</button>' . (!$has_prev ? ' <em style="display:block;margin-top:4px;">No rollback snapshot yet</em>' : '') . '</p>';
         if ($last) echo '<p><em>Last run:</em> ' . esc_html($last) . '</p>';
         ?>
         <script>
         (function($){
-            $('#tmw_seo_video_generate_btn').on('click', function(e){
+            $('#tmw_seo_video_generate_btn').closest('form').on('submit', function(){
                 var $btn = $(this);
-                var strategy = $('#tmw_seo_video_strategy').val();
-                if (strategy) {
-                    try {
-                        var url = new URL($btn.attr('href'), window.location.href);
-                        url.searchParams.set('strategy', strategy);
-                        $btn.attr('href', url.toString());
-                    } catch (err) {
-                        var href = $btn.attr('href');
-                        var separator = href.indexOf('?') === -1 ? '?' : '&';
-                        $btn.attr('href', href + separator + 'strategy=' + encodeURIComponent(strategy));
-                    }
-                }
+                $btn = $btn.find('#tmw_seo_video_generate_btn');
                 $btn.text('Generating…');
                 setTimeout(function(){
                     $btn.text('Generate Now');
@@ -3570,11 +3564,14 @@ class Admin {
         if (!$post_id || !current_user_can('edit_post', $post_id)) wp_die('No permission');
         check_admin_referer('tmwseo_generate_now_' . $post_id);
         $strategy = sanitize_text_field($_GET['strategy'] ?? '');
-        if (!in_array($strategy, ['template', 'openai'], true)) {
-            $strategy = \TMW_SEO\Providers\OpenAI::is_enabled() ? 'openai' : 'template';
+        $openai_enabled = \TMW_SEO\Providers\OpenAI::is_enabled();
+        $default_strategy = $openai_enabled ? 'openai' : 'template';
+        $allowed_strategies = ['template'];
+        if ($openai_enabled) {
+            $allowed_strategies[] = 'openai';
         }
-        if ($strategy === 'openai' && !\TMW_SEO\Providers\OpenAI::is_enabled()) {
-            $strategy = 'template';
+        if ($strategy === '' || !in_array($strategy, $allowed_strategies, true)) {
+            $strategy = $default_strategy;
         }
 
         $post = get_post($post_id);
