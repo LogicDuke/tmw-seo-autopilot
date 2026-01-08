@@ -137,6 +137,37 @@ class Admin {
                     <li><?php echo esc_html__('No keywords selected yet.', 'tmw-seo-autopilot'); ?></li>
                 <?php endif; ?>
             </ul>
+            <?php
+            $looks = Core::first_looks($post->ID);
+            $categories = \TMW_SEO\Keyword_Library::categories_from_looks($looks);
+            $available_keywords = [];
+            foreach ($categories as $category) {
+                $extra_keywords = \TMW_SEO\Keyword_Library::load_rows($category, 'extra', false);
+                foreach ($extra_keywords as $row) {
+                    $kw = $row['keyword'] ?? '';
+                    if ($kw !== '' && !in_array($kw, $available_keywords, true)) {
+                        $available_keywords[] = $kw;
+                    }
+                }
+            }
+            $available_keywords = array_slice($available_keywords, 0, 50);
+            ?>
+
+            <div class="tmwseo-keyword-selector" style="margin-top: 10px;">
+                <p><strong>Select Keywords:</strong> <small>(max 10)</small></p>
+                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 8px; background: #fff;">
+                    <?php foreach ($available_keywords as $kw) : ?>
+                        <label style="display: block; margin: 3px 0;">
+                            <input type="checkbox"
+                                   name="tmwseo_selected_keywords[]"
+                                   value="<?php echo esc_attr($kw); ?>"
+                                   <?php checked(in_array($kw, $keywords, true)); ?>>
+                            <?php echo esc_html($kw); ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+                <p class="description">Keywords will be used in AI-generated content.</p>
+            </div>
 
             <p>
                 <button type="button" class="button button-primary" id="tmwseo-generate-content" data-post-id="<?php echo (int) $post->ID; ?>" <?php disabled($locked); ?>>
@@ -3489,6 +3520,24 @@ class Admin {
         $original_title = (string) get_post_meta($post->ID, '_tmwseo_original_title', true);
         $suggestions = class_exists('\\TMW_SEO\\Video_Title_Generator') ? Video_Title_Generator::get_cached_suggestions($post->ID) : null;
         $suggestions = is_array($suggestions) ? $suggestions : [];
+        $video_keywords = get_post_meta($post->ID, '_tmwseo_video_keywords', true);
+        $video_keywords = is_array($video_keywords) ? $video_keywords : [];
+        $looks = Core::first_looks($post->ID);
+        $categories = \TMW_SEO\Keyword_Library::categories_from_looks($looks);
+        if (empty($categories)) {
+            $categories = ['general'];
+        }
+        $available_keywords = [];
+        foreach ($categories as $category) {
+            $extra_keywords = \TMW_SEO\Keyword_Library::load_rows($category, 'extra', false);
+            foreach ($extra_keywords as $row) {
+                $kw = $row['keyword'] ?? '';
+                if ($kw !== '' && !in_array($kw, $available_keywords, true)) {
+                    $available_keywords[] = $kw;
+                }
+            }
+        }
+        $available_keywords = array_slice($available_keywords, 0, 30);
         ?>
         <div class="tmwseo-title-generator" style="margin-top: 16px; border-top: 1px solid #ddd; padding-top: 12px;">
             <h4>Video Title Optimizer</h4>
@@ -3532,6 +3581,25 @@ class Admin {
                         Apply Selected Title
                     </button>
                 </p>
+            </div>
+        </div>
+        <div class="tmwseo-video-keyword-selector" style="margin-top: 12px; border-top: 1px solid #ddd; padding-top: 10px;">
+            <h4>Video Keywords</h4>
+            <p><strong>Select Keywords for Title Generation:</strong></p>
+            <div style="max-height: 150px; overflow-y: auto; border: 1px solid #ddd; padding: 6px; background: #fff;">
+                <?php if (!empty($available_keywords)) : ?>
+                    <?php foreach ($available_keywords as $kw) : ?>
+                        <label style="display: block; margin: 2px 0; font-size: 12px;">
+                            <input type="checkbox"
+                                   name="tmwseo_video_keywords[]"
+                                   value="<?php echo esc_attr($kw); ?>"
+                                   <?php checked(in_array($kw, $video_keywords, true)); ?>>
+                            <?php echo esc_html($kw); ?>
+                        </label>
+                    <?php endforeach; ?>
+                <?php else : ?>
+                    <p><em>No keywords available. Add tags to this video first.</em></p>
+                <?php endif; ?>
             </div>
         </div>
         ?>
@@ -3663,6 +3731,14 @@ class Admin {
         if (!current_user_can('edit_post', $post_id)) return;
         $val = isset($_POST['tmwseo_model_name']) ? sanitize_text_field(wp_unslash($_POST['tmwseo_model_name'])) : '';
         if ($val !== '') update_post_meta($post_id, 'tmwseo_model_name', $val); else delete_post_meta($post_id, 'tmwseo_model_name');
+        if (isset($_POST['tmwseo_video_keywords']) && is_array($_POST['tmwseo_video_keywords'])) {
+            $selected = array_map('sanitize_text_field', wp_unslash($_POST['tmwseo_video_keywords']));
+            $selected = array_values(array_unique(array_filter($selected)));
+            $selected = array_slice($selected, 0, 10);
+            update_post_meta($post_id, '_tmwseo_video_keywords', $selected);
+        } else {
+            delete_post_meta($post_id, '_tmwseo_video_keywords');
+        }
     }
 
     /**
@@ -3692,6 +3768,17 @@ class Admin {
             update_post_meta($post_id, '_tmwseo_ai_content_locked', 1);
         } else {
             delete_post_meta($post_id, '_tmwseo_ai_content_locked');
+        }
+
+        if (isset($_POST['tmwseo_selected_keywords']) && is_array($_POST['tmwseo_selected_keywords'])) {
+            $selected = array_map('sanitize_text_field', wp_unslash($_POST['tmwseo_selected_keywords']));
+            $selected = array_values(array_unique(array_filter($selected)));
+            $selected = array_slice($selected, 0, 10);
+            update_post_meta($post_id, '_tmwseo_extras_list', $selected);
+            update_post_meta($post_id, '_tmwseo_extras_locked', 1);
+        } else {
+            delete_post_meta($post_id, '_tmwseo_extras_list');
+            delete_post_meta($post_id, '_tmwseo_extras_locked');
         }
     }
 

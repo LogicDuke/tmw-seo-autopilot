@@ -10,43 +10,58 @@ if (!defined('ABSPATH')) {
 }
 
 return [
+    // POSITIVE SENTIMENT WORDS (30 selected)
     'sentiments' => [
-        'Alluring',
-        'Captivating',
-        'Charming',
-        'Confident',
-        'Elegant',
-        'Enchanting',
-        'Enticing',
-        'Exclusive',
-        'Glamorous',
-        'Irresistible',
-        'Magnetic',
-        'Mesmerizing',
-        'Must-See',
-        'Polished',
-        'Radiant',
-        'Sensational',
-        'Sophisticated',
+        // Sex Appeal (10)
         'Stunning',
-        'Stylish',
+        'Seductive',
+        'Captivating',
+        'Irresistible',
+        'Mesmerizing',
         'Sultry',
-        'Tasteful',
-        'Thrilling',
-        'Timeless',
-        'Top-Rated',
-        'Trending',
-        'Unforgettable',
-        'Vibrant',
+        'Alluring',
+        'Tantalizing',
+        'Provocative',
+        'Sensual',
+
+        // Exclusivity (6)
+        'Exclusive',
         'VIP',
-        'Warm',
-        'Worthy',
+        'Premium',
+        'Private',
+        'Insider',
+        'Elite',
+
+        // Curiosity (6)
+        'Revealed',
+        'Secrets',
+        'Uncovered',
+        'Behind-the-scenes',
+        'Must-see',
+        'Discover',
+
+        // Quality/Trust (5)
+        'Verified',
+        'Authentic',
+        'Top-rated',
+        'Fan-favorite',
+        'Trusted',
+
+        // Energy/Vibe (6)
+        'Dynamic',
+        'Confident',
+        'Playful',
+        'Charming',
+        'Engaging',
+        'Vibrant',
     ],
 
+    // POWER WORDS for content descriptors
     'power_words' => [
         'Highlights',
         'Spotlight',
         'Profile',
+        'Guide',
         'Secrets',
         'Revealed',
         'Uncovered',
@@ -54,12 +69,15 @@ return [
         'Insider',
         'Behind-the-Scenes',
         'Deep-Dive',
-        'Exclusive',
         'VIP Access',
         'Fan Favorites',
         'Best Moments',
         'Top Picks',
+        'Exclusive Look',
+        'Full Profile',
+        'Complete Guide',
     ],
 
+    // NUMBERS for titles
     'numbers' => [3, 5, 7, 10],
 ];
