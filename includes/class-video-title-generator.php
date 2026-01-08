@@ -43,7 +43,13 @@ class Video_Title_Generator {
             return new \WP_Error('tmwseo_invalid_post_type', 'Title generation is only available for videos.');
         }
 
-        $original_title = (string) $post->post_title;
+        $original_title = (string) get_post_meta($post_id, '_tmwseo_original_title', true);
+        if ($original_title === '') {
+            $original_title = (string) $post->post_title;
+            if ($original_title !== '') {
+                update_post_meta($post_id, '_tmwseo_original_title', $original_title);
+            }
+        }
         $model_name = Core::get_video_model_name($post);
         if ($model_name === '') {
             return new \WP_Error('tmwseo_missing_model', 'Model name is required for title suggestions.');
@@ -125,7 +131,14 @@ class Video_Title_Generator {
         $title = '';
         $selected_meta = $selection;
 
-        if (is_numeric($selection)) {
+        if ($selection === 'restore_original') {
+            $original = get_post_meta($post_id, '_tmwseo_original_title', true);
+            if ($original === '') {
+                return new \WP_Error('tmwseo_no_original', 'No original title stored.');
+            }
+            $title = (string) $original;
+            $selected_meta = 'restore_original';
+        } elseif (is_numeric($selection)) {
             $index = (int) $selection;
             $suggestions = self::get_cached_suggestions($post_id);
             if (!$suggestions || !isset($suggestions[$index])) {

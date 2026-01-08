@@ -3518,6 +3518,11 @@ class Admin {
         echo '<p><button type="button" class="button" id="tmw_seo_video_rollback_btn" style="width:100%; margin-top:4px;"' . (!$has_prev ? ' disabled' : '') . '>Rollback</button>' . (!$has_prev ? ' <em style="display:block;margin-top:4px;">No rollback snapshot yet</em>' : '') . '</p>';
         if ($last) echo '<p><em>Last run:</em> ' . esc_html($last) . '</p>';
         $original_title = (string) get_post_meta($post->ID, '_tmwseo_original_title', true);
+        $current_title = (string) $post->post_title;
+        if ($original_title === '' && $current_title !== '') {
+            $original_title = $current_title;
+            update_post_meta($post->ID, '_tmwseo_original_title', $original_title);
+        }
         $suggestions = class_exists('\\TMW_SEO\\Video_Title_Generator') ? Video_Title_Generator::get_cached_suggestions($post->ID) : null;
         $suggestions = is_array($suggestions) ? $suggestions : [];
         $video_keywords = get_post_meta($post->ID, '_tmwseo_video_keywords', true);
@@ -3542,11 +3547,25 @@ class Admin {
         <div class="tmwseo-title-generator" style="margin-top: 16px; border-top: 1px solid #ddd; padding-top: 12px;">
             <h4>Video Title Optimizer</h4>
 
-            <p><strong>Current Title:</strong> <?php echo esc_html($post->post_title); ?></p>
-
-            <?php if ($original_title && $original_title !== $post->post_title) : ?>
-                <p><em>Original: <?php echo esc_html($original_title); ?></em></p>
-            <?php endif; ?>
+            <table class="form-table" style="margin: 0;">
+                <tr>
+                    <th style="padding: 5px 0; width: 100px;">Original:</th>
+                    <td style="padding: 5px 0;">
+                        <strong style="color: #0073aa;"><?php echo esc_html($original_title); ?></strong>
+                    </td>
+                </tr>
+                <tr>
+                    <th style="padding: 5px 0;">Current:</th>
+                    <td style="padding: 5px 0;">
+                        <?php if ($current_title !== $original_title) : ?>
+                            <?php echo esc_html($current_title); ?>
+                            <em style="color: #666;">(modified)</em>
+                        <?php else : ?>
+                            <em style="color: #666;">(same as original)</em>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            </table>
 
             <p>
                 <button type="button" class="button" id="tmwseo-generate-titles" data-post-id="<?php echo (int) $post->ID; ?>">
@@ -3556,7 +3575,7 @@ class Admin {
             </p>
 
             <div class="tmwseo-title-suggestions" style="<?php echo !empty($suggestions) ? '' : 'display:none;'; ?>">
-                <p><strong>Select a title:</strong></p>
+                <p><strong>Select a title:</strong> <em>(compare to original above)</em></p>
                 <div class="tmwseo-suggestions-list">
                     <?php if (!empty($suggestions)) : ?>
                         <?php foreach ($suggestions as $index => $title) : ?>
@@ -3573,6 +3592,13 @@ class Admin {
                         <input type="radio" name="tmwseo_title_choice" value="custom">
                         Custom:
                         <input type="text" id="tmwseo-custom-title" class="regular-text" placeholder="Write your own title">
+                    </label>
+                </p>
+
+                <p>
+                    <label>
+                        <input type="radio" name="tmwseo_title_choice" value="restore_original">
+                        <strong>Restore Original:</strong> <?php echo esc_html($original_title); ?>
                     </label>
                 </p>
 
@@ -3729,6 +3755,10 @@ class Admin {
     public static function save_video_metabox($post_id, $post) {
         if (!isset($_POST['tmwseo_box_nonce']) || !wp_verify_nonce($_POST['tmwseo_box_nonce'], 'tmwseo_box')) return;
         if (!current_user_can('edit_post', $post_id)) return;
+        $existing_original = get_post_meta($post_id, '_tmwseo_original_title', true);
+        if ($existing_original === '' && $post instanceof \WP_Post && $post->post_title !== '') {
+            update_post_meta($post_id, '_tmwseo_original_title', $post->post_title);
+        }
         $val = isset($_POST['tmwseo_model_name']) ? sanitize_text_field(wp_unslash($_POST['tmwseo_model_name'])) : '';
         if ($val !== '') update_post_meta($post_id, 'tmwseo_model_name', $val); else delete_post_meta($post_id, 'tmwseo_model_name');
         if (isset($_POST['tmwseo_video_keywords']) && is_array($_POST['tmwseo_video_keywords'])) {

@@ -75,7 +75,14 @@ jQuery(document).ready(function ($) {
             return;
         }
 
-        var selection = (choice === 'custom') ? customTitle : parseInt(choice, 10);
+        var selection;
+        if (choice === 'custom') {
+            selection = customTitle;
+        } else if (choice === 'restore_original') {
+            selection = 'restore_original';
+        } else {
+            selection = parseInt(choice, 10);
+        }
 
         $.post(ajaxurl, {
             action: 'tmwseo_apply_video_title',
@@ -85,7 +92,8 @@ jQuery(document).ready(function ($) {
         }).done(function (response) {
             if (response.success) {
                 $('#title').val(response.data.new_title);
-                alert('Title updated!');
+                alert('Title updated to: ' + response.data.new_title);
+                location.reload();
             } else {
                 alert('Error: ' + (response.data && response.data.message ? response.data.message : 'Request failed'));
             }
