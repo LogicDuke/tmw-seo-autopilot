@@ -50,7 +50,10 @@ class Video_Title_Generator {
         }
         $tags = Core::first_looks($post_id);
         $tags = array_values(array_unique(array_filter(array_map('sanitize_text_field', $tags), 'strlen')));
-        $keywords = get_post_meta($post_id, '_tmwseo_video_tag_keywords', true);
+        $keywords = get_post_meta($post_id, '_tmwseo_video_keywords', true);
+        if (empty($keywords) || !is_array($keywords)) {
+            $keywords = get_post_meta($post_id, '_tmwseo_video_tag_keywords', true);
+        }
         $keywords = is_array($keywords) ? $keywords : [];
         $keywords = array_values(array_unique(array_filter(array_map('sanitize_text_field', $keywords), 'strlen')));
 
@@ -164,6 +167,12 @@ class Video_Title_Generator {
      * @return void
      */
     public static function ajax_generate_title_suggestions(): void {
+        error_log(self::TAG . ' AJAX called');
+        error_log(self::TAG . ' POST data: ' . print_r($_POST, true));
+        $nonce = $_POST['nonce'] ?? '';
+        error_log(self::TAG . ' Nonce check: ' . (wp_verify_nonce($nonce, 'tmwseo_admin_nonce') ? 'VALID' : 'INVALID'));
+        $service = new OpenAI_Service();
+        error_log(self::TAG . ' OpenAI configured: ' . ($service->is_configured() ? 'YES' : 'NO'));
         check_ajax_referer('tmwseo_admin_nonce', 'nonce');
 
         $post_id = (int) ($_POST['post_id'] ?? 0);
