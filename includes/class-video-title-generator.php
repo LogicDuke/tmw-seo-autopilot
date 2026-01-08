@@ -29,10 +29,25 @@ class Video_Title_Generator {
     }
 
     /**
-     * Generate title suggestions.
+     * Generate up to five SEO-optimized title suggestions for a video post.
      *
-     * @param int $post_id Post ID.
-     * @return array|\WP_Error
+     * Builds a prompt from the post's title, model name, tags, and keywords, requests suggestions from the OpenAI service,
+     * parses and validates the response, caches up to five titles in post meta, and preserves the original title in post meta
+     * if not already stored.
+     *
+     * @param int $post_id ID of the post to generate titles for; must be a video post.
+     * @return array|\WP_Error An array of up to five suggested titles on success; a WP_Error on failure.
+     *
+     * Possible WP_Error codes:
+     * - 'tmwseo_invalid_post' when the post is missing or invalid.
+     * - 'tmwseo_invalid_post_type' when the post is not a video post.
+     * - 'tmwseo_missing_model' when a required model name is not available.
+     * - 'tmwseo_openai_malformed' when the OpenAI response cannot be parsed into at least five titles.
+     * - Any WP_Error returned by the OpenAI service call.
+     *
+     * Side effects:
+     * - Stores suggestions in post meta key '_tmwseo_title_suggestions' (JSON array).
+     * - Stores the original title in '_tmwseo_original_title' if that meta is empty.
      */
     public static function generate_title_suggestions(int $post_id) {
         $post = get_post($post_id);

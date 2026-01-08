@@ -3720,10 +3720,14 @@ class Admin {
     }
 
     /**
-     * Handles the `save_post` hook for video meta box data.
+     * Save video metabox fields when a post is saved.
+     *
+     * Validates the metabox nonce and current user's edit permission, then stores or clears post meta:
+     * - Saves `tmwseo_model_name` (sanitized) to `tmwseo_model_name` or deletes it when empty.
+     * - Saves `tmwseo_video_keywords` (sanitized, de-duplicated, filtered, limited to 10) to `_tmwseo_video_keywords` or deletes the meta when not provided.
      *
      * @param int      $post_id Post ID.
-     * @param \WP_Post $post Post object.
+     * @param \WP_Post $post    Post object.
      * @return void
      */
     public static function save_video_metabox($post_id, $post) {
@@ -3742,11 +3746,17 @@ class Admin {
     }
 
     /**
-     * Handles saving AI content for model metabox.
+     * Save AI-generated content and associated metadata from the model metabox.
      *
-     * @param int      $post_id Post ID.
-     * @param \WP_Post $post Post object.
-     * @return void
+     * Verifies the metabox nonce and the current user's edit permission; if validation fails the function returns without making changes.
+     * Stores or deletes the following post meta based on submitted fields:
+     * - `_tmwseo_ai_content`: sanitized AI content from `tmwseo_ai_content`.
+     * - `_tmwseo_ai_content_locked`: presence flag from `tmwseo_ai_content_locked`.
+     * - `_tmwseo_extras_list`: sanitized, deduplicated, filtered list from `tmwseo_selected_keywords`, truncated to 10 items.
+     * - `_tmwseo_extras_locked`: set when `tmwseo_selected_keywords` is provided; removed when absent.
+     *
+     * @param int     $post_id Post ID being saved.
+     * @param WP_Post $post    Post object being saved.
      */
     public static function save_model_ai_content($post_id, $post): void {
         if (!isset($_POST['tmwseo_box_nonce']) || !wp_verify_nonce($_POST['tmwseo_box_nonce'], 'tmwseo_box')) {
