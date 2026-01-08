@@ -41,6 +41,7 @@ class Admin {
         add_action('admin_post_tmwseo_usage_reset', [__CLASS__, 'handle_usage_reset']);
         add_action('admin_post_tmwseo_delete_keyword', [__CLASS__, 'handle_delete_keyword']);
         add_action('admin_post_tmwseo_blacklist_keyword', [__CLASS__, 'handle_blacklist_keyword']);
+        add_action('save_post_' . Core::MODEL_PT, [__CLASS__, 'save_model_ai_content'], 10, 2);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
         add_action('admin_notices', [__CLASS__, 'maybe_render_video_generate_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
@@ -66,6 +67,21 @@ class Admin {
         if (strpos($hook, 'tmw-seo-autopilot') !== false) {
             wp_enqueue_style('tmw-seo-admin', TMW_SEO_URL . 'assets/admin.css', [], '0.8.0');
         }
+
+        if (!in_array($hook, ['post.php', 'post-new.php'], true)) {
+            return;
+        }
+
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        $post_type = $screen ? $screen->post_type : '';
+        if (!in_array($post_type, [Core::MODEL_PT], true) && !Core::is_video_post_type($post_type)) {
+            return;
+        }
+
+        wp_enqueue_script('tmwseo-admin', TMW_SEO_URL . 'assets/admin.js', ['jquery'], '1.0.0', true);
+        wp_localize_script('tmwseo-admin', 'tmwseoAdmin', [
+            'nonce' => wp_create_nonce('tmwseo_admin_nonce'),
+        ]);
     }
 
     /**
@@ -85,6 +101,7 @@ class Admin {
      */
     public static function render_box($post) {
         $nonce = wp_create_nonce('tmwseo_actions');
+        wp_nonce_field('tmwseo_box', 'tmwseo_box_nonce');
         $openai_enabled = \TMW_SEO\Providers\OpenAI::is_enabled();
         $default_strategy = $openai_enabled ? 'openai' : 'template';
         $template_selected = $default_strategy === 'template' ? 'selected' : '';
@@ -101,7 +118,53 @@ class Admin {
         echo '<option value="openai" ' . $openai_selected . '>OpenAI (if configured)</option>';
         echo '</select></p>';
         echo '<p><button type="button" class="button button-primary" id="tmw_seo_generate_btn">Generate</button> <button type="button" class="button" id="tmw_seo_rollback_btn"' . (!$has_prev ? ' disabled' : '') . '>Rollback</button>' . (!$has_prev ? ' <em style="display:block;margin-top:4px;">No rollback snapshot yet</em>' : '') . '</p>';
+        $content = (string) get_post_meta($post->ID, '_tmwseo_ai_content', true);
+        $locked = (bool) get_post_meta($post->ID, '_tmwseo_ai_content_locked', true);
+        $generated_at = (string) get_post_meta($post->ID, '_tmwseo_ai_generated_at', true);
+        $keywords = get_post_meta($post->ID, '_tmwseo_extras_list', true);
+        $keywords = is_array($keywords) ? array_filter(array_map('sanitize_text_field', $keywords), 'strlen') : [];
         ?>
+        <div class="tmwseo-ai-generator" style="margin-top: 16px; border-top: 1px solid #ddd; padding-top: 12px;">
+            <h4>AI Content Generator</h4>
+
+            <p><strong>Selected Keywords:</strong></p>
+            <ul class="tmwseo-keyword-list">
+                <?php if (!empty($keywords)) : ?>
+                    <?php foreach ($keywords as $keyword) : ?>
+                        <li><?php echo esc_html($keyword); ?></li>
+                    <?php endforeach; ?>
+                <?php else : ?>
+                    <li><?php echo esc_html__('No keywords selected yet.', 'tmw-seo-autopilot'); ?></li>
+                <?php endif; ?>
+            </ul>
+
+            <p>
+                <button type="button" class="button button-primary" id="tmwseo-generate-content" data-post-id="<?php echo (int) $post->ID; ?>" <?php disabled($locked); ?>>
+                    Generate Content with AI
+                </button>
+                <span class="spinner"></span>
+            </p>
+
+            <div class="tmwseo-generated-content" style="<?php echo $content !== '' ? '' : 'display:none;'; ?>">
+                <p><strong>Generated Content:</strong></p>
+                <textarea name="tmwseo_ai_content" rows="8" class="large-text"><?php echo esc_textarea($content); ?></textarea>
+
+                <p>
+                    <label>
+                        <input type="checkbox" name="tmwseo_ai_content_locked" value="1" <?php checked($locked); ?>>
+                        Lock content (prevent regeneration)
+                    </label>
+                </p>
+            </div>
+
+            <p class="tmwseo-generated-date">
+                <?php if ($generated_at) : ?>
+                    Generated on: <?php echo esc_html(date('Y-m-d H:i', strtotime($generated_at))); ?>
+                <?php else : ?>
+                    <?php echo esc_html__('Not yet generated', 'tmw-seo-autopilot'); ?>
+                <?php endif; ?>
+            </p>
+        </div>
         <script>
         (function($){
             $('#tmw_seo_generate_btn').on('click', function(){
@@ -3423,6 +3486,54 @@ class Admin {
         echo '</form>';
         echo '<p><button type="button" class="button" id="tmw_seo_video_rollback_btn" style="width:100%; margin-top:4px;"' . (!$has_prev ? ' disabled' : '') . '>Rollback</button>' . (!$has_prev ? ' <em style="display:block;margin-top:4px;">No rollback snapshot yet</em>' : '') . '</p>';
         if ($last) echo '<p><em>Last run:</em> ' . esc_html($last) . '</p>';
+        $original_title = (string) get_post_meta($post->ID, '_tmwseo_original_title', true);
+        $suggestions = class_exists('\\TMW_SEO\\Video_Title_Generator') ? Video_Title_Generator::get_cached_suggestions($post->ID) : null;
+        $suggestions = is_array($suggestions) ? $suggestions : [];
+        ?>
+        <div class="tmwseo-title-generator" style="margin-top: 16px; border-top: 1px solid #ddd; padding-top: 12px;">
+            <h4>Video Title Optimizer</h4>
+
+            <p><strong>Current Title:</strong> <?php echo esc_html($post->post_title); ?></p>
+
+            <?php if ($original_title && $original_title !== $post->post_title) : ?>
+                <p><em>Original: <?php echo esc_html($original_title); ?></em></p>
+            <?php endif; ?>
+
+            <p>
+                <button type="button" class="button" id="tmwseo-generate-titles" data-post-id="<?php echo (int) $post->ID; ?>">
+                    Generate 5 Title Suggestions
+                </button>
+                <span class="spinner"></span>
+            </p>
+
+            <div class="tmwseo-title-suggestions" style="<?php echo !empty($suggestions) ? '' : 'display:none;'; ?>">
+                <p><strong>Select a title:</strong></p>
+                <div class="tmwseo-suggestions-list">
+                    <?php if (!empty($suggestions)) : ?>
+                        <?php foreach ($suggestions as $index => $title) : ?>
+                            <label style="display:block;margin:5px 0;">
+                                <input type="radio" name="tmwseo_title_choice" value="<?php echo (int) $index; ?>">
+                                <?php echo esc_html($title); ?>
+                            </label>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+
+                <p>
+                    <label>
+                        <input type="radio" name="tmwseo_title_choice" value="custom">
+                        Custom:
+                        <input type="text" id="tmwseo-custom-title" class="regular-text" placeholder="Write your own title">
+                    </label>
+                </p>
+
+                <p>
+                    <button type="button" class="button button-primary" id="tmwseo-apply-title">
+                        Apply Selected Title
+                    </button>
+                </p>
+            </div>
+        </div>
         ?>
         <script>
         (function($){
@@ -3552,6 +3663,36 @@ class Admin {
         if (!current_user_can('edit_post', $post_id)) return;
         $val = isset($_POST['tmwseo_model_name']) ? sanitize_text_field(wp_unslash($_POST['tmwseo_model_name'])) : '';
         if ($val !== '') update_post_meta($post_id, 'tmwseo_model_name', $val); else delete_post_meta($post_id, 'tmwseo_model_name');
+    }
+
+    /**
+     * Handles saving AI content for model metabox.
+     *
+     * @param int      $post_id Post ID.
+     * @param \WP_Post $post Post object.
+     * @return void
+     */
+    public static function save_model_ai_content($post_id, $post): void {
+        if (!isset($_POST['tmwseo_box_nonce']) || !wp_verify_nonce($_POST['tmwseo_box_nonce'], 'tmwseo_box')) {
+            return;
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            return;
+        }
+
+        $content = isset($_POST['tmwseo_ai_content']) ? wp_kses_post(wp_unslash($_POST['tmwseo_ai_content'])) : '';
+        if ($content !== '') {
+            update_post_meta($post_id, '_tmwseo_ai_content', $content);
+        } else {
+            delete_post_meta($post_id, '_tmwseo_ai_content');
+        }
+
+        if (!empty($_POST['tmwseo_ai_content_locked'])) {
+            update_post_meta($post_id, '_tmwseo_ai_content_locked', 1);
+        } else {
+            delete_post_meta($post_id, '_tmwseo_ai_content_locked');
+        }
     }
 
     /**
@@ -3723,6 +3864,10 @@ class Admin {
             } else {
                 $api_key = self::sanitize_secret($_POST['tmwseo_openai_api_key'] ?? '');
                 if ($api_key !== '') {
+                    if (strpos($api_key, 'sk-') !== 0) {
+                        wp_safe_redirect(add_query_arg('tmwseo_openai_invalid', 1, $redirect));
+                        exit;
+                    }
                     self::update_option_noautoload('tmwseo_openai_api_key', $api_key);
                 }
             }
@@ -4161,6 +4306,10 @@ class Admin {
 
         if (!empty($_GET['tmwseo_kw_blacklisted_existing'])) {
             echo '<div class="notice notice-info is-dismissible"><p>' . esc_html__('Keyword is already blacklisted.', 'tmw-seo-autopilot') . '</p></div>';
+        }
+
+        if (!empty($_GET['tmwseo_openai_invalid'])) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('OpenAI API key must start with \"sk-\". Please update and try again.', 'tmw-seo-autopilot') . '</p></div>';
         }
 
         $screen = get_current_screen();

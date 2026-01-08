@@ -53,6 +53,9 @@ require_once TMW_SEO_PATH . 'includes/class-serper-client.php';
 require_once TMW_SEO_PATH . 'includes/class-google-autocomplete.php';
 require_once TMW_SEO_PATH . 'includes/class-google-suggest-client.php';
 require_once TMW_SEO_PATH . 'includes/class-uniqueness-checker.php';
+require_once TMW_SEO_PATH . 'includes/class-openai-service.php';
+require_once TMW_SEO_PATH . 'includes/class-openai-content-generator.php';
+require_once TMW_SEO_PATH . 'includes/class-video-title-generator.php';
 require_once TMW_SEO_PATH . 'includes/media/class-image-meta-generator.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-media.php';
 require_once TMW_SEO_PATH . 'includes/providers/class-provider-template.php';
@@ -68,6 +71,8 @@ add_action('plugins_loaded', function () {
     \TMW_SEO\Media::boot();
     \TMW_SEO\Admin\Model_Platforms_Metabox::boot();
     \TMW_SEO\Keyword_Scheduler::boot();
+    \TMW_SEO\OpenAI_Content_Generator::boot();
+    \TMW_SEO\Video_Title_Generator::boot();
 });
 
 add_filter('cron_schedules', function($schedules) {

@@ -38,8 +38,11 @@ class RankMath {
             return '';
         }
 
-        $numbers = [3, 5, 7, 10];
-        $power_words = [
+        $words_path = TMW_SEO_PATH . 'data/snippet-power-words.php';
+        $words = is_readable($words_path) ? include $words_path : [];
+
+        $numbers = $words['numbers'] ?? [3, 5, 7, 10];
+        $power_words = $words['power_words'] ?? [
             'Highlights',
             'Spotlight',
             'Profile Guide',
@@ -51,7 +54,7 @@ class RankMath {
             'Behind-the-Scenes',
             'Deep-Dive',
         ];
-        $sentiments = [
+        $sentiments = $words['sentiments'] ?? [
             'Essential',
             'Trusted',
             'Favorite',

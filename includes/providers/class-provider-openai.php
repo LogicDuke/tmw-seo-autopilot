@@ -151,21 +151,14 @@ class OpenAI {
             );
         }
 
-        $res = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $this->api_key(),
-                'Content-Type'  => 'application/json',
+        $res = self::request([
+            'model' => 'gpt-4o-mini',
+            'messages' => [
+                ['role' => 'system', 'content' => 'You are a concise SEO writer. Keep content safe for work.'],
+                ['role' => 'user',   'content' => $prompt],
             ],
-            'timeout' => 25,
-            'body' => wp_json_encode([
-                'model' => 'gpt-4o-mini',
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are a concise SEO writer. Keep content safe for work.'],
-                    ['role' => 'user',   'content' => $prompt],
-                ],
-                'temperature' => 0.5,
-            ]),
-        ]);
+            'temperature' => 0.5,
+        ], 25);
 
         if (is_wp_error($res)) {
             Core::debug_log('[TMW-SEO-GEN] OpenAI error: ' . $res->get_error_message());
@@ -184,5 +177,29 @@ class OpenAI {
         $payload['content'] = wp_kses_post($payload['content']);
 
         return $payload;
+    }
+
+    /**
+     * Handles OpenAI API request.
+     *
+     * @param array $payload Request payload.
+     * @param int   $timeout Timeout in seconds.
+     * @return array|\WP_Error
+     */
+    public static function request(array $payload, int $timeout = 30) {
+        $self = new self();
+        $api_key = $self->api_key();
+        if ($api_key === '') {
+            return new \WP_Error('tmwseo_openai_missing_key', 'Missing OpenAI API key.');
+        }
+
+        return wp_remote_post('https://api.openai.com/v1/chat/completions', [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type'  => 'application/json',
+            ],
+            'timeout' => $timeout,
+            'body' => wp_json_encode($payload),
+        ]);
     }
 }
