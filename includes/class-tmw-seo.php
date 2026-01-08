@@ -93,6 +93,23 @@ class Core {
     }
 
     /**
+     * Ensure the original video title is stored in post meta.
+     *
+     * @param \WP_Post $post Post object.
+     * @return string Stored original title.
+     */
+    public static function ensure_original_video_title( \WP_Post $post ): string {
+        $post_id  = $post->ID;
+        $existing = get_post_meta( $post_id, '_tmwseo_original_title', true );
+        if ( $existing === '' && $post->post_title !== '' ) {
+            $existing = (string) $post->post_title;
+            update_post_meta( $post_id, '_tmwseo_original_title', $existing );
+        }
+
+        return (string) $existing;
+    }
+
+    /**
      * Returns the csv directory.
      * @return string
      */
@@ -336,6 +353,7 @@ class Core {
         if (!$post || !self::is_video_post_type($post->post_type)) {
             return ['ok' => false, 'message' => 'Not a video'];
         }
+        self::ensure_original_video_title( $post );
 
         $existing_focus = trim((string) get_post_meta($post->ID, 'rank_math_focus_keyword', true));
         $already_done = get_post_meta($post->ID, '_tmwseo_video_seo_done', true);
@@ -417,18 +435,6 @@ class Core {
                 'csv_extras'       => $video_extras,
             ]
         );
-
-        if ( $csv_title !== '' && ! get_post_meta( $post->ID, '_tmwseo_video_title_locked', true ) ) {
-            update_post_meta( $post->ID, '_tmwseo_video_title_locked', 1 );
-            wp_update_post(
-                [
-                    'ID'         => $post->ID,
-                    'post_title' => $csv_title,
-                    'post_name'  => $post->post_name,
-                ]
-            );
-            delete_post_meta( $post->ID, '_tmwseo_video_title_locked' );
-        }
 
         if ( $csv_title === '' && !($respect_manual && $preserve_title && $manual['manual_title_raw'] !== '')) {
             self::maybe_update_video_title( $post, $focus_for_video, $name );
@@ -1951,6 +1957,9 @@ class Core {
      * @return void
      */
     public static function maybe_update_video_title( \WP_Post $post, string $focus, string $model_name ): void {
+        self::ensure_original_video_title( $post );
+        return;
+
         $post_id = $post->ID;
 
         $post = get_post( $post_id );

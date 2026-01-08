@@ -103,6 +103,7 @@ class VideoSEO {
      * @return void
      */
     protected static function generate_for_video(int $post_id, \WP_Post $post): void {
+        Core::ensure_original_video_title( $post );
         $raw_model_name = Core::get_video_model_name_raw($post);
         $model_name = Core::sanitize_sfw_text($raw_model_name, 'Live Cam Model');
 
@@ -134,17 +135,7 @@ class VideoSEO {
             ]
         );
 
-        if ( $csv_title !== '' && ! get_post_meta( $post_id, '_tmwseo_video_title_locked', true ) ) {
-            update_post_meta( $post_id, '_tmwseo_video_title_locked', 1 );
-            wp_update_post(
-                [
-                    'ID'         => $post_id,
-                    'post_title' => $csv_title,
-                    'post_name'  => $post->post_name,
-                ]
-            );
-            delete_post_meta( $post_id, '_tmwseo_video_title_locked' );
-        } elseif ($manual['manual_title_raw'] === '') {
+        if ($manual['manual_title_raw'] === '') {
             Core::maybe_update_video_title( $post, $rm['focus'], $model_name );
         }
 
