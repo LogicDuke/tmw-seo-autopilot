@@ -3397,11 +3397,23 @@ class Admin {
     public static function render_video_box($post) {
         $nonce = wp_create_nonce('tmwseo_actions');
         wp_nonce_field('tmwseo_box', 'tmwseo_box_nonce');
+        $openai_enabled = \TMW_SEO\Providers\OpenAI::is_enabled();
+        $default_strategy = $openai_enabled ? 'openai' : 'template';
+        $template_selected = $default_strategy === 'template' ? 'selected' : '';
+        $openai_selected = $default_strategy === 'openai' ? 'selected' : '';
         $override = get_post_meta($post->ID, 'tmwseo_model_name', true);
         $last = get_post_meta($post->ID, '_tmwseo_last_message', true);
         $has_prev = (bool) get_post_meta($post->ID, '_tmwseo_prev_VIDEO', true);
         echo '<p><label><strong>Model Name (override)</strong></label>';
         echo '<input type="text" class="widefat" name="tmwseo_model_name" value="' . esc_attr($override) . '" placeholder="e.g., Abby Murray"></p>';
+        echo '<p>Strategy: <select id="tmw_seo_video_strategy">';
+        echo '<option value="template" ' . $template_selected . '>Template</option>';
+        if ($openai_enabled) {
+            echo '<option value="openai" ' . $openai_selected . '>OpenAI</option>';
+        } else {
+            echo '<option value="openai" disabled>OpenAI (not configured)</option>';
+        }
+        echo '</select></p>';
         $url = wp_nonce_url(admin_url('admin-post.php?action=tmwseo_generate_now&post_id=' . $post->ID), 'tmwseo_generate_now_' . $post->ID);
         echo '<p><a href="' . esc_url($url) . '" class="button button-primary" id="tmw_seo_video_generate_btn" style="width:100%;">Generate Now</a></p>';
         echo '<p><button type="button" class="button" id="tmw_seo_video_rollback_btn" style="width:100%; margin-top:4px;"' . (!$has_prev ? ' disabled' : '') . '>Rollback</button>' . (!$has_prev ? ' <em style="display:block;margin-top:4px;">No rollback snapshot yet</em>' : '') . '</p>';
@@ -3411,6 +3423,18 @@ class Admin {
         (function($){
             $('#tmw_seo_video_generate_btn').on('click', function(e){
                 var $btn = $(this);
+                var strategy = $('#tmw_seo_video_strategy').val();
+                if (strategy) {
+                    try {
+                        var url = new URL($btn.attr('href'), window.location.href);
+                        url.searchParams.set('strategy', strategy);
+                        $btn.attr('href', url.toString());
+                    } catch (err) {
+                        var href = $btn.attr('href');
+                        var separator = href.indexOf('?') === -1 ? '?' : '&';
+                        $btn.attr('href', href + separator + 'strategy=' + encodeURIComponent(strategy));
+                    }
+                }
                 $btn.text('Generating…');
                 setTimeout(function(){
                     $btn.text('Generate Now');
@@ -3545,6 +3569,13 @@ class Admin {
         $post_id = (int)($_GET['post_id'] ?? 0);
         if (!$post_id || !current_user_can('edit_post', $post_id)) wp_die('No permission');
         check_admin_referer('tmwseo_generate_now_' . $post_id);
+        $strategy = sanitize_text_field($_GET['strategy'] ?? '');
+        if (!in_array($strategy, ['template', 'openai'], true)) {
+            $strategy = \TMW_SEO\Providers\OpenAI::is_enabled() ? 'openai' : 'template';
+        }
+        if ($strategy === 'openai' && !\TMW_SEO\Providers\OpenAI::is_enabled()) {
+            $strategy = 'template';
+        }
 
         $post = get_post($post_id);
         if (!$post) {
@@ -3564,7 +3595,7 @@ class Admin {
             $res = \TMW_SEO\Core::generate_for_video(
                 $post_id,
                 [
-                    'strategy' => 'template',
+                    'strategy' => $strategy,
                     'force'    => true,
                     'respect_manual' => true,
                     'preserve_title' => true,
