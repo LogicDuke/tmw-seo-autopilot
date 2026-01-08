@@ -3380,7 +3380,9 @@ class Admin {
 
         $post = $GLOBALS['post'] ?? null;
         $screen = function_exists('get_current_screen') ? get_current_screen() : null;
-        $current_post_type = $screen && !empty($screen->post_type) ? $screen->post_type : ($post->post_type ?? '');
+        $current_post_type = $screen && !empty($screen->post_type)
+            ? $screen->post_type
+            : ($post instanceof \WP_Post ? $post->post_type : '');
         if ($current_post_type && self::is_video_like_post_type($current_post_type, $post) && !in_array($current_post_type, $video_pts, true)) {
             add_meta_box('tmwseo_box', 'TMW SEO Autopilot', [__CLASS__, 'render_video_box'], $current_post_type, 'side', 'high');
         }
@@ -3468,8 +3470,13 @@ class Admin {
         }
 
         $post_id = $post instanceof \WP_Post ? (int) $post->ID : (int) ($_GET['post'] ?? 0);
-        $post_type = $screen->post_type ?? ($post->post_type ?? '');
-        if (!$post_id || !$post_type || !self::is_video_like_post_type($post_type, $post)) {
+        $post_type = $screen->post_type ?? ($post instanceof \WP_Post ? $post->post_type : '');
+        if (
+            !$post_id
+            || !$post_type
+            || !self::is_video_like_post_type($post_type, $post)
+            || !current_user_can('edit_post', $post_id)
+        ) {
             return;
         }
 
@@ -3487,7 +3494,7 @@ class Admin {
      * Determines whether a post type should be treated as video-like.
      *
      * @param string   $post_type Post type slug.
-     * @param \WP_Post $post Optional post object.
+     * @param \WP_Post|null $post Optional post object.
      * @return bool
      */
     private static function is_video_like_post_type($post_type, $post = null) {
