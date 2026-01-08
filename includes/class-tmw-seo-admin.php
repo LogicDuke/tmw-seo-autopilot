@@ -3528,7 +3528,7 @@ class Admin {
                 </p>
 
                 <p>
-                    <button type="button" class="button button-primary" id="tmwseo-apply-title">
+                    <button type="button" class="button button-primary" id="tmwseo-apply-title" data-post-id="<?php echo (int) $post->ID; ?>">
                         Apply Selected Title
                     </button>
                 </p>
@@ -4309,7 +4309,7 @@ class Admin {
         }
 
         if (!empty($_GET['tmwseo_openai_invalid'])) {
-            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('OpenAI API key must start with \"sk-\". Please update and try again.', 'tmw-seo-autopilot') . '</p></div>';
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('OpenAI API key must start with "sk-". Please update and try again.', 'tmw-seo-autopilot') . '</p></div>';
         }
 
         $screen = get_current_screen();
