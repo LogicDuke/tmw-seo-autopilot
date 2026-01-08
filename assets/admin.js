@@ -66,7 +66,7 @@ jQuery(document).ready(function ($) {
     });
 
     $('#tmwseo-apply-title').on('click', function () {
-        var postId = $('#tmwseo-generate-titles').data('post-id');
+        var postId = $(this).data('post-id') || $('#post_ID').val();
         var choice = $('input[name="tmwseo_title_choice"]:checked').val();
         var customTitle = $('#tmwseo-custom-title').val();
 
