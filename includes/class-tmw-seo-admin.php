@@ -42,6 +42,7 @@ class Admin {
         add_action('admin_post_tmwseo_delete_keyword', [__CLASS__, 'handle_delete_keyword']);
         add_action('admin_post_tmwseo_blacklist_keyword', [__CLASS__, 'handle_blacklist_keyword']);
         add_action('admin_notices', [__CLASS__, 'admin_notice']);
+        add_action('admin_notices', [__CLASS__, 'maybe_render_video_generate_notice']);
         add_action('wp_ajax_tmwseo_serper_test', [__CLASS__, 'ajax_serper_test']);
         add_action('wp_ajax_tmwseo_dataforseo_test', [__CLASS__, 'ajax_dataforseo_test']);
         add_action('wp_ajax_tmwseo_build_keyword_pack', [__CLASS__, 'ajax_build_keyword_pack']);
@@ -3372,8 +3373,16 @@ class Admin {
      * @return void
      */
     public static function add_video_metabox() {
-        foreach (\TMW_SEO\Core::video_post_types() as $pt) {
+        $video_pts = \TMW_SEO\Core::video_post_types();
+        foreach ($video_pts as $pt) {
             add_meta_box('tmwseo_box', 'TMW SEO Autopilot', [__CLASS__, 'render_video_box'], $pt, 'side', 'high');
+        }
+
+        $post = $GLOBALS['post'] ?? null;
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        $current_post_type = $screen && !empty($screen->post_type) ? $screen->post_type : ($post->post_type ?? '');
+        if ($current_post_type && self::is_video_like_post_type($current_post_type, $post) && !in_array($current_post_type, $video_pts, true)) {
+            add_meta_box('tmwseo_box', 'TMW SEO Autopilot', [__CLASS__, 'render_video_box'], $current_post_type, 'side', 'high');
         }
     }
 
@@ -3439,6 +3448,71 @@ class Admin {
         })(jQuery);
         </script>
         <?php
+    }
+
+    /**
+     * Renders a fallback generate notice for video edit screens.
+     *
+     * @return void
+     */
+    public static function maybe_render_video_generate_notice() {
+        global $pagenow;
+        if ($pagenow !== 'post.php') {
+            return;
+        }
+
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        $post = $GLOBALS['post'] ?? null;
+        if (!$screen || $screen->base !== 'post') {
+            return;
+        }
+
+        $post_id = $post instanceof \WP_Post ? (int) $post->ID : (int) ($_GET['post'] ?? 0);
+        $post_type = $screen->post_type ?? ($post->post_type ?? '');
+        if (!$post_id || !$post_type || !self::is_video_like_post_type($post_type, $post)) {
+            return;
+        }
+
+        $url = wp_nonce_url(
+            admin_url('admin-post.php?action=tmwseo_generate_now&post_id=' . $post_id),
+            'tmwseo_generate_now_' . $post_id
+        );
+        echo '<div class="notice notice-info"><p>';
+        echo '<strong>TMW SEO Autopilot:</strong> ';
+        echo '<a class="button button-primary" href="' . esc_url($url) . '">Generate SEO Now</a>';
+        echo '</p></div>';
+    }
+
+    /**
+     * Determines whether a post type should be treated as video-like.
+     *
+     * @param string   $post_type Post type slug.
+     * @param \WP_Post $post Optional post object.
+     * @return bool
+     */
+    private static function is_video_like_post_type($post_type, $post = null) {
+        if (!$post_type) {
+            return false;
+        }
+
+        if (\TMW_SEO\Core::is_video_post_type($post_type)) {
+            return true;
+        }
+
+        if (stripos($post_type, 'video') !== false) {
+            return true;
+        }
+
+        if ($post instanceof \WP_Post) {
+            if (metadata_exists('post', $post->ID, '_tmwseo_video_seo_done')) {
+                return true;
+            }
+            if (metadata_exists('post', $post->ID, '_tmwseo_video_title_locked')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
