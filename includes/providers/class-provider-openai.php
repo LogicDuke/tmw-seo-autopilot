@@ -20,7 +20,7 @@ class OpenAI {
      * @return bool
      */
     public static function is_enabled(): bool {
-        $option_key = (string) get_option('tmwseo_openai_api_key', '');
+        $option_key = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_openai_api_key', '');
         return $option_key !== '' || defined('TMW_SEO_OPENAI') || defined('OPENAI_API_KEY');
     }
     /**
@@ -34,7 +34,7 @@ class OpenAI {
         if (defined('OPENAI_API_KEY')) {
             return OPENAI_API_KEY;
         }
-        return (string) get_option('tmwseo_openai_api_key', '');
+        return (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_openai_api_key', '');
     }
 
     /**

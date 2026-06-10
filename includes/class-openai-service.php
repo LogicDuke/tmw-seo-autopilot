@@ -124,6 +124,6 @@ class OpenAI_Service {
             return (string) OPENAI_API_KEY;
         }
 
-        return (string) get_option('tmwseo_openai_api_key', '');
+        return (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_openai_api_key', '');
     }
 }

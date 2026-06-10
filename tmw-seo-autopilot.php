@@ -25,6 +25,10 @@ if (!defined('TMWSEO_SERPER_DEBUG')) {
 }
 
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo.php';
+// Load the secret-storage bridge before anything that touches API credentials.
+require_once TMW_SEO_PATH . 'includes/class-tmw-seo-secret-storage.php';
+// Load the CSV-upload validator bridge before anything that handles file uploads.
+require_once TMW_SEO_PATH . 'includes/class-tmw-seo-csv-upload.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-admin.php';
 require_once TMW_SEO_PATH . 'includes/admin/class-admin-ui.php';
 require_once TMW_SEO_PATH . 'includes/class-tmw-seo-cli.php';

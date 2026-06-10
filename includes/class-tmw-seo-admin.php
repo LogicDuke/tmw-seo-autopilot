@@ -392,9 +392,6 @@ class Admin {
             if (!$nonce_ok) {
                 wp_send_json_error(['message' => 'Invalid nonce. Please refresh and try again.'], 403);
             }
-            if (!current_user_can('edit_posts')) {
-                wp_send_json_error(['message' => 'No permission'], 403);
-            }
 
             $post_id = (int)($_POST['post_id'] ?? 0);
             if ($post_id <= 0) {
@@ -404,6 +401,10 @@ class Admin {
             $post = get_post($post_id);
             if (!$post) {
                 wp_send_json_error(['message' => 'Post not found'], 404);
+            }
+
+            if (!current_user_can('edit_post', $post_id)) {
+                wp_send_json_error(['message' => 'No permission'], 403);
             }
 
             $default_strategy = \TMW_SEO\Providers\OpenAI::is_enabled() ? 'openai' : 'template';
@@ -433,8 +434,13 @@ class Admin {
         if (!$nonce_ok) {
             wp_send_json_error(['message' => 'Invalid nonce. Please refresh and try again.'], 403);
         }
-        if (!current_user_can('edit_posts')) wp_send_json_error(['message' => 'No permission']);
         $post_id = (int)($_POST['post_id'] ?? 0);
+        if ($post_id <= 0 || !get_post($post_id)) {
+            wp_send_json_error(['message' => 'Invalid post ID'], 400);
+        }
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => 'No permission'], 403);
+        }
         $res = Core::rollback($post_id);
         $res['ok'] ? wp_send_json_success(['message' => 'Rollback complete']) : wp_send_json_error(['message' => $res['message'] ?? 'Nothing to rollback']);
     }
@@ -450,7 +456,7 @@ class Admin {
             wp_send_json_error(['message' => 'No permission']);
         }
 
-        $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+        $api_key = trim((string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_serper_api_key', ''));
         if ($api_key === '') {
             wp_send_json_error(['message' => 'API key missing']);
         }
@@ -576,7 +582,7 @@ class Admin {
         }
 
         if ($provider === 'serper') {
-            $api_key = trim((string) get_option('tmwseo_serper_api_key', ''));
+            $api_key = trim((string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_serper_api_key', ''));
             if ($api_key === '') {
                 $fail('Serper API key missing.');
             }
@@ -807,12 +813,22 @@ class Admin {
      */
     public static function handle_bulk($redirect, $doaction, $ids) {
         if ($doaction !== 'tmw_seo_generate_bulk') return $redirect;
-        $count = 0;
+        $count   = 0;
+        $skipped = 0;
         foreach ($ids as $id) {
-            $r = Core::generate_and_write((int)$id, ['strategy' => 'template', 'insert_content' => true]);
+            $id = (int) $id;
+            if ($id <= 0 || !current_user_can('edit_post', $id)) {
+                $skipped++;
+                continue;
+            }
+            $r = Core::generate_and_write($id, ['strategy' => 'template', 'insert_content' => true]);
             if (!empty($r['ok'])) $count++;
         }
-        return add_query_arg('tmw_seo_bulk_done', $count, $redirect);
+        $redirect = add_query_arg('tmw_seo_bulk_done', $count, $redirect);
+        if ($skipped > 0) {
+            $redirect = add_query_arg('tmw_seo_bulk_skipped', $skipped, $redirect);
+        }
+        return $redirect;
     }
 
     /**
@@ -1099,7 +1115,7 @@ class Admin {
     protected static function render_dataforseo_form(bool $standalone = false) {
         $enabled        = (bool) get_option('tmwseo_dataforseo_enabled', false);
         $login          = (string) get_option('tmwseo_dataforseo_login', '');
-        $password       = (string) get_option('tmwseo_dataforseo_password', '');
+        $password       = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_dataforseo_password', '');
         $location_code  = (int) get_option('tmwseo_dataforseo_location_code', 2840);
         $language_code  = (string) get_option('tmwseo_dataforseo_language_code', 'en');
         $connected      = \TMW_SEO\DataForSEO_Client::is_configured();
@@ -1389,20 +1405,20 @@ class Admin {
             return;
         }
 
-        $serper_key = (string) get_option('tmwseo_serper_api_key', '');
+        $serper_key = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_serper_api_key', '');
         $serper_gl  = (string) get_option('tmwseo_serper_gl', 'us');
         $serper_hl  = (string) get_option('tmwseo_serper_hl', 'en');
 
-        $openai_key_option = (string) get_option('tmwseo_openai_api_key', '');
+        $openai_key_option = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_openai_api_key', '');
         $openai_constant   = defined('TMW_SEO_OPENAI') ? (string) TMW_SEO_OPENAI : (defined('OPENAI_API_KEY') ? (string) OPENAI_API_KEY : '');
         $openai_active_key = $openai_key_option !== '' ? $openai_key_option : $openai_constant;
 
-        $semrush_key = (string) get_option('tmwseo_semrush_api_key', '');
+        $semrush_key = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_semrush_api_key', '');
 
         $dataforseo_login         = (string) get_option('tmwseo_dataforseo_login', '');
         $dataforseo_location_code = (int) get_option('tmwseo_dataforseo_location_code', 2840);
         $dataforseo_language_code = (string) get_option('tmwseo_dataforseo_language_code', 'en');
-        $dataforseo_password      = (string) get_option('tmwseo_dataforseo_password', '');
+        $dataforseo_password      = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_dataforseo_password', '');
 
         $serper_connected  = $serper_key !== '';
         $openai_connected  = $openai_active_key !== '';
@@ -2043,22 +2059,26 @@ class Admin {
             if ($action === 'upload' && !empty($_FILES['tmwseo_csv']['tmp_name'])) {
                 $category = sanitize_key($_POST['tmwseo_category'] ?? '');
                 $type     = sanitize_key($_POST['tmwseo_type'] ?? '');
+                // Content-sniff via shared bridge (engine's wp_check_filetype_and_ext).
+                // Replaces the previous PATHINFO_EXTENSION-only check, which trusted
+                // whatever the visitor named the file. 4 MB cap — keyword-library
+                // CSVs (extra / longtail / competitor) are curated lists of a few
+                // thousand rows at most.
+                $check = \Tmw_Seo_Csv_Upload::validate($_FILES['tmwseo_csv'], 4 * 1024 * 1024);
 
                 if (!in_array($category, $categories, true)) {
                     $notices[] = ['type' => 'error', 'text' => 'Invalid category selected.'];
                 } elseif (!in_array($type, ['extra', 'longtail', 'competitor'], true)) {
                     $notices[] = ['type' => 'error', 'text' => 'Invalid keyword type selected.'];
-                } elseif (!is_uploaded_file($_FILES['tmwseo_csv']['tmp_name'])) {
-                    $notices[] = ['type' => 'error', 'text' => 'Upload failed.'];
-                } elseif (strtolower(pathinfo($_FILES['tmwseo_csv']['name'], PATHINFO_EXTENSION)) !== 'csv') {
-                    $notices[] = ['type' => 'error', 'text' => 'Please upload a CSV file.'];
+                } elseif (!($check['ok'] ?? false)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Upload rejected: file did not validate as a CSV.'];
                 } else {
                     Keyword_Library::ensure_dirs_and_placeholders();
                     $dest_dir  = trailingslashit(Keyword_Library::uploads_base_dir()) . $category;
                     wp_mkdir_p($dest_dir);
                     $dest_path = trailingslashit($dest_dir) . "{$type}.csv";
 
-                    if (move_uploaded_file($_FILES['tmwseo_csv']['tmp_name'], $dest_path)) {
+                    if (move_uploaded_file($check['tmp'], $dest_path)) {
                         Keyword_Library::flush_cache();
                         $count = count(Keyword_Library::load($category, $type));
                         $notices[] = ['type' => 'updated', 'text' => sprintf('Uploaded %s keywords for %s (%d entries).', esc_html($type), esc_html($category), (int) $count)];
@@ -2071,18 +2091,21 @@ class Admin {
             if ($action === 'import_planner' && !empty($_FILES['tmwseo_planner_csv']['tmp_name'])) {
                 $category = sanitize_key($_POST['tmwseo_planner_category'] ?? '');
                 $type     = sanitize_key($_POST['tmwseo_planner_type'] ?? '');
+                // Same content-sniff bridge as the keyword upload branch above.
+                // 16 MB cap — Google Keyword Planner exports can be sizeable
+                // (full keyword sets with metrics) but the realistic ceiling
+                // is well under the previous unbounded default.
+                $check = \Tmw_Seo_Csv_Upload::validate($_FILES['tmwseo_planner_csv'], 16 * 1024 * 1024);
 
                 if (!in_array($category, $categories, true)) {
                     $notices[] = ['type' => 'error', 'text' => 'Invalid category selected.'];
                 } elseif (!in_array($type, ['extra', 'longtail', 'competitor'], true)) {
                     $notices[] = ['type' => 'error', 'text' => 'Invalid keyword type selected.'];
-                } elseif (!is_uploaded_file($_FILES['tmwseo_planner_csv']['tmp_name'])) {
-                    $notices[] = ['type' => 'error', 'text' => 'Upload failed.'];
-                } elseif (strtolower(pathinfo($_FILES['tmwseo_planner_csv']['name'], PATHINFO_EXTENSION)) !== 'csv') {
-                    $notices[] = ['type' => 'error', 'text' => 'Please upload a CSV file.'];
+                } elseif (!($check['ok'] ?? false)) {
+                    $notices[] = ['type' => 'error', 'text' => 'Upload rejected: file did not validate as a CSV.'];
                 } else {
                     Keyword_Library::ensure_dirs_and_placeholders();
-                    $import = Keyword_Pack_Builder::import_keyword_planner_csv($category, $type, $_FILES['tmwseo_planner_csv']['tmp_name']);
+                    $import = Keyword_Pack_Builder::import_keyword_planner_csv($category, $type, $check['tmp']);
                     Keyword_Library::flush_cache();
                     $notices[] = [
                         'type' => 'updated',
@@ -2119,7 +2142,7 @@ class Admin {
             }
         }
 
-        $serper_api_key = (string) get_option('tmwseo_serper_api_key', '');
+        $serper_api_key = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_serper_api_key', '');
         $serper_gl      = (string) get_option('tmwseo_serper_gl', 'us');
         $serper_hl      = (string) get_option('tmwseo_serper_hl', 'en');
         $provider_value = (string) get_option('tmwseo_keyword_provider', 'serper');
@@ -4006,7 +4029,7 @@ class Admin {
             } else {
                 $api_key = self::sanitize_secret($_POST['tmwseo_serper_api_key'] ?? '');
                 if ($api_key !== '') {
-                    self::update_option_noautoload('tmwseo_serper_api_key', $api_key);
+                    self::update_option_noautoload('tmwseo_serper_api_key', \Tmw_Seo_Secret_Storage::encrypt($api_key));
                 }
             }
             $serper_gl = sanitize_text_field((string) ($_POST['tmwseo_serper_gl'] ?? get_option('tmwseo_serper_gl', 'us')));
@@ -4025,7 +4048,7 @@ class Admin {
                         wp_safe_redirect(add_query_arg('tmwseo_openai_invalid', 1, $redirect));
                         exit;
                     }
-                    self::update_option_noautoload('tmwseo_openai_api_key', $api_key);
+                    self::update_option_noautoload('tmwseo_openai_api_key', \Tmw_Seo_Secret_Storage::encrypt($api_key));
                 }
             }
         }
@@ -4036,7 +4059,7 @@ class Admin {
             } else {
                 $api_key = self::sanitize_secret($_POST['tmwseo_semrush_api_key'] ?? '');
                 if ($api_key !== '') {
-                    self::update_option_noautoload('tmwseo_semrush_api_key', $api_key);
+                    self::update_option_noautoload('tmwseo_semrush_api_key', \Tmw_Seo_Secret_Storage::encrypt($api_key));
                 }
             }
         }
@@ -4059,7 +4082,7 @@ class Admin {
 
                 $password = self::sanitize_secret($_POST['tmwseo_dataforseo_password'] ?? '');
                 if ($password !== '') {
-                    self::update_option_noautoload('tmwseo_dataforseo_password', $password);
+                    self::update_option_noautoload('tmwseo_dataforseo_password', \Tmw_Seo_Secret_Storage::encrypt($password));
                 }
 
                 $location_code = isset($_POST['tmwseo_dataforseo_location_code']) ? (int) $_POST['tmwseo_dataforseo_location_code'] : 2840;

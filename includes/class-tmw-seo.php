@@ -37,7 +37,7 @@ class CSV_Title_Selector {
             set_transient( self::lock_key(), $token, self::LOCK_TIMEOUT );
             usleep( 10000 );
             if ( get_transient( self::lock_key() ) === $token ) {
-                Core::debug_log( '[TMW-LOCK] video title lock acquired by token ' . $token );
+                Core::debug_log( '[TMW-LOCK] video title lock acquired by token ' . substr( $token, 0, 6 ) . '…' );
                 return $token;
             }
             usleep( self::RETRY_DELAY_MS * 1000 );
@@ -60,7 +60,7 @@ class CSV_Title_Selector {
 
         if ( get_transient( self::lock_key() ) === $token ) {
             delete_transient( self::lock_key() );
-            Core::debug_log( '[TMW-LOCK] video title lock released by token ' . $token );
+            Core::debug_log( '[TMW-LOCK] video title lock released by token ' . substr( $token, 0, 6 ) . '…' );
         }
     }
 }

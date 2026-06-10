@@ -36,7 +36,7 @@ class DataForSEO_Client {
      */
     public static function is_configured(): bool {
         $login    = (string) get_option('tmwseo_dataforseo_login', '');
-        $password = (string) get_option('tmwseo_dataforseo_password', '');
+        $password = (string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_dataforseo_password', '');
 
         return trim($login) !== '' && trim($password) !== '';
     }
@@ -305,7 +305,7 @@ class DataForSEO_Client {
      */
     protected function post(string $endpoint, array $payload) {
         $login    = trim((string) get_option('tmwseo_dataforseo_login', ''));
-        $password = trim((string) get_option('tmwseo_dataforseo_password', ''));
+        $password = trim((string) \Tmw_Seo_Secret_Storage::get_option('tmwseo_dataforseo_password', ''));
 
         $response = wp_remote_post(
             $endpoint,

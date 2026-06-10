@@ -121,7 +121,7 @@ if (defined('WP_CLI') && WP_CLI) {
             $limit    = isset($assoc['limit']) ? (int) $assoc['limit'] : 50;
             $gl       = sanitize_text_field($assoc['gl'] ?? get_option('tmwseo_serper_gl', 'us'));
             $hl       = sanitize_text_field($assoc['hl'] ?? get_option('tmwseo_serper_hl', 'en'));
-            $api_key  = trim((string) ($assoc['api_key'] ?? get_option('tmwseo_serper_api_key', '')));
+            $api_key  = trim((string) ($assoc['api_key'] ?? \Tmw_Seo_Secret_Storage::get_option('tmwseo_serper_api_key', '')));
 
             if ($category === '') { \WP_CLI::error('Provide --category=slug'); return; }
             if ($seed === '') { \WP_CLI::error('Provide --seed="query"'); return; }
